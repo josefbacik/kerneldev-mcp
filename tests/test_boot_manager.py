@@ -284,3 +284,113 @@ def test_dmesg_multiple_error_keywords():
     assert msg.level == "err"
     assert "failed" in msg.message.lower()
     assert "error" in msg.message.lower()
+
+
+def test_dmesg_error_exclusion_ignoring():
+    """Test that 'failed...ignoring' messages are not treated as errors."""
+    line = "[    0.292944] check access for rdinit=/init failed: -2, ignoring"
+    msg = DmesgParser.parse_dmesg_line(line)
+
+    assert msg is not None
+    # Should not be classified as error due to "ignoring"
+    assert msg.level != "err"
+
+
+def test_dmesg_pci_fatal_excluded():
+    """Test that PCI config space message is excluded from errors."""
+    line = "[    0.115953] PCI: Fatal: No config space access function found"
+    msg = DmesgParser.parse_dmesg_line(line)
+
+    assert msg is not None
+    # Should not be classified as error (expected in virtme)
+    assert msg.level != "err"
+
+
+def test_dmesg_permission_denied_excluded():
+    """Test that Permission denied messages are excluded."""
+    line = "[    0.467151] virtme-ng-init: Failed to read '/usr/lib/tmpfiles.d/audit.conf': Permission denied"
+    msg = DmesgParser.parse_dmesg_line(line)
+
+    assert msg is not None
+    # Should not be classified as error (userspace permission issue)
+    assert msg.level != "err"
+
+
+def test_dmesg_tmpfiles_failure_excluded():
+    """Test that tmpfiles.d failures are excluded."""
+    line = "[    0.467151] Failed to read '/usr/lib/tmpfiles.d/nordvpn.conf': Permission denied"
+    msg = DmesgParser.parse_dmesg_line(line)
+
+    assert msg is not None
+    # Should not be classified as error
+    assert msg.level != "err"
+
+
+def test_dmesg_userspace_messages_filtered():
+    """Test that userspace messages are filtered out during analysis."""
+    dmesg_text = """[    0.000000] Linux version 6.16.0
+[    0.321705] virtme-ng-init: mount devtmpfs -> /dev: EBUSY: Device or resource busy
+[    0.467151] virtme-ng-init: Failed to read '/usr/lib/tmpfiles.d/audit.conf': Permission denied
+[    0.466718] systemd-tmpfile (48) used greatest stack depth: 12856 bytes left
+[    1.000000] Normal kernel message
+"""
+
+    errors, warnings, panics, oops = DmesgParser.analyze_dmesg(dmesg_text)
+
+    # Should not detect virtme-ng-init or systemd-tmpfile messages as errors
+    assert len(errors) == 0
+    assert len(panics) == 0
+    assert len(oops) == 0
+
+
+def test_dmesg_continuation_lines_filtered():
+    """Test that continuation lines without timestamps are filtered."""
+    dmesg_text = """[    0.467151] virtme-ng-init: Failed to read '/usr/lib/tmpfiles.d/audit.conf': Permission denied
+               Failed to read '/usr/lib/tmpfiles.d/nordvpn.conf': Permission denied
+               Failed to create directory or subvolume "/var/spool/cups/tmp": Permission denied
+[    1.000000] Normal kernel message
+"""
+
+    errors, warnings, panics, oops = DmesgParser.analyze_dmesg(dmesg_text)
+
+    # Continuation lines should be filtered out
+    assert len(errors) == 0
+
+
+def test_dmesg_real_errors_still_detected():
+    """Test that real kernel errors are still detected after exclusions."""
+    dmesg_text = """[    0.000000] Linux version 6.16.0
+[    5.123456] Device initialization failed
+[    5.234567] USB device error: unable to enumerate
+[    5.345678] Block device failure: I/O error
+"""
+
+    errors, warnings, panics, oops = DmesgParser.analyze_dmesg(dmesg_text)
+
+    # Should still detect real errors
+    assert len(errors) == 3
+    assert any("initialization failed" in e.message for e in errors)
+    assert any("device error" in e.message for e in errors)
+    assert any("device failure" in e.message for e in errors)
+
+
+def test_dmesg_mixed_real_and_false_positives():
+    """Test filtering false positives while keeping real errors."""
+    dmesg_text = """[    0.000000] Linux version 6.16.0
+[    0.292944] check access for rdinit=/init failed: -2, ignoring
+[    0.115953] PCI: Fatal: No config space access function found
+[    5.123456] Critical device initialization failed
+[    0.467151] virtme-ng-init: Failed to read tmpfiles: Permission denied
+[    5.234567] Disk I/O error detected
+"""
+
+    errors, warnings, panics, oops = DmesgParser.analyze_dmesg(dmesg_text)
+
+    # Should only detect the 2 real errors, not the false positives
+    assert len(errors) == 2
+    assert any("Critical device initialization failed" in e.message for e in errors)
+    assert any("Disk I/O error detected" in e.message for e in errors)
+    # Should not include the false positives
+    assert not any("ignoring" in e.message for e in errors)
+    assert not any("PCI" in e.message for e in errors)
+    assert not any("virtme-ng-init" in e.message for e in errors)

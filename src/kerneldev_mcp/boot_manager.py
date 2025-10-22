@@ -127,9 +127,26 @@ class DmesgParser:
         re.compile(r"\bfailure\b", re.IGNORECASE),
     ]
 
+    # Patterns to exclude from error detection (known false positives)
+    ERROR_EXCLUSIONS = [
+        re.compile(r"ignoring", re.IGNORECASE),  # "failed...ignoring" is not an error
+        re.compile(r"virtme-ng-init:.*(?:Failed|Permission denied)", re.IGNORECASE),  # userspace init issues
+        re.compile(r"PCI: Fatal: No config space access function found", re.IGNORECASE),  # expected in virtme
+        re.compile(r"Permission denied", re.IGNORECASE),  # userspace permission issues
+        re.compile(r"Failed to read.*tmpfiles\.d", re.IGNORECASE),  # systemd-tmpfile userspace issues
+        re.compile(r"Failed to create directory.*Permission denied", re.IGNORECASE),  # userspace directory creation
+        re.compile(r"Failed to opendir\(\)", re.IGNORECASE),  # userspace directory access
+    ]
+
     WARNING_PATTERNS = [
         re.compile(r"\bwarning\b", re.IGNORECASE),
         re.compile(r"\bWARN", re.IGNORECASE),
+    ]
+
+    # Userspace message prefixes to ignore (not kernel messages)
+    USERSPACE_PREFIXES = [
+        "virtme-ng-init:",
+        "systemd-tmpfile",
     ]
 
     @staticmethod
@@ -183,10 +200,18 @@ class DmesgParser:
                         break
 
             if level == "info":
+                # Check if this looks like an error, but exclude false positives
+                is_error = False
                 for pattern in DmesgParser.ERROR_PATTERNS:
                     if pattern.search(message):
-                        level = "err"
-                        break
+                        # Check if this matches any exclusion patterns
+                        is_excluded = any(excl.search(message) for excl in DmesgParser.ERROR_EXCLUSIONS)
+                        if not is_excluded:
+                            is_error = True
+                            break
+
+                if is_error:
+                    level = "err"
 
             if level == "info":
                 for pattern in DmesgParser.WARNING_PATTERNS:
@@ -215,6 +240,16 @@ class DmesgParser:
         oops = []
 
         for line in dmesg_text.splitlines():
+            # Skip userspace messages (not kernel messages)
+            if any(prefix in line for prefix in DmesgParser.USERSPACE_PREFIXES):
+                continue
+
+            # Skip lines that don't start with timestamp (likely continuation lines from userspace)
+            stripped = line.strip()
+            if stripped and not stripped.startswith('[') and not stripped.startswith('<'):
+                # This is likely a continuation line from userspace output
+                continue
+
             msg = DmesgParser.parse_dmesg_line(line)
             if not msg:
                 continue
