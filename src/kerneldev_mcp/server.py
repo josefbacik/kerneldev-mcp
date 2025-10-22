@@ -769,6 +769,11 @@ async def list_tools() -> list[Tool]:
                         "description": "Number of CPUs",
                         "default": 4,
                         "minimum": 1
+                    },
+                    "force_9p": {
+                        "type": "boolean",
+                        "description": "Force use of 9p filesystem instead of virtio-fs (required for old kernels < 5.14 that lack virtio-fs support)",
+                        "default": False
                     }
                 },
                 "required": ["kernel_path", "fstests_path"]
@@ -1664,6 +1669,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             timeout = arguments.get("timeout", 300)
             memory = arguments.get("memory", "4G")
             cpus = arguments.get("cpus", 4)
+            force_9p = arguments.get("force_9p", False)
 
             # Check kernel path exists
             if not kernel_path.exists():
@@ -1694,7 +1700,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 tests=tests,
                 timeout=timeout,
                 memory=memory,
-                cpus=cpus
+                cpus=cpus,
+                force_9p=force_9p
             )
 
             # Format output

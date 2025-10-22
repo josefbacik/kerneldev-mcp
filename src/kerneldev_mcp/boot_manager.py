@@ -729,7 +729,8 @@ class BootManager:
         timeout: int = 300,
         memory: str = "4G",
         cpus: int = 4,
-        cross_compile: Optional["CrossCompileConfig"] = None
+        cross_compile: Optional["CrossCompileConfig"] = None,
+        force_9p: bool = False
     ) -> Tuple[BootResult, Optional[object]]:
         """Boot kernel and run fstests inside VM.
 
@@ -740,6 +741,7 @@ class BootManager:
             memory: Memory size for VM
             cpus: Number of CPUs
             cross_compile: Cross-compilation configuration
+            force_9p: Force use of 9p filesystem instead of virtio-fs
 
         Returns:
             Tuple of (BootResult, FstestsRunResult or None)
@@ -972,6 +974,10 @@ exit $exit_code
 
         # Build vng command
         cmd = ["vng", "--verbose"]
+
+        # Force 9p if requested (required for old kernels without virtio-fs)
+        if force_9p:
+            cmd.append("--force-9p")
 
         # Add memory and CPU options
         cmd.extend(["--memory", memory])
