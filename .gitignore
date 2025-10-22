@@ -40,3 +40,32 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# Build artifacts
+a.out
+*.o
+*.a
+
+# Local configuration
+.mcp.json
+local.config
+*.local
+
+# Temporary files
+*.tmp
+*.temp
+*~
+.*.swp
+.*.swo
+
+# Temporary documentation (should go in docs/ if permanent)
+NOTES.md
+TODO.md
+WHAT_TO_TRY.md
+CLAUDE_CODE_SETUP.md
+SESSION_*.md
+
+# Temporary scripts (should go in tests/ if permanent)
+test-*.sh
+tmp-*.sh
+debug-*.sh
