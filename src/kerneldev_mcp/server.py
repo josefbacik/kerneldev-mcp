@@ -17,7 +17,7 @@ from mcp.types import (
     EmbeddedResource,
 )
 
-from .config_manager import ConfigManager, KernelConfig
+from .config_manager import ConfigManager, KernelConfig, CrossCompileConfig
 from .templates import TemplateManager
 from .build_manager import KernelBuilder, BuildResult, format_build_errors
 
@@ -212,6 +212,20 @@ async def list_tools() -> list[Tool]:
                         "type": "boolean",
                         "description": "Merge with existing .config",
                         "default": False
+                    },
+                    "cross_compile_arch": {
+                        "type": "string",
+                        "description": "Target architecture for cross-compilation (arm64, arm, riscv, etc.)",
+                        "enum": ["x86_64", "x86", "arm64", "arm", "riscv", "powerpc", "mips"]
+                    },
+                    "cross_compile_prefix": {
+                        "type": "string",
+                        "description": "Cross-compiler prefix (e.g., 'aarch64-linux-gnu-'). Auto-detected if not specified."
+                    },
+                    "use_llvm": {
+                        "type": "boolean",
+                        "description": "Use LLVM toolchain for cross-compilation",
+                        "default": False
                     }
                 },
                 "required": ["kernel_path", "config_source"]
@@ -321,7 +335,7 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Make target to build",
                         "default": "all",
-                        "enum": ["all", "vmlinux", "modules", "bzImage", "Image"]
+                        "enum": ["all", "vmlinux", "modules", "bzImage", "Image", "dtbs"]
                     },
                     "build_dir": {
                         "type": "string",
@@ -335,6 +349,20 @@ async def list_tools() -> list[Tool]:
                     "clean_first": {
                         "type": "boolean",
                         "description": "Clean before building",
+                        "default": False
+                    },
+                    "cross_compile_arch": {
+                        "type": "string",
+                        "description": "Target architecture for cross-compilation (arm64, arm, riscv, etc.)",
+                        "enum": ["x86_64", "x86", "arm64", "arm", "riscv", "powerpc", "mips"]
+                    },
+                    "cross_compile_prefix": {
+                        "type": "string",
+                        "description": "Cross-compiler prefix (e.g., 'aarch64-linux-gnu-'). Auto-detected if not specified."
+                    },
+                    "use_llvm": {
+                        "type": "boolean",
+                        "description": "Use LLVM toolchain for cross-compilation",
                         "default": False
                     }
                 },
@@ -374,12 +402,46 @@ async def list_tools() -> list[Tool]:
                     "build_dir": {
                         "type": "string",
                         "description": "Build directory for out-of-tree builds"
+                    },
+                    "cross_compile_arch": {
+                        "type": "string",
+                        "description": "Target architecture for cross-compilation (arm64, arm, riscv, etc.)",
+                        "enum": ["x86_64", "x86", "arm64", "arm", "riscv", "powerpc", "mips"]
+                    },
+                    "cross_compile_prefix": {
+                        "type": "string",
+                        "description": "Cross-compiler prefix (e.g., 'aarch64-linux-gnu-'). Auto-detected if not specified."
+                    },
+                    "use_llvm": {
+                        "type": "boolean",
+                        "description": "Use LLVM toolchain for cross-compilation",
+                        "default": False
                     }
                 },
                 "required": ["kernel_path"]
             }
         ),
     ]
+
+
+def _parse_cross_compile_args(arguments: Dict[str, Any]) -> Optional[CrossCompileConfig]:
+    """Parse cross-compilation arguments from tool call.
+
+    Args:
+        arguments: Tool call arguments
+
+    Returns:
+        CrossCompileConfig if cross-compilation args present, None otherwise
+    """
+    arch = arguments.get("cross_compile_arch")
+    if not arch:
+        return None
+
+    return CrossCompileConfig(
+        arch=arch,
+        cross_compile_prefix=arguments.get("cross_compile_prefix"),
+        use_llvm=arguments.get("use_llvm", False)
+    )
 
 
 @app.call_tool()
@@ -448,6 +510,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             kernel_path = Path(arguments["kernel_path"])
             config_source = arguments["config_source"]
             merge_with_existing = arguments.get("merge_with_existing", False)
+            cross_compile = _parse_cross_compile_args(arguments)
 
             # Handle inline config
             if config_source == "inline":
@@ -474,14 +537,31 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             success = config_manager.apply_config(
                 config=config,
                 kernel_path=kernel_path,
-                merge_with_existing=merge_with_existing
+                merge_with_existing=merge_with_existing,
+                cross_compile=cross_compile
             )
 
             result = "✓ Configuration applied successfully" if success else "⚠ Configuration applied with warnings"
             result += f"\n\nLocation: {kernel_path / '.config'}"
+            if cross_compile:
+                result += f"\n\nCross-compilation configured for {cross_compile.arch}"
+                if cross_compile.use_llvm:
+                    result += " (using LLVM)"
+                elif cross_compile.cross_compile_prefix:
+                    result += f" (using {cross_compile.cross_compile_prefix})"
             result += "\n\nNext steps:"
-            result += "\n1. Review the configuration: make menuconfig"
-            result += "\n2. Build the kernel: make -j$(nproc)"
+            if cross_compile:
+                build_cmd = f"make ARCH={cross_compile.arch}"
+                if cross_compile.use_llvm:
+                    build_cmd += " LLVM=1"
+                elif cross_compile.cross_compile_prefix:
+                    build_cmd += f" CROSS_COMPILE={cross_compile.cross_compile_prefix}"
+                build_cmd += " -j$(nproc)"
+                result += f"\n1. Review the configuration: {build_cmd.replace('-j$(nproc)', 'menuconfig')}"
+                result += f"\n2. Build the kernel: {build_cmd}"
+            else:
+                result += "\n1. Review the configuration: make menuconfig"
+                result += "\n2. Build the kernel: make -j$(nproc)"
 
             return [TextContent(type="text", text=result)]
 
@@ -582,6 +662,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             build_dir = arguments.get("build_dir")
             timeout = arguments.get("timeout")
             clean_first = arguments.get("clean_first", False)
+            cross_compile = _parse_cross_compile_args(arguments)
 
             if not kernel_path.exists():
                 return [TextContent(type="text", text=f"Error: Kernel path does not exist: {kernel_path}")]
@@ -595,28 +676,47 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             # Clean if requested
             if clean_first:
                 logger.info("Cleaning build artifacts...")
-                builder.clean(build_dir=Path(build_dir) if build_dir else None)
+                builder.clean(
+                    build_dir=Path(build_dir) if build_dir else None,
+                    cross_compile=cross_compile
+                )
 
             # Build
             logger.info(f"Building kernel at {kernel_path}...")
+            if cross_compile:
+                logger.info(f"Cross-compiling for {cross_compile.arch}")
+
             result = builder.build(
                 jobs=jobs,
                 verbose=verbose,
                 keep_going=keep_going,
                 target=target,
                 build_dir=Path(build_dir) if build_dir else None,
-                timeout=timeout
+                timeout=timeout,
+                cross_compile=cross_compile
             )
 
             # Format results
             output = format_build_errors(result, max_errors=20)
+
+            if cross_compile:
+                output += f"\n\nCross-compilation: {cross_compile.arch}"
+                if cross_compile.use_llvm:
+                    output += " (LLVM)"
+                elif cross_compile.cross_compile_prefix:
+                    output += f" ({cross_compile.cross_compile_prefix})"
 
             if result.success:
                 output += "\n\nBuild artifacts:"
                 if build_dir:
                     output += f"\n  Build directory: {build_dir}"
                 else:
-                    output += f"\n  vmlinux: {kernel_path / 'vmlinux'}"
+                    if cross_compile and cross_compile.arch == "arm64":
+                        output += f"\n  Image: {kernel_path / 'arch/arm64/boot/Image'}"
+                    elif cross_compile and cross_compile.arch == "arm":
+                        output += f"\n  zImage: {kernel_path / 'arch/arm/boot/zImage'}"
+                    else:
+                        output += f"\n  vmlinux: {kernel_path / 'vmlinux'}"
                     output += f"\n  System.map: {kernel_path / 'System.map'}"
 
             return [TextContent(type="text", text=output)]
@@ -668,6 +768,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             kernel_path = Path(arguments["kernel_path"])
             clean_type = arguments.get("clean_type", "clean")
             build_dir = arguments.get("build_dir")
+            cross_compile = _parse_cross_compile_args(arguments)
 
             if not kernel_path.exists():
                 return [TextContent(type="text", text=f"Error: Kernel path does not exist: {kernel_path}")]
@@ -676,11 +777,14 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
             success = builder.clean(
                 target=clean_type,
-                build_dir=Path(build_dir) if build_dir else None
+                build_dir=Path(build_dir) if build_dir else None,
+                cross_compile=cross_compile
             )
 
             if success:
                 result_text = f"✓ Successfully ran 'make {clean_type}'"
+                if cross_compile:
+                    result_text += f" for {cross_compile.arch}"
                 if build_dir:
                     result_text += f" in {build_dir}"
             else:

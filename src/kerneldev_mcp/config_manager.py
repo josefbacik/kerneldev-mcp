@@ -12,6 +12,61 @@ from .templates import TemplateManager
 
 
 @dataclass
+class CrossCompileConfig:
+    """Cross-compilation configuration."""
+
+    arch: str  # Target architecture (arm64, arm, x86_64, riscv, etc.)
+    cross_compile_prefix: Optional[str] = None  # e.g., "aarch64-linux-gnu-"
+    use_llvm: bool = False  # Use LLVM toolchain instead of GCC
+
+    # Common architecture to toolchain mappings
+    ARCH_TOOLCHAINS = {
+        "arm64": "aarch64-linux-gnu-",
+        "arm": "arm-linux-gnueabihf-",
+        "riscv": "riscv64-linux-gnu-",
+        "powerpc": "powerpc64le-linux-gnu-",
+        "mips": "mips-linux-gnu-",
+        "x86_64": None,  # Native compilation
+        "x86": None,
+    }
+
+    def __post_init__(self):
+        """Auto-detect cross-compile prefix if not specified."""
+        if self.cross_compile_prefix is None and not self.use_llvm:
+            self.cross_compile_prefix = self.ARCH_TOOLCHAINS.get(self.arch)
+
+    def to_make_env(self) -> Dict[str, str]:
+        """Convert to environment variables for make commands.
+
+        Returns:
+            Dictionary of environment variables (ARCH, CROSS_COMPILE, or LLVM)
+        """
+        env = {"ARCH": self.arch}
+
+        if self.use_llvm:
+            env["LLVM"] = "1"
+        elif self.cross_compile_prefix:
+            env["CROSS_COMPILE"] = self.cross_compile_prefix
+
+        return env
+
+    def to_make_args(self) -> List[str]:
+        """Convert to make command-line arguments.
+
+        Returns:
+            List of make arguments (ARCH=..., CROSS_COMPILE=..., etc.)
+        """
+        args = [f"ARCH={self.arch}"]
+
+        if self.use_llvm:
+            args.append("LLVM=1")
+        elif self.cross_compile_prefix:
+            args.append(f"CROSS_COMPILE={self.cross_compile_prefix}")
+
+        return args
+
+
+@dataclass
 class ConfigOption:
     """Represents a single kernel config option."""
 
@@ -276,7 +331,8 @@ class ConfigManager:
         self,
         config: Union[KernelConfig, str, Path],
         kernel_path: Optional[Path] = None,
-        merge_with_existing: bool = False
+        merge_with_existing: bool = False,
+        cross_compile: Optional[CrossCompileConfig] = None
     ) -> bool:
         """Apply configuration to kernel source tree.
 
@@ -284,6 +340,7 @@ class ConfigManager:
             config: Configuration to apply
             kernel_path: Path to kernel source (uses self.kernel_path if None)
             merge_with_existing: If True, merge with existing .config
+            cross_compile: Cross-compilation configuration
 
         Returns:
             True if successful
@@ -317,8 +374,14 @@ class ConfigManager:
 
         # Run olddefconfig to resolve dependencies
         try:
+            cmd = ["make", "olddefconfig"]
+
+            # Add cross-compilation arguments if specified
+            if cross_compile:
+                cmd.extend(cross_compile.to_make_args())
+
             subprocess.run(
-                ["make", "olddefconfig"],
+                cmd,
                 cwd=kernel_path,
                 check=True,
                 capture_output=True,

@@ -7,9 +7,12 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from dataclasses import dataclass, field
 from datetime import datetime
+
+if TYPE_CHECKING:
+    from .config_manager import CrossCompileConfig
 
 
 @dataclass
@@ -158,7 +161,8 @@ class KernelBuilder:
         target: str = "all",
         build_dir: Optional[Path] = None,
         make_args: Optional[List[str]] = None,
-        timeout: Optional[int] = None
+        timeout: Optional[int] = None,
+        cross_compile: Optional["CrossCompileConfig"] = None
     ) -> BuildResult:
         """Build the kernel.
 
@@ -170,6 +174,7 @@ class KernelBuilder:
             build_dir: Output directory for out-of-tree build
             make_args: Additional make arguments
             timeout: Build timeout in seconds
+            cross_compile: Cross-compilation configuration
 
         Returns:
             BuildResult with build status and errors
@@ -178,6 +183,10 @@ class KernelBuilder:
 
         # Build make command
         cmd = ["make"]
+
+        # Cross-compilation settings
+        if cross_compile:
+            cmd.extend(cross_compile.to_make_args())
 
         # Out-of-tree build
         if build_dir:
@@ -271,17 +280,30 @@ class KernelBuilder:
                 exit_code=-1
             )
 
-    def clean(self, target: str = "clean", build_dir: Optional[Path] = None) -> bool:
+    def clean(
+        self,
+        target: str = "clean",
+        build_dir: Optional[Path] = None,
+        cross_compile: Optional["CrossCompileConfig"] = None
+    ) -> bool:
         """Clean build artifacts.
 
         Args:
             target: Clean target ('clean', 'mrproper', 'distclean')
             build_dir: Build directory for out-of-tree builds
+            cross_compile: Cross-compilation configuration
 
         Returns:
             True if successful
         """
-        cmd = ["make", target]
+        cmd = ["make"]
+
+        # Cross-compilation settings
+        if cross_compile:
+            cmd.extend(cross_compile.to_make_args())
+
+        cmd.append(target)
+
         if build_dir:
             cmd.append(f"O={build_dir}")
 

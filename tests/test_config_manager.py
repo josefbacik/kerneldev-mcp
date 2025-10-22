@@ -3,7 +3,7 @@ Tests for configuration management.
 """
 import pytest
 from pathlib import Path
-from kerneldev_mcp.config_manager import ConfigOption, KernelConfig, ConfigManager
+from kerneldev_mcp.config_manager import ConfigOption, KernelConfig, ConfigManager, CrossCompileConfig
 
 
 def test_config_option_to_config_line():
@@ -161,3 +161,101 @@ def test_config_manager_merge_configs():
 
     assert merged.get_option("CONFIG_NET").value == "y"
     assert merged.get_option("CONFIG_KASAN").value == "y"
+
+
+def test_cross_compile_config_arm64():
+    """Test CrossCompileConfig for ARM64."""
+    cross = CrossCompileConfig(arch="arm64")
+
+    # Should auto-detect toolchain prefix
+    assert cross.arch == "arm64"
+    assert cross.cross_compile_prefix == "aarch64-linux-gnu-"
+    assert cross.use_llvm is False
+
+
+def test_cross_compile_config_arm():
+    """Test CrossCompileConfig for ARM."""
+    cross = CrossCompileConfig(arch="arm")
+
+    assert cross.arch == "arm"
+    assert cross.cross_compile_prefix == "arm-linux-gnueabihf-"
+
+
+def test_cross_compile_config_riscv():
+    """Test CrossCompileConfig for RISC-V."""
+    cross = CrossCompileConfig(arch="riscv")
+
+    assert cross.arch == "riscv"
+    assert cross.cross_compile_prefix == "riscv64-linux-gnu-"
+
+
+def test_cross_compile_config_custom_prefix():
+    """Test CrossCompileConfig with custom prefix."""
+    cross = CrossCompileConfig(
+        arch="arm64",
+        cross_compile_prefix="my-custom-toolchain-"
+    )
+
+    assert cross.cross_compile_prefix == "my-custom-toolchain-"
+
+
+def test_cross_compile_config_llvm():
+    """Test CrossCompileConfig with LLVM."""
+    cross = CrossCompileConfig(arch="arm64", use_llvm=True)
+
+    assert cross.arch == "arm64"
+    assert cross.use_llvm is True
+    # When using LLVM, cross_compile_prefix should not be set
+    assert cross.cross_compile_prefix is None
+
+
+def test_cross_compile_config_to_make_env():
+    """Test converting CrossCompileConfig to environment variables."""
+    # GCC cross-compilation
+    cross = CrossCompileConfig(arch="arm64")
+    env = cross.to_make_env()
+
+    assert env["ARCH"] == "arm64"
+    assert env["CROSS_COMPILE"] == "aarch64-linux-gnu-"
+    assert "LLVM" not in env
+
+    # LLVM cross-compilation
+    cross_llvm = CrossCompileConfig(arch="arm64", use_llvm=True)
+    env_llvm = cross_llvm.to_make_env()
+
+    assert env_llvm["ARCH"] == "arm64"
+    assert env_llvm["LLVM"] == "1"
+    assert "CROSS_COMPILE" not in env_llvm
+
+
+def test_cross_compile_config_to_make_args():
+    """Test converting CrossCompileConfig to make arguments."""
+    # GCC cross-compilation
+    cross = CrossCompileConfig(arch="arm64")
+    args = cross.to_make_args()
+
+    assert "ARCH=arm64" in args
+    assert "CROSS_COMPILE=aarch64-linux-gnu-" in args
+    assert "LLVM=1" not in args
+
+    # LLVM cross-compilation
+    cross_llvm = CrossCompileConfig(arch="riscv", use_llvm=True)
+    args_llvm = cross_llvm.to_make_args()
+
+    assert "ARCH=riscv" in args_llvm
+    assert "LLVM=1" in args_llvm
+    # Should not have CROSS_COMPILE with LLVM
+    assert not any("CROSS_COMPILE" in arg for arg in args_llvm)
+
+
+def test_cross_compile_config_native():
+    """Test CrossCompileConfig for native x86_64."""
+    cross = CrossCompileConfig(arch="x86_64")
+
+    # x86_64 native compilation should not have cross_compile_prefix
+    assert cross.arch == "x86_64"
+    assert cross.cross_compile_prefix is None
+
+    env = cross.to_make_env()
+    assert env["ARCH"] == "x86_64"
+    assert "CROSS_COMPILE" not in env
