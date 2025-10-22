@@ -278,6 +278,105 @@ class DmesgParser:
 # Boot log management
 BOOT_LOG_DIR = Path("/tmp/kerneldev-boot-logs")
 
+# Host loop device management for fstests
+HOST_LOOP_WORK_DIR = Path("/var/tmp/kerneldev-loop-devices")
+
+
+def _create_host_loop_device(size: str, name: str) -> Tuple[Optional[str], Optional[Path]]:
+    """Create a loop device on the host for passing to VM.
+
+    Args:
+        size: Size of device (e.g., "10G")
+        name: Name for the backing file
+
+    Returns:
+        Tuple of (loop_device_path, backing_file_path) or (None, None) on failure
+    """
+    # Ensure work directory exists
+    HOST_LOOP_WORK_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Create backing file
+    backing_file = HOST_LOOP_WORK_DIR / f"{name}.img"
+
+    try:
+        # Create sparse file
+        subprocess.run(
+            ["truncate", "-s", size, str(backing_file)],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+
+        # Setup loop device
+        result = subprocess.run(
+            ["sudo", "losetup", "-f", "--show", str(backing_file)],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+
+        loop_dev = result.stdout.strip()
+
+        # Change permissions so current user can access the loop device
+        # This is needed because virtme-ng (QEMU) runs as the current user
+        try:
+            subprocess.run(
+                ["sudo", "chmod", "666", loop_dev],
+                check=True,
+                capture_output=True,
+                text=True
+            )
+        except subprocess.CalledProcessError:
+            # If chmod fails, cleanup and return error
+            subprocess.run(["sudo", "losetup", "-d", loop_dev], capture_output=True)
+            if backing_file.exists():
+                backing_file.unlink()
+            return None, None
+
+        return loop_dev, backing_file
+
+    except subprocess.CalledProcessError as e:
+        # Cleanup backing file if loop setup failed
+        if backing_file.exists():
+            try:
+                backing_file.unlink()
+            except OSError:
+                pass
+        return None, None
+
+
+def _cleanup_host_loop_device(loop_device: str, backing_file: Optional[Path] = None):
+    """Cleanup a host loop device and its backing file.
+
+    Args:
+        loop_device: Path to loop device (e.g., "/dev/loop0")
+        backing_file: Optional path to backing file to remove
+    """
+    # Detach loop device
+    try:
+        subprocess.run(
+            ["sudo", "losetup", "-d", loop_device],
+            capture_output=True,
+            timeout=10
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        # Try to force detach if normal detach fails
+        try:
+            subprocess.run(
+                ["sudo", "losetup", "-D"],  # Detach all unused loop devices
+                capture_output=True,
+                timeout=10
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            pass
+
+    # Remove backing file if specified
+    if backing_file and backing_file.exists():
+        try:
+            backing_file.unlink()
+        except OSError:
+            pass
+
 
 def _ensure_log_directory() -> Path:
     """Ensure boot log directory exists.
@@ -650,6 +749,9 @@ class BootManager:
 
         start_time = time.time()
 
+        # Track created loop devices for cleanup
+        created_loop_devices: List[Tuple[str, Path]] = []
+
         # Check virtme-ng is available
         if not self.check_virtme_ng():
             return (BootResult(
@@ -705,6 +807,40 @@ class BootManager:
                 exit_code=-1
             ), None)
 
+        # Create loop devices on host for passing to VM
+        # We need: 1 test device + 5 scratch pool devices = 6 total
+        device_size = "10G"
+        device_names = ["test", "pool1", "pool2", "pool3", "pool4", "pool5"]
+
+        try:
+            for name in device_names:
+                loop_dev, backing_file = _create_host_loop_device(device_size, name)
+                if not loop_dev:
+                    # Cleanup any already created devices
+                    for dev, backing in created_loop_devices:
+                        _cleanup_host_loop_device(dev, backing)
+                    return (BootResult(
+                        success=False,
+                        duration=time.time() - start_time,
+                        boot_completed=False,
+                        dmesg_output=f"ERROR: Failed to create host loop device '{name}'\n"
+                                     f"Make sure you have sudo access for losetup commands.",
+                        exit_code=-1
+                    ), None)
+                created_loop_devices.append((loop_dev, backing_file))
+
+        except Exception as e:
+            # Cleanup on any error
+            for dev, backing in created_loop_devices:
+                _cleanup_host_loop_device(dev, backing)
+            return (BootResult(
+                success=False,
+                duration=time.time() - start_time,
+                boot_completed=False,
+                dmesg_output=f"ERROR: Exception while creating loop devices: {e}",
+                exit_code=-1
+            ), None)
+
         # Build test command to run inside VM
         test_args = " ".join(tests) if tests else "-g quick"
 
@@ -716,8 +852,10 @@ class BootManager:
 
         # Create script to run inside VM
         # Note: virtme-ng runs as root, so no sudo needed
+        # This script uses devices passed from host via --disk
+        # Host loop devices appear as /dev/sda, /dev/sdb, etc. in the VM
         # This script:
-        # 1. Creates loop devices in /tmp (writable by everyone)
+        # 1. Uses passed-through block devices (no loop device creation needed)
         # 2. Formats them with appropriate filesystem
         # 3. Creates mount points in /tmp
         # 4. Configures fstests with local.config
@@ -740,30 +878,26 @@ if [ ! -d "{fstests_path}" ]; then
     exit 1
 fi
 
-# Create loop device backing files in /tmp using sparse files
-# Sparse files allocate space logically but only consume disk as data is written
-# Using 10GB per device (required for many fstests) but actual space usage is minimal
-echo "Creating sparse loop device backing files (10GB each)..."
-dd if=/dev/zero of=/tmp/test.img bs=1M count=0 seek=10240 2>&1 | grep -v records
+# Use devices passed from host via --disk
+# virtme-ng passes them as virtio block devices: /dev/vda, /dev/vdb, /dev/vdc, etc.
+# We have 6 devices: 1 test + 5 scratch pool
+echo "Using passed-through block devices..."
+TEST_DEV=/dev/vda
+POOL1=/dev/vdb
+POOL2=/dev/vdc
+POOL3=/dev/vdd
+POOL4=/dev/vde
+POOL5=/dev/vdf
 
-# Create scratch pool devices (5 devices for comprehensive multi-device testing)
-# Note: When using SCRATCH_DEV_POOL, we don't create a separate SCRATCH_DEV
-# The first device in the pool acts as the scratch device
-echo "Creating scratch pool devices (10GB each)..."
-dd if=/dev/zero of=/tmp/pool1.img bs=1M count=0 seek=10240 2>&1 | grep -v records
-dd if=/dev/zero of=/tmp/pool2.img bs=1M count=0 seek=10240 2>&1 | grep -v records
-dd if=/dev/zero of=/tmp/pool3.img bs=1M count=0 seek=10240 2>&1 | grep -v records
-dd if=/dev/zero of=/tmp/pool4.img bs=1M count=0 seek=10240 2>&1 | grep -v records
-dd if=/dev/zero of=/tmp/pool5.img bs=1M count=0 seek=10240 2>&1 | grep -v records
-
-# Setup loop devices
-echo "Setting up loop devices..."
-TEST_DEV=$(losetup -f --show /tmp/test.img)
-POOL1=$(losetup -f --show /tmp/pool1.img)
-POOL2=$(losetup -f --show /tmp/pool2.img)
-POOL3=$(losetup -f --show /tmp/pool3.img)
-POOL4=$(losetup -f --show /tmp/pool4.img)
-POOL5=$(losetup -f --show /tmp/pool5.img)
+# Verify devices exist
+for dev in $TEST_DEV $POOL1 $POOL2 $POOL3 $POOL4 $POOL5; do
+    if [ ! -b "$dev" ]; then
+        echo "ERROR: Block device $dev not found"
+        echo "Available block devices:"
+        ls -l /dev/vd* 2>/dev/null || echo "No /dev/vd* devices found"
+        exit 1
+    fi
+done
 
 echo "TEST_DEV=$TEST_DEV"
 echo "SCRATCH_DEV_POOL=$POOL1 $POOL2 $POOL3 $POOL4 $POOL5"
@@ -826,13 +960,7 @@ echo "Exit code: $exit_code"
 echo "Cleaning up..."
 umount /tmp/test 2>/dev/null || true
 umount /tmp/scratch 2>/dev/null || true
-losetup -d $TEST_DEV 2>/dev/null || true
-losetup -d $POOL1 2>/dev/null || true
-losetup -d $POOL2 2>/dev/null || true
-losetup -d $POOL3 2>/dev/null || true
-losetup -d $POOL4 2>/dev/null || true
-losetup -d $POOL5 2>/dev/null || true
-rm -f /tmp/test.img /tmp/pool1.img /tmp/pool2.img /tmp/pool3.img /tmp/pool4.img /tmp/pool5.img 2>/dev/null || true
+# Note: Loop devices are managed on the host, not here
 
 exit $exit_code
 """
@@ -852,6 +980,11 @@ exit $exit_code
         # Add cross-compilation architecture if specified
         if cross_compile:
             cmd.extend(["--arch", cross_compile.arch])
+
+        # Pass loop devices to VM via --disk
+        # They will appear as /dev/sda, /dev/sdb, etc. in the VM
+        for loop_dev, _ in created_loop_devices:
+            cmd.extend(["--disk", loop_dev])
 
         # Make fstests directory available in VM (read-write)
         cmd.extend(["--rwdir", str(fstests_path)])
@@ -937,6 +1070,10 @@ exit $exit_code
                     script_file.unlink()
                 except OSError:
                     pass
+
+            # Cleanup host loop devices
+            for loop_dev, backing_file in created_loop_devices:
+                _cleanup_host_loop_device(loop_dev, backing_file)
 
 
 def format_boot_result(result: BootResult, max_errors: int = 10) -> str:

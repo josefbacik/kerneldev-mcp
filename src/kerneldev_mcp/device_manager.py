@@ -41,9 +41,9 @@ class DeviceManager:
         """Initialize device manager.
 
         Args:
-            work_dir: Working directory for loop device images (default: /tmp/kerneldev-fstests)
+            work_dir: Working directory for loop device images (default: /var/tmp/kerneldev-fstests)
         """
-        self.work_dir = work_dir or Path("/tmp/kerneldev-fstests")
+        self.work_dir = work_dir or Path("/var/tmp/kerneldev-fstests")
         self.work_dir.mkdir(parents=True, exist_ok=True)
 
         # Track created loop devices for cleanup
