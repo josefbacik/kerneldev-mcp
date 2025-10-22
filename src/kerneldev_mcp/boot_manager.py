@@ -5,6 +5,7 @@ import os
 import pty
 import re
 import select
+import signal
 import subprocess
 import time
 from pathlib import Path
@@ -253,16 +254,20 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int) -> Tuple[int, str]:
     """
     # Create a pseudo-terminal
     master_fd, slave_fd = pty.openpty()
+    process = None
 
     try:
         # Start the process with the slave PTY
+        # Use start_new_session=True to create a new process group
+        # This ensures we can kill all child processes (including QEMU)
         process = subprocess.Popen(
             cmd,
             stdin=slave_fd,
             stdout=slave_fd,
             stderr=slave_fd,
             cwd=cwd,
-            close_fds=True
+            close_fds=True,
+            start_new_session=True  # Create new process group
         )
 
         # Close the slave FD in the parent process
@@ -279,7 +284,12 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int) -> Tuple[int, str]:
 
             # Check timeout
             if time.time() - start_time > timeout:
-                process.kill()
+                # Kill the entire process group to ensure child processes (QEMU) are also killed
+                try:
+                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    # Process already died
+                    pass
                 process.wait()
                 raise subprocess.TimeoutExpired(cmd, timeout, b''.join(output))
 
@@ -312,6 +322,18 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int) -> Tuple[int, str]:
         return exit_code, output_str
 
     finally:
+        # Ensure cleanup of process group if process is still alive
+        if process and process.poll() is None:
+            try:
+                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                # Process already died or we don't have permissions
+                pass
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+
         try:
             os.close(master_fd)
         except OSError:
