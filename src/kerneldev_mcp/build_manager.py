@@ -123,6 +123,20 @@ class BuildOutputParser:
                         message=message
                     )
 
+                # Linker errors (3 groups: file, line, message)
+                elif len(groups) == 3 and 'undefined reference' in line:
+                    file_path = groups[0]
+                    line_num = int(groups[1]) if groups[1].isdigit() else None
+                    message = groups[2]
+
+                    return BuildError(
+                        file=file_path,
+                        line=line_num,
+                        column=None,
+                        error_type='error',
+                        message=message
+                    )
+
                 # Make errors
                 elif len(groups) >= 2 and 'make' in line:
                     return BuildError(
