@@ -233,6 +233,7 @@ class KernelBuilder:
                 cwd=self.kernel_path,
                 capture_output=True,
                 text=True,
+                stdin=subprocess.DEVNULL,  # Prevent hanging on interactive config prompts
                 timeout=timeout
             )
 
@@ -326,7 +327,8 @@ class KernelBuilder:
                 cmd,
                 cwd=self.kernel_path,
                 check=True,
-                capture_output=True
+                capture_output=True,
+                stdin=subprocess.DEVNULL  # Prevent hanging on interactive prompts
             )
             return True
         except subprocess.CalledProcessError:
@@ -344,6 +346,7 @@ class KernelBuilder:
                 cwd=self.kernel_path,
                 capture_output=True,
                 text=True,
+                stdin=subprocess.DEVNULL,
                 check=True
             )
             return result.stdout.strip()
@@ -369,7 +372,8 @@ class KernelBuilder:
                 ["make", "scripts_prepare"],
                 cwd=self.kernel_path,
                 check=True,
-                capture_output=True
+                capture_output=True,
+                stdin=subprocess.DEVNULL  # Prevent hanging on interactive prompts
             )
             return True
         except subprocess.CalledProcessError:
