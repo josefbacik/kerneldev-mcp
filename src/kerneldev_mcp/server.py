@@ -4,6 +4,7 @@ MCP server for kernel development configuration management.
 import json
 import logging
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -368,6 +369,12 @@ async def list_tools() -> list[Tool]:
                         "type": "boolean",
                         "description": "Clean before building",
                         "default": False
+                    },
+                    "clean_type": {
+                        "type": "string",
+                        "description": "Type of clean operation (only used if clean_first=true)",
+                        "enum": ["clean", "mrproper", "distclean"],
+                        "default": "clean"
                     },
                     "cross_compile_arch": {
                         "type": "string",
@@ -1047,6 +1054,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             build_dir = arguments.get("build_dir")
             timeout = arguments.get("timeout")
             clean_first = arguments.get("clean_first", False)
+            clean_type = arguments.get("clean_type", "clean")
             cross_compile = _parse_cross_compile_args(arguments)
 
             if not kernel_path.exists():
@@ -1060,11 +1068,38 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
             # Clean if requested
             if clean_first:
-                logger.info("Cleaning build artifacts...")
+                logger.info(f"Cleaning build artifacts with '{clean_type}'...")
+
+                # For mrproper/distclean, save config first if it exists
+                config_backup = None
+                if clean_type in ("mrproper", "distclean") and builder.check_config():
+                    config_path = kernel_path / ".config"
+                    config_backup = kernel_path / ".config.backup"
+                    logger.info("Backing up .config before mrproper...")
+                    shutil.copy(config_path, config_backup)
+
+                # Do the clean
                 builder.clean(
+                    target=clean_type,
                     build_dir=Path(build_dir) if build_dir else None,
                     cross_compile=cross_compile
                 )
+
+                # Restore and reconfigure if we did mrproper/distclean
+                if config_backup and config_backup.exists():
+                    logger.info("Restoring .config and running olddefconfig...")
+                    shutil.copy(config_backup, kernel_path / ".config")
+                    config_backup.unlink()  # Remove backup
+
+                    # Run olddefconfig to update config for this kernel version
+                    subprocess.run(
+                        ["make", "olddefconfig"],
+                        cwd=kernel_path,
+                        stdin=subprocess.DEVNULL,
+                        capture_output=True,
+                        check=True
+                    )
+                    logger.info("Configuration updated with olddefconfig")
 
             # Build
             logger.info(f"Building kernel at {kernel_path}...")
