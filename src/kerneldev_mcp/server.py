@@ -4,6 +4,7 @@ MCP server for kernel development configuration management.
 import json
 import logging
 import os
+import subprocess
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -18,6 +19,7 @@ from mcp.types import (
 
 from .config_manager import ConfigManager, KernelConfig
 from .templates import TemplateManager
+from .build_manager import KernelBuilder, BuildResult, format_build_errors
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -290,6 +292,93 @@ async def list_tools() -> list[Tool]:
                 "required": ["target"]
             }
         ),
+        Tool(
+            name="build_kernel",
+            description="Build the Linux kernel and validate the build",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "kernel_path": {
+                        "type": "string",
+                        "description": "Path to kernel source directory"
+                    },
+                    "jobs": {
+                        "type": "integer",
+                        "description": "Number of parallel jobs (default: CPU count)",
+                        "minimum": 1
+                    },
+                    "verbose": {
+                        "type": "boolean",
+                        "description": "Show detailed build output",
+                        "default": False
+                    },
+                    "keep_going": {
+                        "type": "boolean",
+                        "description": "Continue building despite errors",
+                        "default": False
+                    },
+                    "target": {
+                        "type": "string",
+                        "description": "Make target to build",
+                        "default": "all",
+                        "enum": ["all", "vmlinux", "modules", "bzImage", "Image"]
+                    },
+                    "build_dir": {
+                        "type": "string",
+                        "description": "Output directory for out-of-tree build"
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Build timeout in seconds",
+                        "minimum": 60
+                    },
+                    "clean_first": {
+                        "type": "boolean",
+                        "description": "Clean before building",
+                        "default": False
+                    }
+                },
+                "required": ["kernel_path"]
+            }
+        ),
+        Tool(
+            name="check_build_requirements",
+            description="Check if kernel source is ready to build",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "kernel_path": {
+                        "type": "string",
+                        "description": "Path to kernel source directory"
+                    }
+                },
+                "required": ["kernel_path"]
+            }
+        ),
+        Tool(
+            name="clean_kernel_build",
+            description="Clean kernel build artifacts",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "kernel_path": {
+                        "type": "string",
+                        "description": "Path to kernel source directory"
+                    },
+                    "clean_type": {
+                        "type": "string",
+                        "description": "Type of clean operation",
+                        "enum": ["clean", "mrproper", "distclean"],
+                        "default": "clean"
+                    },
+                    "build_dir": {
+                        "type": "string",
+                        "description": "Build directory for out-of-tree builds"
+                    }
+                },
+                "required": ["kernel_path"]
+            }
+        ),
     ]
 
 
@@ -483,6 +572,121 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     build_commands.append(f"make -C {kernel_path} -j$(nproc)")
 
             return [TextContent(type="text", text="\n".join(build_commands))]
+
+        elif name == "build_kernel":
+            kernel_path = Path(arguments["kernel_path"])
+            jobs = arguments.get("jobs")
+            verbose = arguments.get("verbose", False)
+            keep_going = arguments.get("keep_going", False)
+            target = arguments.get("target", "all")
+            build_dir = arguments.get("build_dir")
+            timeout = arguments.get("timeout")
+            clean_first = arguments.get("clean_first", False)
+
+            if not kernel_path.exists():
+                return [TextContent(type="text", text=f"Error: Kernel path does not exist: {kernel_path}")]
+
+            builder = KernelBuilder(kernel_path)
+
+            # Check if configured
+            if not builder.check_config():
+                return [TextContent(type="text", text="Error: Kernel not configured. Run 'make defconfig' or apply a configuration first.")]
+
+            # Clean if requested
+            if clean_first:
+                logger.info("Cleaning build artifacts...")
+                builder.clean(build_dir=Path(build_dir) if build_dir else None)
+
+            # Build
+            logger.info(f"Building kernel at {kernel_path}...")
+            result = builder.build(
+                jobs=jobs,
+                verbose=verbose,
+                keep_going=keep_going,
+                target=target,
+                build_dir=Path(build_dir) if build_dir else None,
+                timeout=timeout
+            )
+
+            # Format results
+            output = format_build_errors(result, max_errors=20)
+
+            if result.success:
+                output += "\n\nBuild artifacts:"
+                if build_dir:
+                    output += f"\n  Build directory: {build_dir}"
+                else:
+                    output += f"\n  vmlinux: {kernel_path / 'vmlinux'}"
+                    output += f"\n  System.map: {kernel_path / 'System.map'}"
+
+            return [TextContent(type="text", text=output)]
+
+        elif name == "check_build_requirements":
+            kernel_path = Path(arguments["kernel_path"])
+
+            if not kernel_path.exists():
+                return [TextContent(type="text", text=f"Error: Kernel path does not exist: {kernel_path}")]
+
+            builder = KernelBuilder(kernel_path)
+
+            checks = []
+            checks.append(f"Kernel path: {kernel_path}")
+
+            # Check if it's a kernel tree
+            if not (kernel_path / "Makefile").exists():
+                checks.append("✗ Not a valid kernel source tree (no Makefile)")
+                return [TextContent(type="text", text="\n".join(checks))]
+
+            checks.append("✓ Valid kernel source tree")
+
+            # Get version
+            version = builder.get_kernel_version()
+            if version:
+                checks.append(f"✓ Kernel version: {version}")
+            else:
+                checks.append("✗ Could not determine kernel version")
+
+            # Check if configured
+            if builder.check_config():
+                checks.append("✓ Kernel is configured (.config exists)")
+            else:
+                checks.append("✗ Kernel not configured (no .config)")
+                checks.append("  Run: make defconfig")
+
+            # Check for required tools
+            required_tools = ["make", "gcc", "ld"]
+            for tool in required_tools:
+                try:
+                    subprocess.run([tool, "--version"], capture_output=True, check=True)
+                    checks.append(f"✓ {tool} available")
+                except (subprocess.CalledProcessError, FileNotFoundError):
+                    checks.append(f"✗ {tool} not found")
+
+            return [TextContent(type="text", text="\n".join(checks))]
+
+        elif name == "clean_kernel_build":
+            kernel_path = Path(arguments["kernel_path"])
+            clean_type = arguments.get("clean_type", "clean")
+            build_dir = arguments.get("build_dir")
+
+            if not kernel_path.exists():
+                return [TextContent(type="text", text=f"Error: Kernel path does not exist: {kernel_path}")]
+
+            builder = KernelBuilder(kernel_path)
+
+            success = builder.clean(
+                target=clean_type,
+                build_dir=Path(build_dir) if build_dir else None
+            )
+
+            if success:
+                result_text = f"✓ Successfully ran 'make {clean_type}'"
+                if build_dir:
+                    result_text += f" in {build_dir}"
+            else:
+                result_text = f"✗ Failed to run 'make {clean_type}'"
+
+            return [TextContent(type="text", text=result_text)]
 
         else:
             raise ValueError(f"Unknown tool: {name}")

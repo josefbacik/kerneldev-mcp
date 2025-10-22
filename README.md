@@ -1,8 +1,10 @@
-# Kerneldev MCP - Kernel Development Configuration Server
+# Kerneldev MCP - Kernel Development Configuration & Build Server
 
-An MCP (Model Context Protocol) server for intelligent Linux kernel configuration management. This tool provides AI assistants with the ability to generate, manage, and optimize kernel configurations for different testing scenarios.
+An MCP (Model Context Protocol) server for intelligent Linux kernel configuration management and building. This tool provides AI assistants with the ability to generate, manage, and optimize kernel configurations for different testing scenarios, plus build kernels with comprehensive error detection and reporting.
 
 ## Features
+
+### Configuration Management
 
 - **Pre-built Configuration Templates**: Ready-to-use configs for common testing scenarios
   - Networking testing (full TCP/IP stack, netfilter, eBPF/XDP)
@@ -31,6 +33,25 @@ An MCP (Model Context Protocol) server for intelligent Linux kernel configuratio
   - Search Kconfig options
   - Validate configurations
   - Apply configs to kernel source tree
+
+### Kernel Building
+
+- **Build Validation**: Build kernels and validate build success
+  - Parallel builds with configurable job count
+  - Timeout support to prevent hanging
+  - Out-of-tree build support
+
+- **Error Detection & Reporting**: Automatically parse and report build errors
+  - GCC/Clang error parsing with file:line:column information
+  - Warning detection and reporting
+  - Linker error detection
+  - Human-readable error summaries
+
+- **Build Management**:
+  - Build specific targets (all, vmlinux, modules, etc.)
+  - Clean operations (clean, mrproper, distclean)
+  - Check build requirements
+  - Get kernel version information
 
 ## Installation
 
@@ -63,6 +84,8 @@ Add to your MCP client configuration (e.g., Claude Desktop):
 ```
 
 ### Available MCP Tools
+
+#### Configuration Tools
 
 #### 1. `list_config_presets`
 List all available configuration presets.
@@ -169,6 +192,56 @@ Search for kernel configuration options.
 
 #### 8. `generate_build_config`
 Generate optimized build configuration and commands.
+
+#### Build Tools
+
+#### 9. `build_kernel`
+Build the Linux kernel and validate the build.
+
+```python
+{
+  "tool": "build_kernel",
+  "params": {
+    "kernel_path": "~/linux",
+    "jobs": 16,                   # Optional: parallel jobs
+    "verbose": False,             # Optional: detailed output
+    "keep_going": False,          # Optional: continue despite errors
+    "target": "all",              # Optional: make target
+    "build_dir": "/tmp/build",    # Optional: out-of-tree build
+    "timeout": 3600,              # Optional: timeout in seconds
+    "clean_first": False          # Optional: clean before building
+  }
+}
+```
+
+Returns build status with errors/warnings parsed and formatted.
+
+#### 10. `check_build_requirements`
+Check if kernel source is ready to build.
+
+```python
+{
+  "tool": "check_build_requirements",
+  "params": {
+    "kernel_path": "~/linux"
+  }
+}
+```
+
+Returns validation of kernel source, configuration, and build tools.
+
+#### 11. `clean_kernel_build`
+Clean kernel build artifacts.
+
+```python
+{
+  "tool": "clean_kernel_build",
+  "params": {
+    "kernel_path": "~/linux",
+    "clean_type": "clean"  # clean, mrproper, or distclean
+  }
+}
+```
 
 ```python
 {
