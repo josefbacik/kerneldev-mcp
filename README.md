@@ -1,0 +1,369 @@
+# Kerneldev MCP - Kernel Development Configuration Server
+
+An MCP (Model Context Protocol) server for intelligent Linux kernel configuration management. This tool provides AI assistants with the ability to generate, manage, and optimize kernel configurations for different testing scenarios.
+
+## Features
+
+- **Pre-built Configuration Templates**: Ready-to-use configs for common testing scenarios
+  - Networking testing (full TCP/IP stack, netfilter, eBPF/XDP)
+  - BTRFS filesystem testing
+  - General filesystem testing (ext4, XFS, BTRFS, F2FS, etc.)
+  - Boot testing (minimal configs for fast iteration)
+  - Virtualization testing (optimized for QEMU/KVM/virtme-ng)
+
+- **Debug Levels**: Configurable debugging intensity
+  - Minimal (production-like)
+  - Basic (symbols + basic debugging)
+  - Full debug (comprehensive debugging without sanitizers)
+  - Sanitizers (KASAN, UBSAN, KCOV)
+  - Lockdep (lock debugging and deadlock detection)
+  - Performance (optimized for benchmarking)
+
+- **Configuration Fragments**: Modular config components
+  - KASAN (Kernel Address Sanitizer)
+  - UBSAN (Undefined Behavior Sanitizer)
+  - KCOV (code coverage for fuzzing)
+  - Virtme-ng optimization
+  - Performance tuning
+
+- **Smart Configuration Management**
+  - Merge multiple configs and fragments
+  - Search Kconfig options
+  - Validate configurations
+  - Apply configs to kernel source tree
+
+## Installation
+
+```bash
+# Clone the repository
+cd kerneldev-mcp
+
+# Install in development mode
+pip install -e .
+
+# Or install dependencies manually
+pip install mcp pydantic
+```
+
+## Usage
+
+### As MCP Server
+
+Add to your MCP client configuration (e.g., Claude Desktop):
+
+```json
+{
+  "mcpServers": {
+    "kerneldev": {
+      "command": "python",
+      "args": ["-m", "kerneldev_mcp.server"]
+    }
+  }
+}
+```
+
+### Available MCP Tools
+
+#### 1. `list_config_presets`
+List all available configuration presets.
+
+```python
+# Example call
+{
+  "tool": "list_config_presets",
+  "params": {
+    "category": "target"  # Optional: "target", "debug", or "fragment"
+  }
+}
+```
+
+#### 2. `get_config_template`
+Generate a complete kernel configuration from templates.
+
+```python
+{
+  "tool": "get_config_template",
+  "params": {
+    "target": "btrfs",           # Required: networking, btrfs, filesystem, boot, virtualization
+    "debug_level": "sanitizers",  # Optional: minimal, basic, full_debug, sanitizers, lockdep, performance
+    "architecture": "x86_64",     # Optional: x86_64, arm64, arm, riscv
+    "additional_options": {       # Optional: extra CONFIG options
+      "CONFIG_BTRFS_DEBUG": "y",
+      "CONFIG_BTRFS_ASSERT": "y"
+    },
+    "fragments": ["kasan", "kcov"] # Optional: additional fragments to merge
+  }
+}
+```
+
+#### 3. `create_config_fragment`
+Create a custom configuration fragment.
+
+```python
+{
+  "tool": "create_config_fragment",
+  "params": {
+    "name": "my_debug",
+    "options": {
+      "CONFIG_DEBUG_CUSTOM": "y",
+      "CONFIG_EXTRA_CHECKS": "y"
+    },
+    "description": "My custom debug options"
+  }
+}
+```
+
+#### 4. `merge_configs`
+Merge multiple configuration fragments.
+
+```python
+{
+  "tool": "merge_configs",
+  "params": {
+    "base": "target/networking",  # Base config (template name or file path)
+    "fragments": ["kasan", "lockdep"],  # Fragments to merge
+    "output": "/path/to/output.config"  # Optional: save to file
+  }
+}
+```
+
+#### 5. `apply_config`
+Apply configuration to kernel source tree.
+
+```python
+{
+  "tool": "apply_config",
+  "params": {
+    "kernel_path": "~/linux",
+    "config_source": "target/btrfs",  # Template name or file path
+    "merge_with_existing": false      # Optional: merge with existing .config
+  }
+}
+```
+
+#### 6. `validate_config`
+Validate a kernel configuration.
+
+```python
+{
+  "tool": "validate_config",
+  "params": {
+    "config_path": "~/linux/.config",
+    "kernel_path": "~/linux"  # Optional: for Kconfig validation
+  }
+}
+```
+
+#### 7. `search_config_options`
+Search for kernel configuration options.
+
+```python
+{
+  "tool": "search_config_options",
+  "params": {
+    "query": "KASAN",
+    "kernel_path": "~/linux"
+  }
+}
+```
+
+#### 8. `generate_build_config`
+Generate optimized build configuration and commands.
+
+```python
+{
+  "tool": "generate_build_config",
+  "params": {
+    "target": "btrfs",
+    "optimization": "speed",  # speed, debug, or size
+    "ccache": true,
+    "out_of_tree": true,
+    "kernel_path": "~/linux"
+  }
+}
+```
+
+### MCP Resources
+
+Access configuration templates directly:
+
+- `config://presets` - JSON list of all available presets
+- `config://templates/target/{name}` - Target configurations (networking, btrfs, etc.)
+- `config://templates/debug/{name}` - Debug level configurations
+- `config://templates/fragment/{name}` - Configuration fragments
+
+## Configuration Templates
+
+### Targets
+
+1. **networking** - Comprehensive network stack testing
+   - Full TCP/IP, IPv6, netfilter, eBPF/XDP
+   - Virtual networking (veth, bridges, VLANs)
+   - Traffic control and QoS
+
+2. **btrfs** - BTRFS filesystem development
+   - BTRFS with all features and debugging
+   - Device mapper, RAID, snapshots
+   - Compression and checksumming
+
+3. **filesystem** - General filesystem testing
+   - All major filesystems (ext4, XFS, BTRFS, F2FS)
+   - Network filesystems (NFS, CIFS)
+   - FUSE, overlay, quota support
+
+4. **boot** - Minimal boot testing
+   - Fast boot for iteration
+   - Console and early debugging
+   - Virtio drivers for QEMU
+
+5. **virtualization** - Virtualization testing
+   - KVM support
+   - VirtIO drivers (optimized for virtme-ng)
+   - VirtioFS and 9P filesystem
+
+### Debug Levels
+
+1. **minimal** - Production-like build with minimal overhead
+2. **basic** - Debug symbols + basic debugging (CONFIG_DEBUG_INFO, FRAME_POINTER)
+3. **full_debug** - Comprehensive debugging without sanitizers
+4. **sanitizers** - Memory sanitizers (KASAN, UBSAN, KCOV, KFENCE)
+5. **lockdep** - Lock debugging and deadlock detection
+6. **performance** - Optimized for performance testing and benchmarking
+
+### Fragments
+
+- **kasan** - Kernel Address Sanitizer (memory error detection)
+- **ubsan** - Undefined Behavior Sanitizer
+- **kcov** - Code coverage for fuzzing (syzkaller)
+- **virtme** - Optimizations for virtme-ng testing
+- **performance** - Performance monitoring and profiling
+
+## Example Workflows
+
+### 1. Configure kernel for BTRFS testing with KASAN
+
+```python
+# Generate config
+get_config_template(
+    target="btrfs",
+    debug_level="sanitizers",
+    fragments=["kasan"]
+)
+
+# Apply to kernel
+apply_config(
+    kernel_path="~/linux",
+    config_source="target/btrfs"
+)
+
+# Build
+# Output will include build commands
+```
+
+### 2. Quick virtme-ng testing setup
+
+```python
+get_config_template(
+    target="virtualization",
+    debug_level="minimal",
+    fragments=["virtme"]
+)
+```
+
+### 3. Network testing with lockdep
+
+```python
+get_config_template(
+    target="networking",
+    debug_level="lockdep"
+)
+```
+
+### 4. Custom configuration
+
+```python
+# Start with base
+merge_configs(
+    base="target/filesystem",
+    fragments=["kasan", "ubsan", "kcov"]
+)
+
+# Add custom options
+get_config_template(
+    target="filesystem",
+    debug_level="sanitizers",
+    additional_options={
+        "CONFIG_CUSTOM_FEATURE": "y"
+    }
+)
+```
+
+## Integration with Kernel Development Workflow
+
+This MCP server is designed to work with the [linux-dev-context](https://github.com/your-repo/linux-dev-context) project, which provides comprehensive kernel development context files for AI assistants.
+
+Typical workflow:
+1. Use this MCP to generate kernel config for your testing target
+2. Apply config to kernel source
+3. Build kernel (optionally with virtme-ng)
+4. Test using appropriate test suite (fstests, network tests, etc.)
+
+## Testing
+
+```bash
+# Run tests
+pytest tests/
+
+# Run specific test file
+pytest tests/test_config_manager.py
+
+# Run with verbose output
+pytest -v
+```
+
+## Project Structure
+
+```
+kerneldev-mcp/
+├── src/
+│   ├── kerneldev_mcp/
+│   │   ├── __init__.py
+│   │   ├── server.py           # Main MCP server
+│   │   ├── config_manager.py   # Config generation and merging
+│   │   ├── templates.py        # Template management
+│   └── config_templates/
+│       ├── targets/            # Target configurations
+│       ├── debug/              # Debug level configurations
+│       └── fragments/          # Modular fragments
+├── tests/
+│   ├── test_templates.py
+│   ├── test_config_manager.py
+│   └── test_server.py
+├── pyproject.toml
+└── README.md
+```
+
+## Contributing
+
+Contributions welcome! Please:
+1. Add new configuration templates for additional testing scenarios
+2. Improve existing templates based on kernel development best practices
+3. Add tests for new functionality
+4. Update documentation
+
+## License
+
+GPL-2.0 (to match Linux kernel licensing)
+
+## References
+
+- [Linux Kernel Documentation](https://www.kernel.org/doc/html/latest/)
+- [Kernel Configuration (Kconfig)](https://www.kernel.org/doc/html/latest/kbuild/kconfig.html)
+- [Model Context Protocol (MCP)](https://modelcontextprotocol.io/)
+- [virtme-ng](https://github.com/arighi/virtme-ng) - Fast kernel testing tool
+
+## Support
+
+For issues and questions:
+- GitHub Issues: [your-repo/kerneldev-mcp/issues]
+- Related: [linux-dev-context](https://github.com/your-repo/linux-dev-context)
