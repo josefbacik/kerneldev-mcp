@@ -53,6 +53,23 @@ An MCP (Model Context Protocol) server for intelligent Linux kernel configuratio
   - Check build requirements
   - Get kernel version information
 
+### Filesystem Testing (fstests)
+
+- **Automated fstests Integration**: Complete support for filesystem regression testing
+  - Install and manage fstests from git
+  - Setup test/scratch devices (loop devices or existing)
+  - Configure and run tests
+  - Baseline comparison workflow for regression detection
+  - Support for all major filesystems (ext4, btrfs, xfs, f2fs)
+
+- **Baseline Management**: Track test results across kernel versions
+  - Save baselines with metadata
+  - Compare results to detect regressions
+  - Identify new failures vs pre-existing issues
+  - Essential for filesystem patch development
+
+See [FSTESTS.md](FSTESTS.md) for detailed filesystem testing documentation.
+
 ## Installation
 
 ```bash

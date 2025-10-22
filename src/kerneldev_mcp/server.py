@@ -21,6 +21,15 @@ from .config_manager import ConfigManager, KernelConfig, CrossCompileConfig
 from .templates import TemplateManager
 from .build_manager import KernelBuilder, BuildResult, format_build_errors
 from .boot_manager import BootManager, BootResult, format_boot_result
+from .device_manager import DeviceManager, DeviceConfig, DeviceSetupResult
+from .fstests_manager import (
+    FstestsManager, FstestsConfig, FstestsRunResult,
+    format_fstests_result
+)
+from .baseline_manager import (
+    BaselineManager, Baseline, ComparisonResult,
+    format_comparison_result
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -32,6 +41,9 @@ app = Server("kerneldev-mcp")
 # Initialize managers
 template_manager = TemplateManager()
 config_manager = ConfigManager()
+fstests_manager = FstestsManager()
+device_manager = DeviceManager()
+baseline_manager = BaselineManager()
 
 
 @app.list_resources()
@@ -523,6 +535,271 @@ async def list_tools() -> list[Tool]:
                     }
                 },
                 "required": ["kernel_path", "options"]
+            }
+        ),
+        Tool(
+            name="check_fstests",
+            description="Check if fstests is installed and get version info",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "fstests_path": {
+                        "type": "string",
+                        "description": "Path to fstests installation (optional, default: ~/.kerneldev-mcp/fstests)"
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="install_fstests",
+            description="Clone and build fstests from git",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "install_path": {
+                        "type": "string",
+                        "description": "Where to install fstests (optional, default: ~/.kerneldev-mcp/fstests)"
+                    },
+                    "git_url": {
+                        "type": "string",
+                        "description": "Git repository URL (optional, default: kernel.org)"
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="setup_fstests_devices",
+            description="Setup test and scratch devices for fstests",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "mode": {
+                        "type": "string",
+                        "description": "Device setup mode",
+                        "enum": ["loop", "existing"],
+                        "default": "loop"
+                    },
+                    "test_dev": {
+                        "type": "string",
+                        "description": "Test device path (for 'existing' mode)"
+                    },
+                    "scratch_dev": {
+                        "type": "string",
+                        "description": "Scratch device path (for 'existing' mode)"
+                    },
+                    "test_size": {
+                        "type": "string",
+                        "description": "Test device size for loop mode (e.g., '10G')",
+                        "default": "10G"
+                    },
+                    "scratch_size": {
+                        "type": "string",
+                        "description": "Scratch device size for loop mode (e.g., '10G')",
+                        "default": "10G"
+                    },
+                    "fstype": {
+                        "type": "string",
+                        "description": "Filesystem type",
+                        "enum": ["ext4", "btrfs", "xfs", "f2fs"],
+                        "default": "ext4"
+                    },
+                    "mount_options": {
+                        "type": "string",
+                        "description": "Mount options (e.g., '-o noatime')"
+                    },
+                    "mkfs_options": {
+                        "type": "string",
+                        "description": "mkfs options (e.g., '-b 4096')"
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="configure_fstests",
+            description="Create or update fstests local.config file",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "fstests_path": {
+                        "type": "string",
+                        "description": "Path to fstests installation"
+                    },
+                    "test_dev": {
+                        "type": "string",
+                        "description": "Test device path"
+                    },
+                    "test_dir": {
+                        "type": "string",
+                        "description": "Test mount point",
+                        "default": "/mnt/test"
+                    },
+                    "scratch_dev": {
+                        "type": "string",
+                        "description": "Scratch device path"
+                    },
+                    "scratch_dir": {
+                        "type": "string",
+                        "description": "Scratch mount point",
+                        "default": "/mnt/scratch"
+                    },
+                    "fstype": {
+                        "type": "string",
+                        "description": "Filesystem type"
+                    },
+                    "mount_options": {
+                        "type": "string",
+                        "description": "Mount options"
+                    },
+                    "mkfs_options": {
+                        "type": "string",
+                        "description": "mkfs options"
+                    }
+                },
+                "required": ["test_dev", "scratch_dev", "fstype"]
+            }
+        ),
+        Tool(
+            name="run_fstests",
+            description="Run fstests and capture results",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "fstests_path": {
+                        "type": "string",
+                        "description": "Path to fstests installation (optional)"
+                    },
+                    "tests": {
+                        "type": "array",
+                        "description": "Tests to run (e.g., ['generic/001'] or ['-g', 'quick'])",
+                        "items": {"type": "string"}
+                    },
+                    "exclude_file": {
+                        "type": "string",
+                        "description": "Path to exclude file"
+                    },
+                    "randomize": {
+                        "type": "boolean",
+                        "description": "Randomize test order",
+                        "default": False
+                    },
+                    "iterations": {
+                        "type": "integer",
+                        "description": "Number of times to run tests",
+                        "default": 1,
+                        "minimum": 1
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Timeout in seconds",
+                        "minimum": 60
+                    },
+                    "save_baseline": {
+                        "type": "boolean",
+                        "description": "Save results as baseline",
+                        "default": False
+                    },
+                    "baseline_name": {
+                        "type": "string",
+                        "description": "Name for saved baseline"
+                    },
+                    "kernel_version": {
+                        "type": "string",
+                        "description": "Kernel version for baseline metadata"
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="boot_kernel_with_fstests",
+            description="Boot kernel in VM with fstests configured and run tests",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "kernel_path": {
+                        "type": "string",
+                        "description": "Path to kernel source directory"
+                    },
+                    "fstests_path": {
+                        "type": "string",
+                        "description": "Path to fstests installation"
+                    },
+                    "tests": {
+                        "type": "array",
+                        "description": "Tests to run",
+                        "items": {"type": "string"}
+                    },
+                    "fstype": {
+                        "type": "string",
+                        "description": "Filesystem type to test",
+                        "default": "ext4"
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Boot and test timeout in seconds",
+                        "default": 300,
+                        "minimum": 60
+                    },
+                    "memory": {
+                        "type": "string",
+                        "description": "VM memory size",
+                        "default": "4G"
+                    },
+                    "cpus": {
+                        "type": "integer",
+                        "description": "Number of CPUs",
+                        "default": 4,
+                        "minimum": 1
+                    }
+                },
+                "required": ["kernel_path", "fstests_path"]
+            }
+        ),
+        Tool(
+            name="list_fstests_groups",
+            description="List available fstests test groups",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="get_fstests_baseline",
+            description="Get or create baseline for current kernel/config",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "baseline_name": {
+                        "type": "string",
+                        "description": "Name of baseline to retrieve"
+                    }
+                },
+                "required": ["baseline_name"]
+            }
+        ),
+        Tool(
+            name="compare_fstests_results",
+            description="Compare test results against a baseline",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "baseline_name": {
+                        "type": "string",
+                        "description": "Name of baseline to compare against"
+                    },
+                    "current_results_file": {
+                        "type": "string",
+                        "description": "Path to current results JSON file (optional if just ran tests)"
+                    }
+                },
+                "required": ["baseline_name"]
+            }
+        ),
+        Tool(
+            name="list_fstests_baselines",
+            description="List all stored baselines",
+            inputSchema={
+                "type": "object",
+                "properties": {}
             }
         ),
     ]
@@ -1027,6 +1304,321 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 output_lines.append(f"Architecture: {cross_compile.arch}")
 
             return [TextContent(type="text", text="\n".join(output_lines))]
+
+        elif name == "check_fstests":
+            fstests_path = arguments.get("fstests_path")
+            if fstests_path:
+                manager = FstestsManager(Path(fstests_path))
+            else:
+                manager = fstests_manager
+
+            installed = manager.check_installed()
+            version = manager.get_version() if installed else None
+
+            if installed:
+                output = f"✓ fstests is installed at {manager.fstests_path}\n"
+                if version:
+                    output += f"Version: {version}\n"
+            else:
+                output = f"✗ fstests is not installed at {manager.fstests_path}\n"
+                output += "\nInstall with the install_fstests tool"
+
+            return [TextContent(type="text", text=output)]
+
+        elif name == "install_fstests":
+            install_path = arguments.get("install_path")
+            git_url = arguments.get("git_url")
+
+            if install_path:
+                manager = FstestsManager(Path(install_path))
+            else:
+                manager = fstests_manager
+
+            # Check if already installed
+            if manager.check_installed():
+                return [TextContent(
+                    type="text",
+                    text=f"✓ fstests is already installed at {manager.fstests_path}"
+                )]
+
+            # Install
+            success, message = manager.install(git_url=git_url)
+
+            if success:
+                output = f"✓ {message}\n"
+                version = manager.get_version()
+                if version:
+                    output += f"Version: {version}"
+            else:
+                output = f"✗ Installation failed: {message}"
+
+            return [TextContent(type="text", text=output)]
+
+        elif name == "setup_fstests_devices":
+            mode = arguments.get("mode", "loop")
+            fstype = arguments.get("fstype", "ext4")
+            mount_options = arguments.get("mount_options")
+            mkfs_options = arguments.get("mkfs_options")
+
+            if mode == "loop":
+                test_size = arguments.get("test_size", "10G")
+                scratch_size = arguments.get("scratch_size", "10G")
+
+                result = device_manager.setup_loop_devices(
+                    test_size=test_size,
+                    scratch_size=scratch_size,
+                    fstype=fstype,
+                    mount_options=mount_options,
+                    mkfs_options=mkfs_options
+                )
+            else:  # existing
+                test_dev = arguments.get("test_dev")
+                scratch_dev = arguments.get("scratch_dev")
+
+                if not test_dev or not scratch_dev:
+                    return [TextContent(
+                        type="text",
+                        text="Error: test_dev and scratch_dev required for 'existing' mode"
+                    )]
+
+                result = device_manager.setup_existing_devices(
+                    test_dev=test_dev,
+                    scratch_dev=scratch_dev,
+                    fstype=fstype,
+                    mount_options=mount_options,
+                    mkfs_options=mkfs_options
+                )
+
+            if result.success:
+                output = f"✓ {result.message}\n\n"
+                output += f"Test device: {result.test_device.device_path}\n"
+                output += f"Test mount: {result.test_device.mount_point}\n"
+                output += f"Scratch device: {result.scratch_device.device_path}\n"
+                output += f"Scratch mount: {result.scratch_device.mount_point}\n"
+                output += f"Filesystem: {fstype}\n"
+                if result.cleanup_needed:
+                    output += "\n⚠ Cleanup required when done (loop devices)"
+            else:
+                output = f"✗ {result.message}"
+
+            return [TextContent(type="text", text=output)]
+
+        elif name == "configure_fstests":
+            fstests_path = arguments.get("fstests_path")
+            test_dev = arguments["test_dev"]
+            scratch_dev = arguments["scratch_dev"]
+            fstype = arguments["fstype"]
+            test_dir = Path(arguments.get("test_dir", "/mnt/test"))
+            scratch_dir = Path(arguments.get("scratch_dir", "/mnt/scratch"))
+            mount_options = arguments.get("mount_options")
+            mkfs_options = arguments.get("mkfs_options")
+
+            if fstests_path:
+                manager = FstestsManager(Path(fstests_path))
+            else:
+                manager = fstests_manager
+
+            if not manager.check_installed():
+                return [TextContent(
+                    type="text",
+                    text=f"Error: fstests not installed at {manager.fstests_path}"
+                )]
+
+            # Create config
+            config = FstestsConfig(
+                fstests_path=manager.fstests_path,
+                test_dev=test_dev,
+                test_dir=test_dir,
+                scratch_dev=scratch_dev,
+                scratch_dir=scratch_dir,
+                fstype=fstype,
+                mount_options=mount_options,
+                mkfs_options=mkfs_options
+            )
+
+            # Write config
+            success = manager.write_config(config)
+
+            if success:
+                output = f"✓ Configuration written to {manager.fstests_path / 'local.config'}\n\n"
+                output += config.to_config_text()
+            else:
+                output = "✗ Failed to write configuration"
+
+            return [TextContent(type="text", text=output)]
+
+        elif name == "run_fstests":
+            fstests_path = arguments.get("fstests_path")
+            tests = arguments.get("tests")
+            exclude_file = arguments.get("exclude_file")
+            randomize = arguments.get("randomize", False)
+            iterations = arguments.get("iterations", 1)
+            timeout = arguments.get("timeout")
+            save_baseline = arguments.get("save_baseline", False)
+            baseline_name = arguments.get("baseline_name")
+            kernel_version = arguments.get("kernel_version")
+
+            if fstests_path:
+                manager = FstestsManager(Path(fstests_path))
+            else:
+                manager = fstests_manager
+
+            if not manager.check_installed():
+                return [TextContent(
+                    type="text",
+                    text=f"Error: fstests not installed at {manager.fstests_path}"
+                )]
+
+            # Run tests
+            result = manager.run_tests(
+                tests=tests,
+                exclude_file=Path(exclude_file) if exclude_file else None,
+                randomize=randomize,
+                iterations=iterations,
+                timeout=timeout
+            )
+
+            # Save baseline if requested
+            if save_baseline and baseline_name:
+                baseline_manager.save_baseline(
+                    baseline_name=baseline_name,
+                    results=result,
+                    kernel_version=kernel_version,
+                    test_selection=" ".join(tests) if tests else "-g quick"
+                )
+
+            # Format output
+            output = format_fstests_result(result)
+
+            if save_baseline and baseline_name:
+                output += f"\n\n✓ Baseline saved as '{baseline_name}'"
+
+            return [TextContent(type="text", text=output)]
+
+        elif name == "list_fstests_groups":
+            groups = fstests_manager.list_groups()
+
+            output = "Available fstests groups:\n\n"
+            for group, description in groups.items():
+                output += f"  {group:15} - {description}\n"
+
+            return [TextContent(type="text", text=output)]
+
+        elif name == "get_fstests_baseline":
+            baseline_name = arguments["baseline_name"]
+
+            baseline = baseline_manager.load_baseline(baseline_name)
+
+            if baseline:
+                output = f"Baseline: {baseline_name}\n"
+                output += f"Created: {baseline.metadata.created_at}\n"
+                if baseline.metadata.kernel_version:
+                    output += f"Kernel: {baseline.metadata.kernel_version}\n"
+                output += f"Filesystem: {baseline.metadata.fstype}\n"
+                if baseline.metadata.test_selection:
+                    output += f"Tests: {baseline.metadata.test_selection}\n"
+                output += "\n"
+                output += baseline.results.summary()
+            else:
+                output = f"✗ Baseline '{baseline_name}' not found"
+
+            return [TextContent(type="text", text=output)]
+
+        elif name == "compare_fstests_results":
+            baseline_name = arguments["baseline_name"]
+            current_results_file = arguments.get("current_results_file")
+
+            baseline = baseline_manager.load_baseline(baseline_name)
+
+            if not baseline:
+                return [TextContent(
+                    type="text",
+                    text=f"Error: Baseline '{baseline_name}' not found"
+                )]
+
+            # Load current results (would need to be stored from previous run_fstests)
+            # For now, return error asking user to run tests first
+            # TODO: Implement storing last run results or loading from file
+
+            output = "Error: Current results comparison not yet implemented.\n"
+            output += "Need to run tests first and store results, or provide results file."
+
+            return [TextContent(type="text", text=output)]
+
+        elif name == "list_fstests_baselines":
+            baselines = baseline_manager.list_baselines()
+
+            if not baselines:
+                output = "No baselines found"
+            else:
+                output = f"Available baselines ({len(baselines)}):\n\n"
+                for baseline in baselines:
+                    output += f"  • {baseline.name}\n"
+                    output += f"    Created: {baseline.created_at}\n"
+                    if baseline.kernel_version:
+                        output += f"    Kernel: {baseline.kernel_version}\n"
+                    output += f"    Filesystem: {baseline.fstype}\n"
+                    if baseline.test_selection:
+                        output += f"    Tests: {baseline.test_selection}\n"
+                    output += "\n"
+
+            return [TextContent(type="text", text=output)]
+
+        elif name == "boot_kernel_with_fstests":
+            kernel_path = Path(arguments["kernel_path"])
+            fstests_path = Path(arguments["fstests_path"])
+            tests = arguments.get("tests", ["-g", "quick"])
+            timeout = arguments.get("timeout", 300)
+            memory = arguments.get("memory", "4G")
+            cpus = arguments.get("cpus", 4)
+
+            # Check kernel path exists
+            if not kernel_path.exists():
+                return [TextContent(
+                    type="text",
+                    text=f"Error: Kernel path does not exist: {kernel_path}"
+                )]
+
+            # Check fstests path exists
+            if not fstests_path.exists():
+                return [TextContent(
+                    type="text",
+                    text=f"Error: fstests path does not exist: {fstests_path}"
+                )]
+
+            # Create boot manager
+            try:
+                boot_mgr = BootManager(kernel_path)
+            except Exception as e:
+                return [TextContent(
+                    type="text",
+                    text=f"Error creating BootManager: {str(e)}"
+                )]
+
+            # Boot with fstests
+            boot_result, fstests_result = boot_mgr.boot_with_fstests(
+                fstests_path=fstests_path,
+                tests=tests,
+                timeout=timeout,
+                memory=memory,
+                cpus=cpus
+            )
+
+            # Format output
+            output = "=== Kernel Boot with fstests ===\n\n"
+
+            # Boot status
+            output += format_boot_result(boot_result)
+            output += "\n\n"
+
+            # fstests results
+            if fstests_result:
+                output += "=== fstests Results ===\n\n"
+                output += format_fstests_result(fstests_result)
+            else:
+                output += "✗ fstests did not complete (boot failed or timed out)\n"
+
+            return [TextContent(type="text", text=output)]
 
         else:
             raise ValueError(f"Unknown tool: {name}")

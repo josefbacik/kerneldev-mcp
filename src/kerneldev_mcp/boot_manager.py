@@ -461,6 +461,9 @@ class BootManager:
         if not self.kernel_path.exists():
             raise ValueError(f"Kernel path does not exist: {kernel_path}")
 
+        # Storage for last fstests result (for comparison tool)
+        self._last_fstests_result = None
+
     def check_virtme_ng(self) -> bool:
         """Check if virtme-ng is installed.
 
@@ -619,6 +622,321 @@ class BootManager:
                 exit_code=-1,
                 log_file_path=log_file
             )
+
+    def boot_with_fstests(
+        self,
+        fstests_path: Path,
+        tests: List[str],
+        timeout: int = 300,
+        memory: str = "4G",
+        cpus: int = 4,
+        cross_compile: Optional["CrossCompileConfig"] = None
+    ) -> Tuple[BootResult, Optional[object]]:
+        """Boot kernel and run fstests inside VM.
+
+        Args:
+            fstests_path: Path to fstests installation
+            tests: Tests to run (e.g., ["-g", "quick"])
+            timeout: Total timeout in seconds
+            memory: Memory size for VM
+            cpus: Number of CPUs
+            cross_compile: Cross-compilation configuration
+
+        Returns:
+            Tuple of (BootResult, FstestsRunResult or None)
+        """
+        # Import here to avoid circular dependency
+        from .fstests_manager import FstestsManager, FstestsRunResult
+
+        start_time = time.time()
+
+        # Check virtme-ng is available
+        if not self.check_virtme_ng():
+            return (BootResult(
+                success=False,
+                duration=time.time() - start_time,
+                boot_completed=False,
+                dmesg_output="ERROR: virtme-ng (vng) not found. Install with: pip install virtme-ng",
+                exit_code=-1
+            ), None)
+
+        # Check if kernel is built
+        vmlinux = self.kernel_path / "vmlinux"
+        if not vmlinux.exists():
+            return (BootResult(
+                success=False,
+                duration=time.time() - start_time,
+                boot_completed=False,
+                dmesg_output=f"ERROR: Kernel not built. vmlinux not found at {vmlinux}",
+                exit_code=-1
+            ), None)
+
+        # Check fstests is installed
+        fstests_path = Path(fstests_path)
+        if not fstests_path.exists() or not (fstests_path / "check").exists():
+            return (BootResult(
+                success=False,
+                duration=time.time() - start_time,
+                boot_completed=False,
+                dmesg_output=f"ERROR: fstests not found at {fstests_path}",
+                exit_code=-1
+            ), None)
+
+        # Verify that fstests is fully built by checking for critical binaries
+        critical_binaries = [
+            fstests_path / "ltp" / "fsstress",
+            fstests_path / "src" / "aio-dio-regress",
+        ]
+        missing_binaries = []
+        for binary in critical_binaries:
+            if not binary.exists() or not os.access(binary, os.X_OK):
+                missing_binaries.append(str(binary.relative_to(fstests_path)))
+
+        if missing_binaries:
+            return (BootResult(
+                success=False,
+                duration=time.time() - start_time,
+                boot_completed=False,
+                dmesg_output=(
+                    f"ERROR: fstests is not fully built. Missing binaries: {', '.join(missing_binaries)}\n"
+                    f"Run the install_fstests tool to rebuild fstests, or manually run:\n"
+                    f"  cd {fstests_path} && ./configure && make -j$(nproc)"
+                ),
+                exit_code=-1
+            ), None)
+
+        # Build test command to run inside VM
+        test_args = " ".join(tests) if tests else "-g quick"
+
+        # Determine filesystem type from test args
+        # Default to ext4, but use btrfs if test path contains "btrfs"
+        fstype = "ext4"
+        if any("btrfs" in t for t in tests):
+            fstype = "btrfs"
+
+        # Create script to run inside VM
+        # Note: virtme-ng runs as root, so no sudo needed
+        # This script:
+        # 1. Creates loop devices in /tmp (writable by everyone)
+        # 2. Formats them with appropriate filesystem
+        # 3. Creates mount points in /tmp
+        # 4. Configures fstests with local.config
+        # 5. Runs the tests
+        test_script = f"""#!/bin/bash
+# Don't exit on error immediately - we want to capture test results
+set +e
+
+# Show environment
+echo "=== fstests Setup Start ==="
+echo "Kernel: $(uname -r)"
+echo "User: $(whoami)"
+echo "fstests path: {fstests_path}"
+echo "Filesystem type: {fstype}"
+echo ""
+
+# Verify fstests directory exists
+if [ ! -d "{fstests_path}" ]; then
+    echo "ERROR: fstests directory not found at {fstests_path}"
+    exit 1
+fi
+
+# Create loop device backing files in /tmp using sparse files
+# Sparse files allocate space logically but only consume disk as data is written
+# Using 10GB per device (required for many fstests) but actual space usage is minimal
+echo "Creating sparse loop device backing files (10GB each)..."
+dd if=/dev/zero of=/tmp/test.img bs=1M count=0 seek=10240 2>&1 | grep -v records
+
+# Create scratch pool devices (5 devices for comprehensive multi-device testing)
+# Note: When using SCRATCH_DEV_POOL, we don't create a separate SCRATCH_DEV
+# The first device in the pool acts as the scratch device
+echo "Creating scratch pool devices (10GB each)..."
+dd if=/dev/zero of=/tmp/pool1.img bs=1M count=0 seek=10240 2>&1 | grep -v records
+dd if=/dev/zero of=/tmp/pool2.img bs=1M count=0 seek=10240 2>&1 | grep -v records
+dd if=/dev/zero of=/tmp/pool3.img bs=1M count=0 seek=10240 2>&1 | grep -v records
+dd if=/dev/zero of=/tmp/pool4.img bs=1M count=0 seek=10240 2>&1 | grep -v records
+dd if=/dev/zero of=/tmp/pool5.img bs=1M count=0 seek=10240 2>&1 | grep -v records
+
+# Setup loop devices
+echo "Setting up loop devices..."
+TEST_DEV=$(losetup -f --show /tmp/test.img)
+POOL1=$(losetup -f --show /tmp/pool1.img)
+POOL2=$(losetup -f --show /tmp/pool2.img)
+POOL3=$(losetup -f --show /tmp/pool3.img)
+POOL4=$(losetup -f --show /tmp/pool4.img)
+POOL5=$(losetup -f --show /tmp/pool5.img)
+
+echo "TEST_DEV=$TEST_DEV"
+echo "SCRATCH_DEV_POOL=$POOL1 $POOL2 $POOL3 $POOL4 $POOL5"
+
+# Format filesystems
+echo "Formatting filesystems as {fstype}..."
+if [ "{fstype}" = "btrfs" ]; then
+    mkfs.btrfs -f $TEST_DEV > /dev/null 2>&1
+    # Don't pre-format pool devices - tests will format them as needed
+else
+    mkfs.ext4 -F $TEST_DEV > /dev/null 2>&1
+    # Don't pre-format pool devices - tests will format them as needed
+fi
+
+# Create mount points in /tmp
+echo "Creating mount points..."
+mkdir -p /tmp/test /tmp/scratch
+
+# Create fstests local.config
+# Important: When using SCRATCH_DEV_POOL, do NOT set SCRATCH_DEV
+# The first device in the pool serves as the scratch device
+echo "Creating fstests configuration..."
+cat > {fstests_path}/local.config <<EOF
+export TEST_DEV=$TEST_DEV
+export TEST_DIR=/tmp/test
+export SCRATCH_MNT=/tmp/scratch
+export SCRATCH_DEV_POOL="$POOL1 $POOL2 $POOL3 $POOL4 $POOL5"
+export FSTYP={fstype}
+EOF
+
+echo "Configuration written to local.config"
+echo ""
+
+# Change to fstests directory
+cd {fstests_path} || {{
+    echo "ERROR: Failed to change to fstests directory"
+    exit 1
+}}
+
+# Verify check script exists
+if [ ! -f "./check" ]; then
+    echo "ERROR: check script not found in $(pwd)"
+    ls -la
+    exit 1
+fi
+
+# Run tests
+echo "=== fstests Execution Start ==="
+echo "Running: ./check {test_args}"
+echo "=== fstests Output ==="
+./check {test_args}
+
+# Capture exit code
+exit_code=$?
+echo ""
+echo "=== fstests Execution Complete ==="
+echo "Exit code: $exit_code"
+
+# Cleanup
+echo "Cleaning up..."
+umount /tmp/test 2>/dev/null || true
+umount /tmp/scratch 2>/dev/null || true
+losetup -d $TEST_DEV 2>/dev/null || true
+losetup -d $POOL1 2>/dev/null || true
+losetup -d $POOL2 2>/dev/null || true
+losetup -d $POOL3 2>/dev/null || true
+losetup -d $POOL4 2>/dev/null || true
+losetup -d $POOL5 2>/dev/null || true
+rm -f /tmp/test.img /tmp/pool1.img /tmp/pool2.img /tmp/pool3.img /tmp/pool4.img /tmp/pool5.img 2>/dev/null || true
+
+exit $exit_code
+"""
+
+        # Write script to temp file
+        script_file = Path("/tmp/run-fstests.sh")
+        script_file.write_text(test_script)
+        script_file.chmod(0o755)
+
+        # Build vng command
+        cmd = ["vng", "--verbose"]
+
+        # Add memory and CPU options
+        cmd.extend(["--memory", memory])
+        cmd.extend(["--cpus", str(cpus)])
+
+        # Add cross-compilation architecture if specified
+        if cross_compile:
+            cmd.extend(["--arch", cross_compile.arch])
+
+        # Make fstests directory available in VM (read-write)
+        cmd.extend(["--rwdir", str(fstests_path)])
+
+        # Execute the test script
+        cmd.extend(["--", "bash", str(script_file)])
+
+        # Run with PTY
+        try:
+            exit_code, output = _run_with_pty(cmd, self.kernel_path, timeout)
+
+            duration = time.time() - start_time
+
+            # Parse the fstests output to extract results
+            # Prefer reading from check.log file if it exists (cleaner than console output)
+            fstests_manager = FstestsManager(fstests_path)
+            check_log = fstests_path / "results" / "check.log"
+            fstests_result = fstests_manager.parse_check_output(output, check_log=check_log)
+
+            # Also analyze dmesg for kernel issues
+            errors, warnings, panics, oops = DmesgParser.analyze_dmesg(output)
+
+            # Store result for later comparison
+            self._last_fstests_result = fstests_result
+
+            # Save boot log
+            boot_success = (exit_code == 0 or exit_code == 1) and len(panics) == 0  # exit 1 is OK if tests failed
+            log_file = _save_boot_log(output, boot_success)
+
+            boot_result = BootResult(
+                success=boot_success,
+                duration=duration,
+                boot_completed=True,
+                errors=errors,
+                warnings=warnings,
+                panics=panics,
+                oops=oops,
+                dmesg_output=output,
+                exit_code=exit_code,
+                timeout_occurred=False,
+                log_file_path=log_file
+            )
+
+            return (boot_result, fstests_result)
+
+        except subprocess.TimeoutExpired as e:
+            duration = time.time() - start_time
+            output = ""
+            if e.output:
+                output = e.output.decode() if isinstance(e.output, bytes) else e.output
+
+            full_output = output + f"\n\nERROR: Test timed out after {timeout}s"
+            log_file = _save_boot_log(full_output, success=False)
+
+            return (BootResult(
+                success=False,
+                duration=duration,
+                boot_completed=False,
+                dmesg_output=full_output,
+                exit_code=-1,
+                timeout_occurred=True,
+                log_file_path=log_file
+            ), None)
+
+        except Exception as e:
+            duration = time.time() - start_time
+            error_output = f"ERROR: {str(e)}"
+            log_file = _save_boot_log(error_output, success=False)
+
+            return (BootResult(
+                success=False,
+                duration=duration,
+                boot_completed=False,
+                dmesg_output=error_output,
+                exit_code=-1,
+                log_file_path=log_file
+            ), None)
+
+        finally:
+            # Cleanup temp script
+            if script_file.exists():
+                try:
+                    script_file.unlink()
+                except OSError:
+                    pass
 
 
 def format_boot_result(result: BootResult, max_errors: int = 10) -> str:
