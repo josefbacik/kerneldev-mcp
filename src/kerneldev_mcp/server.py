@@ -899,7 +899,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             if cross_compile:
                 output += f"\n  Architecture: {cross_compile.arch}"
 
-            # Add dmesg sample if boot completed
+            # For successful boots, show first 50 lines of dmesg
+            # (failure output is already shown by format_boot_result)
             if result.boot_completed and result.dmesg_output:
                 output += "\n\nDmesg Output (first 50 lines):"
                 lines = result.dmesg_output.splitlines()[:50]

@@ -53,6 +53,7 @@ class BootResult:
     # Execution details
     exit_code: int = 0
     timeout_occurred: bool = False
+    log_file_path: Optional[Path] = None  # Path to saved boot log
 
     @property
     def error_count(self) -> int:
@@ -239,6 +240,78 @@ class DmesgParser:
         return errors, warnings, panics, oops
 
 
+# Boot log management
+BOOT_LOG_DIR = Path("/tmp/kerneldev-boot-logs")
+
+
+def _ensure_log_directory() -> Path:
+    """Ensure boot log directory exists.
+
+    Returns:
+        Path to boot log directory
+    """
+    BOOT_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    return BOOT_LOG_DIR
+
+
+def _cleanup_old_logs(max_age_days: int = 7):
+    """Delete boot logs older than specified days.
+
+    Args:
+        max_age_days: Maximum age of logs to keep in days
+    """
+    if not BOOT_LOG_DIR.exists():
+        return
+
+    import time
+    current_time = time.time()
+    max_age_seconds = max_age_days * 24 * 60 * 60
+
+    try:
+        for log_file in BOOT_LOG_DIR.glob("boot-*.log"):
+            if log_file.is_file():
+                file_age = current_time - log_file.stat().st_mtime
+                if file_age > max_age_seconds:
+                    try:
+                        log_file.unlink()
+                    except OSError:
+                        # Ignore errors during cleanup
+                        pass
+    except Exception:
+        # Don't fail if cleanup fails
+        pass
+
+
+def _save_boot_log(output: str, success: bool) -> Path:
+    """Save boot log to timestamped file.
+
+    Args:
+        output: Boot console output
+        success: Whether boot was successful
+
+    Returns:
+        Path to saved log file
+    """
+    _ensure_log_directory()
+
+    # Create timestamped filename
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    status = "success" if success else "failure"
+    log_file = BOOT_LOG_DIR / f"boot-{timestamp}-{status}.log"
+
+    # Save log
+    try:
+        log_file.write_text(output, encoding='utf-8')
+    except Exception as e:
+        # If saving fails, create a minimal error log
+        try:
+            log_file.write_text(f"Error saving boot log: {e}\n\n{output[:1000]}", encoding='utf-8')
+        except Exception:
+            pass
+
+    return log_file
+
+
 def _run_with_pty(cmd: List[str], cwd: Path, timeout: int) -> Tuple[int, str]:
     """Run a command with a pseudo-terminal.
 
@@ -394,6 +467,9 @@ class BootManager:
         """
         start_time = time.time()
 
+        # Cleanup old boot logs
+        _cleanup_old_logs()
+
         # Check virtme-ng is available
         if not self.check_virtme_ng():
             return BootResult(
@@ -457,8 +533,12 @@ class BootManager:
                         kernel_version = match.group(1)
                     break
 
+            # Save boot log to file
+            boot_success = (exit_code == 0 and len(panics) == 0)
+            log_file = _save_boot_log(dmesg_output, boot_success)
+
             return BootResult(
-                success=(exit_code == 0 and len(panics) == 0),
+                success=boot_success,
                 duration=duration,
                 boot_completed=(exit_code == 0),
                 kernel_version=kernel_version,
@@ -468,7 +548,8 @@ class BootManager:
                 oops=oops,
                 dmesg_output=dmesg_output,
                 exit_code=exit_code,
-                timeout_occurred=False
+                timeout_occurred=False,
+                log_file_path=log_file
             )
 
         except subprocess.TimeoutExpired as e:
@@ -477,23 +558,31 @@ class BootManager:
             if e.output:
                 output = e.output.decode() if isinstance(e.output, bytes) else e.output
 
+            full_output = output + f"\n\nERROR: Boot test timed out after {timeout}s"
+            log_file = _save_boot_log(full_output, success=False)
+
             return BootResult(
                 success=False,
                 duration=duration,
                 boot_completed=False,
-                dmesg_output=output + f"\n\nERROR: Boot test timed out after {timeout}s",
+                dmesg_output=full_output,
                 exit_code=-1,
-                timeout_occurred=True
+                timeout_occurred=True,
+                log_file_path=log_file
             )
 
         except Exception as e:
             duration = time.time() - start_time
+            error_output = f"ERROR: {str(e)}"
+            log_file = _save_boot_log(error_output, success=False)
+
             return BootResult(
                 success=False,
                 duration=duration,
                 boot_completed=False,
-                dmesg_output=f"ERROR: {str(e)}",
-                exit_code=-1
+                dmesg_output=error_output,
+                exit_code=-1,
+                log_file_path=log_file
             )
 
 
@@ -511,8 +600,32 @@ def format_boot_result(result: BootResult, max_errors: int = 10) -> str:
     lines.append(result.summary())
     lines.append("")
 
+    # Always show log file path if available
+    if result.log_file_path:
+        lines.append(f"Full boot log: {result.log_file_path}")
+        lines.append("")
+
     if result.kernel_version:
         lines.append(f"Kernel version: {result.kernel_version}")
+        lines.append("")
+
+    # If boot failed, show last 200 lines of console output
+    if not result.boot_completed and result.dmesg_output:
+        output_lines = result.dmesg_output.splitlines()
+        total_lines = len(output_lines)
+
+        lines.append(f"Console Output (last 200 lines of {total_lines} total):")
+        lines.append("=" * 80)
+
+        # Get last 200 lines
+        last_lines = output_lines[-200:] if len(output_lines) > 200 else output_lines
+
+        # Add line numbers (starting from actual line number in output)
+        start_line_num = max(1, total_lines - len(last_lines) + 1)
+        for i, line in enumerate(last_lines, start=start_line_num):
+            lines.append(f"{i:5d} | {line}")
+
+        lines.append("=" * 80)
         lines.append("")
 
     if result.panics:
