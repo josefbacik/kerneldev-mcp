@@ -810,9 +810,9 @@ class BootManager:
             ), None)
 
         # Create loop devices on host for passing to VM
-        # We need: 1 test device + 5 scratch pool devices = 6 total
+        # We need: 1 test device + 5 scratch pool devices + 1 log-writes device = 7 total
         device_size = "10G"
-        device_names = ["test", "pool1", "pool2", "pool3", "pool4", "pool5"]
+        device_names = ["test", "pool1", "pool2", "pool3", "pool4", "pool5", "logwrites"]
 
         try:
             for name in device_names:
@@ -882,7 +882,7 @@ fi
 
 # Use devices passed from host via --disk
 # virtme-ng passes them as virtio block devices: /dev/vda, /dev/vdb, /dev/vdc, etc.
-# We have 6 devices: 1 test + 5 scratch pool
+# We have 7 devices: 1 test + 5 scratch pool + 1 log-writes
 echo "Using passed-through block devices..."
 TEST_DEV=/dev/vda
 POOL1=/dev/vdb
@@ -890,9 +890,10 @@ POOL2=/dev/vdc
 POOL3=/dev/vdd
 POOL4=/dev/vde
 POOL5=/dev/vdf
+LOGWRITES_DEV=/dev/vdg
 
 # Verify devices exist
-for dev in $TEST_DEV $POOL1 $POOL2 $POOL3 $POOL4 $POOL5; do
+for dev in $TEST_DEV $POOL1 $POOL2 $POOL3 $POOL4 $POOL5 $LOGWRITES_DEV; do
     if [ ! -b "$dev" ]; then
         echo "ERROR: Block device $dev not found"
         echo "Available block devices:"
@@ -903,6 +904,7 @@ done
 
 echo "TEST_DEV=$TEST_DEV"
 echo "SCRATCH_DEV_POOL=$POOL1 $POOL2 $POOL3 $POOL4 $POOL5"
+echo "LOGWRITES_DEV=$LOGWRITES_DEV"
 
 # Format filesystems
 echo "Formatting filesystems as {fstype}..."
@@ -927,6 +929,7 @@ export TEST_DEV=$TEST_DEV
 export TEST_DIR=/tmp/test
 export SCRATCH_MNT=/tmp/scratch
 export SCRATCH_DEV_POOL="$POOL1 $POOL2 $POOL3 $POOL4 $POOL5"
+export LOGWRITES_DEV=$LOGWRITES_DEV
 export FSTYP={fstype}
 EOF
 
