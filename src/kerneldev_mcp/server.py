@@ -20,6 +20,7 @@ from mcp.types import (
 from .config_manager import ConfigManager, KernelConfig, CrossCompileConfig
 from .templates import TemplateManager
 from .build_manager import KernelBuilder, BuildResult, format_build_errors
+from .boot_manager import BootManager, BootResult, format_boot_result
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -421,6 +422,71 @@ async def list_tools() -> list[Tool]:
                 "required": ["kernel_path"]
             }
         ),
+        Tool(
+            name="boot_kernel_test",
+            description="Boot kernel with virtme-ng and validate it works correctly",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "kernel_path": {
+                        "type": "string",
+                        "description": "Path to kernel source directory"
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Boot timeout in seconds",
+                        "default": 60,
+                        "minimum": 10,
+                        "maximum": 300
+                    },
+                    "memory": {
+                        "type": "string",
+                        "description": "Memory size for VM (e.g., '2G', '4G')",
+                        "default": "2G"
+                    },
+                    "cpus": {
+                        "type": "integer",
+                        "description": "Number of CPUs for VM",
+                        "default": 2,
+                        "minimum": 1,
+                        "maximum": 32
+                    },
+                    "cross_compile_arch": {
+                        "type": "string",
+                        "description": "Target architecture for cross-compilation",
+                        "enum": ["x86_64", "x86", "arm64", "arm", "riscv", "powerpc", "mips"]
+                    },
+                    "cross_compile_prefix": {
+                        "type": "string",
+                        "description": "Cross-compiler prefix. Auto-detected if not specified."
+                    },
+                    "use_llvm": {
+                        "type": "boolean",
+                        "description": "Use LLVM toolchain for cross-compilation",
+                        "default": False
+                    },
+                    "extra_args": {
+                        "type": "array",
+                        "description": "Additional arguments to pass to vng",
+                        "items": {"type": "string"}
+                    },
+                    "use_host_kernel": {
+                        "type": "boolean",
+                        "description": "Use host kernel instead of building from kernel_path",
+                        "default": False
+                    }
+                },
+                "required": ["kernel_path"]
+            }
+        ),
+        Tool(
+            name="check_virtme_ng",
+            description="Check if virtme-ng is installed and available",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
     ]
 
 
@@ -791,6 +857,85 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 result_text = f"✗ Failed to run 'make {clean_type}'"
 
             return [TextContent(type="text", text=result_text)]
+
+        elif name == "boot_kernel_test":
+            kernel_path = Path(arguments["kernel_path"])
+            timeout = arguments.get("timeout", 60)
+            memory = arguments.get("memory", "2G")
+            cpus = arguments.get("cpus", 2)
+            extra_args = arguments.get("extra_args", [])
+            use_host_kernel = arguments.get("use_host_kernel", False)
+            cross_compile = _parse_cross_compile_args(arguments)
+
+            if not kernel_path.exists():
+                return [TextContent(type="text", text=f"Error: Kernel path does not exist: {kernel_path}")]
+
+            boot_manager = BootManager(kernel_path)
+
+            logger.info(f"Boot testing kernel at {kernel_path}...")
+            if cross_compile:
+                logger.info(f"Cross-compilation architecture: {cross_compile.arch}")
+            if use_host_kernel:
+                logger.info("Using host kernel instead of building")
+
+            # Run boot test
+            result = boot_manager.boot_test(
+                timeout=timeout,
+                memory=memory,
+                cpus=cpus,
+                cross_compile=cross_compile,
+                extra_args=extra_args,
+                use_host_kernel=use_host_kernel
+            )
+
+            # Format output
+            output = format_boot_result(result, max_errors=20)
+
+            # Add configuration info
+            output += "\n\nBoot Configuration:"
+            output += f"\n  Timeout: {timeout}s"
+            output += f"\n  Memory: {memory}"
+            output += f"\n  CPUs: {cpus}"
+            if cross_compile:
+                output += f"\n  Architecture: {cross_compile.arch}"
+
+            # Add dmesg sample if boot completed
+            if result.boot_completed and result.dmesg_output:
+                output += "\n\nDmesg Output (first 50 lines):"
+                lines = result.dmesg_output.splitlines()[:50]
+                output += "\n" + "\n".join(lines)
+                if len(result.dmesg_output.splitlines()) > 50:
+                    output += f"\n... ({len(result.dmesg_output.splitlines()) - 50} more lines)"
+
+            return [TextContent(type="text", text=output)]
+
+        elif name == "check_virtme_ng":
+            # Check if virtme-ng is available
+            boot_manager = BootManager(Path.cwd())
+            available = boot_manager.check_virtme_ng()
+
+            if available:
+                # Try to get version
+                try:
+                    result = subprocess.run(
+                        ["vng", "--version"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                    version_info = result.stdout.strip()
+                    output = f"✓ virtme-ng is installed and available\n\n{version_info}"
+                except Exception as e:
+                    output = f"✓ virtme-ng is installed and available\n\nVersion: Unable to determine ({e})"
+            else:
+                output = "✗ virtme-ng is not available\n\n"
+                output += "Install virtme-ng with:\n"
+                output += "  pip install virtme-ng\n\n"
+                output += "Or on Fedora/Ubuntu:\n"
+                output += "  sudo dnf install virtme-ng\n"
+                output += "  sudo apt install virtme-ng"
+
+            return [TextContent(type="text", text=output)]
 
         else:
             raise ValueError(f"Unknown tool: {name}")
