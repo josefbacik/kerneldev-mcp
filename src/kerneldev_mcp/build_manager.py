@@ -176,7 +176,10 @@ class KernelBuilder:
         build_dir: Optional[Path] = None,
         make_args: Optional[List[str]] = None,
         timeout: Optional[int] = None,
-        cross_compile: Optional["CrossCompileConfig"] = None
+        cross_compile: Optional["CrossCompileConfig"] = None,
+        extra_host_cflags: Optional[str] = None,
+        extra_kernel_cflags: Optional[str] = None,
+        c_std: Optional[str] = None
     ) -> BuildResult:
         """Build the kernel.
 
@@ -189,6 +192,12 @@ class KernelBuilder:
             make_args: Additional make arguments
             timeout: Build timeout in seconds
             cross_compile: Cross-compilation configuration
+            extra_host_cflags: Additional CFLAGS for host build tools only
+                               (e.g., '-Wno-error' to disable all warnings in objtool, etc.)
+            extra_kernel_cflags: Additional CFLAGS for kernel code compilation
+                                 (e.g., '-Wno-error=stringop-overflow' for specific warnings)
+            c_std: C standard to use (e.g., 'gnu11' for old kernels with GCC 15)
+                   Applies to ALL compilation via CC override
 
         Returns:
             BuildResult with build status and errors
@@ -198,9 +207,44 @@ class KernelBuilder:
         # Build make command
         cmd = ["make"]
 
+        # C standard override (for old kernels with new GCC)
+        # This applies to ALL compilation: kernel, realmode, EFI stub, etc.
+        if c_std:
+            # Get the compiler (gcc or clang)
+            if cross_compile and cross_compile.use_llvm:
+                cc = "clang"
+            elif cross_compile and cross_compile.prefix:
+                cc = f"{cross_compile.prefix}gcc"
+            else:
+                cc = os.environ.get('CC', 'gcc')
+
+            # Override CC with standard flag
+            cmd.append(f"CC={cc} -std={c_std}")
+
         # Cross-compilation settings
         if cross_compile:
             cmd.extend(cross_compile.to_make_args())
+
+        # Extra host CFLAGS for build tools (e.g., objtool, libsubcmd)
+        # This only affects tools built for the host, not the kernel itself
+        # Use EXTRA_CFLAGS which works for nested tool builds like libsubcmd
+        # Note: HOSTCFLAGS doesn't work because libsubcmd has its own Makefile
+        # that hardcodes -Werror before including EXTRA_CFLAGS
+        if extra_host_cflags:
+            # Get existing EXTRA_CFLAGS from environment if any
+            existing_flags = os.environ.get('EXTRA_CFLAGS', '')
+            if existing_flags:
+                # Append to existing flags
+                cmd.append(f"EXTRA_CFLAGS={existing_flags} {extra_host_cflags}")
+            else:
+                # Just use our flags
+                cmd.append(f"EXTRA_CFLAGS={extra_host_cflags}")
+
+        # Extra kernel CFLAGS for kernel code compilation
+        # This affects the actual kernel code, not just build tools
+        # Use KCFLAGS which is specifically for additional flags
+        if extra_kernel_cflags:
+            cmd.append(f"KCFLAGS={extra_kernel_cflags}")
 
         # Out-of-tree build
         if build_dir:

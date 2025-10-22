@@ -389,6 +389,19 @@ async def list_tools() -> list[Tool]:
                         "type": "boolean",
                         "description": "Use LLVM toolchain for cross-compilation",
                         "default": False
+                    },
+                    "extra_host_cflags": {
+                        "type": "string",
+                        "description": "Additional CFLAGS for host tools (e.g., '-Wno-error' to disable all warnings in objtool). Only affects build tools, not kernel code."
+                    },
+                    "extra_kernel_cflags": {
+                        "type": "string",
+                        "description": "Additional CFLAGS for kernel code compilation (e.g., '-Wno-error=stringop-overflow' for specific kernel warnings). Use sparingly - prefer fixing issues when possible."
+                    },
+                    "c_std": {
+                        "type": "string",
+                        "description": "C standard to use for compilation (e.g., 'gnu11'). Required for old kernels with GCC 15+ due to C23 bool/false/true keywords. Applies to ALL code: kernel, realmode, EFI stub, etc.",
+                        "enum": ["c89", "c99", "c11", "c17", "c23", "gnu89", "gnu99", "gnu11", "gnu17", "gnu23"]
                     }
                 },
                 "required": ["kernel_path"]
@@ -1055,6 +1068,9 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             timeout = arguments.get("timeout")
             clean_first = arguments.get("clean_first", False)
             clean_type = arguments.get("clean_type", "clean")
+            extra_host_cflags = arguments.get("extra_host_cflags")
+            extra_kernel_cflags = arguments.get("extra_kernel_cflags")
+            c_std = arguments.get("c_std")
             cross_compile = _parse_cross_compile_args(arguments)
 
             if not kernel_path.exists():
@@ -1101,6 +1117,41 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     )
                     logger.info("Configuration updated with olddefconfig")
 
+            # Detect GCC version and warn about potential issues
+            warnings = []
+            try:
+                gcc_result = subprocess.run(
+                    ["gcc", "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                gcc_version_line = gcc_result.stdout.split('\n')[0]
+                # Extract major version (e.g., "gcc (GCC) 15.2.1" -> 15)
+                import re
+                version_match = re.search(r'gcc.*?(\d+)\.\d+', gcc_version_line, re.IGNORECASE)
+                if version_match:
+                    gcc_major = int(version_match.group(1))
+                    if gcc_major >= 12 and not (extra_host_cflags or extra_kernel_cflags or c_std):
+                        warnings.append(f"⚠ Detected GCC {gcc_major} - older kernels may fail to build due to new warnings/C23 changes")
+                        warnings.append("  Suggestions if build fails:")
+                        warnings.append("    • extra_host_cflags=\"-Wno-error\" - Disable errors in build tools (objtool, etc.)")
+                        warnings.append("    • extra_kernel_cflags=\"-Wno-error=<warning>\" - Disable specific kernel code warnings")
+                        if gcc_major >= 15:
+                            warnings.append("    • c_std=\"gnu11\" - Force C11 (REQUIRED for kernels < 5.14 with GCC 15+)")
+                    else:
+                        if c_std:
+                            logger.info(f"Using C standard: {c_std}")
+                            logger.info("Note: This applies to ALL compilation via CC override")
+                        if extra_host_cflags:
+                            logger.info(f"Applying extra host CFLAGS: {extra_host_cflags}")
+                            logger.info("Note: This only affects build tools (like objtool), not kernel code")
+                        if extra_kernel_cflags:
+                            logger.info(f"Applying extra kernel CFLAGS: {extra_kernel_cflags}")
+                            logger.info("Note: This affects kernel code compilation")
+            except Exception as e:
+                logger.debug(f"Could not detect GCC version: {e}")
+
             # Build
             logger.info(f"Building kernel at {kernel_path}...")
             if cross_compile:
@@ -1113,11 +1164,18 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 target=target,
                 build_dir=Path(build_dir) if build_dir else None,
                 timeout=timeout,
-                cross_compile=cross_compile
+                cross_compile=cross_compile,
+                extra_host_cflags=extra_host_cflags,
+                extra_kernel_cflags=extra_kernel_cflags,
+                c_std=c_std
             )
 
             # Format results
             output = format_build_errors(result, max_errors=20)
+
+            # Prepend warnings if any
+            if warnings:
+                output = "\n".join(warnings) + "\n\n" + output
 
             if cross_compile:
                 output += f"\n\nCross-compilation: {cross_compile.arch}"
