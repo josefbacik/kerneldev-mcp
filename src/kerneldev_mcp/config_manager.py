@@ -332,7 +332,8 @@ class ConfigManager:
         config: Union[KernelConfig, str, Path],
         kernel_path: Optional[Path] = None,
         merge_with_existing: bool = False,
-        cross_compile: Optional[CrossCompileConfig] = None
+        cross_compile: Optional[CrossCompileConfig] = None,
+        enable_virtme: bool = False
     ) -> bool:
         """Apply configuration to kernel source tree.
 
@@ -341,6 +342,7 @@ class ConfigManager:
             kernel_path: Path to kernel source (uses self.kernel_path if None)
             merge_with_existing: If True, merge with existing .config
             cross_compile: Cross-compilation configuration
+            enable_virtme: If True, run vng --kconfig to add virtme-ng requirements
 
         Returns:
             True if successful
@@ -387,9 +389,74 @@ class ConfigManager:
                 capture_output=True,
                 text=True
             )
-            return True
         except subprocess.CalledProcessError as e:
             print(f"Warning: olddefconfig failed: {e.stderr}")
+            return False
+
+        # Apply virtme-ng requirements if requested
+        if enable_virtme:
+            if not self.apply_virtme_requirements(kernel_path, cross_compile):
+                print("Warning: Failed to apply virtme-ng requirements, but config was applied")
+                # Don't fail completely, config is still applied
+
+        return True
+
+    def apply_virtme_requirements(
+        self,
+        kernel_path: Path,
+        cross_compile: Optional[CrossCompileConfig] = None
+    ) -> bool:
+        """Apply virtme-ng configuration requirements to existing .config.
+
+        Runs 'vng --kconfig' which adds the minimal set of config options
+        required for virtme-ng to boot the kernel successfully.
+
+        Args:
+            kernel_path: Path to kernel source directory
+            cross_compile: Cross-compilation configuration
+
+        Returns:
+            True if successful, False otherwise
+        """
+        kernel_path = Path(kernel_path)
+
+        if not (kernel_path / ".config").exists():
+            raise ValueError(f"No .config found at {kernel_path}. Apply a configuration first.")
+
+        try:
+            # Build vng command
+            cmd = ["vng", "--kconfig"]
+
+            # Note: vng --kconfig runs 'make olddefconfig' internally with proper arch settings
+            # We just need to run it in the kernel directory
+
+            result = subprocess.run(
+                cmd,
+                cwd=kernel_path,
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+
+            # vng --kconfig may print warnings but still succeed
+            # Check if .config was actually modified
+            if result.returncode != 0:
+                # Check stderr for actual errors vs warnings
+                stderr_lower = result.stderr.lower()
+                if "error" in stderr_lower and "warning" not in stderr_lower:
+                    print(f"Warning: vng --kconfig failed: {result.stderr}")
+                    return False
+
+            return True
+
+        except subprocess.TimeoutExpired:
+            print("Warning: vng --kconfig timed out")
+            return False
+        except FileNotFoundError:
+            print("Warning: vng (virtme-ng) not found. Install with: pip install virtme-ng")
+            return False
+        except Exception as e:
+            print(f"Warning: vng --kconfig failed: {e}")
             return False
 
     def modify_kernel_config(

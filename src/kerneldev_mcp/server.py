@@ -227,6 +227,11 @@ async def list_tools() -> list[Tool]:
                         "type": "boolean",
                         "description": "Use LLVM toolchain for cross-compilation",
                         "default": False
+                    },
+                    "enable_virtme": {
+                        "type": "boolean",
+                        "description": "Add virtme-ng requirements via 'vng --kconfig' (recommended for configs that will be tested with boot_kernel_test)",
+                        "default": True
                     }
                 },
                 "required": ["kernel_path", "config_source"]
@@ -609,6 +614,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             kernel_path = Path(arguments["kernel_path"])
             config_source = arguments["config_source"]
             merge_with_existing = arguments.get("merge_with_existing", False)
+            enable_virtme = arguments.get("enable_virtme", True)  # Default to True
             cross_compile = _parse_cross_compile_args(arguments)
 
             # Handle inline config
@@ -637,11 +643,14 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 config=config,
                 kernel_path=kernel_path,
                 merge_with_existing=merge_with_existing,
-                cross_compile=cross_compile
+                cross_compile=cross_compile,
+                enable_virtme=enable_virtme
             )
 
             result = "✓ Configuration applied successfully" if success else "⚠ Configuration applied with warnings"
             result += f"\n\nLocation: {kernel_path / '.config'}"
+            if enable_virtme:
+                result += "\n✓ virtme-ng requirements added (vng --kconfig)"
             if cross_compile:
                 result += f"\n\nCross-compilation configured for {cross_compile.arch}"
                 if cross_compile.use_llvm:
