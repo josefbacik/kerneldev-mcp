@@ -493,7 +493,7 @@ class BootManager:
                 )
 
         # Build vng command
-        cmd = ["vng"]
+        cmd = ["vng", "--verbose"]  # --verbose is critical to capture serial console output
 
         # Use --run for host kernel
         if use_host_kernel:
