@@ -487,6 +487,39 @@ async def list_tools() -> list[Tool]:
                 "properties": {}
             }
         ),
+        Tool(
+            name="modify_kernel_config",
+            description="Enable, disable, or modify specific kernel configuration options in an existing .config file",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "kernel_path": {
+                        "type": "string",
+                        "description": "Path to kernel source directory"
+                    },
+                    "options": {
+                        "type": "object",
+                        "description": "CONFIG options to modify. Keys can be 'CONFIG_NAME' or just 'NAME'. Values: 'y' (enable), 'n' (disable), 'm' (module), string value, or null (unset)",
+                        "additionalProperties": {"type": ["string", "null"]}
+                    },
+                    "cross_compile_arch": {
+                        "type": "string",
+                        "description": "Target architecture for cross-compilation",
+                        "enum": ["x86_64", "x86", "arm64", "arm", "riscv", "powerpc", "mips"]
+                    },
+                    "cross_compile_prefix": {
+                        "type": "string",
+                        "description": "Cross-compiler prefix. Auto-detected if not specified."
+                    },
+                    "use_llvm": {
+                        "type": "boolean",
+                        "description": "Use LLVM toolchain for cross-compilation",
+                        "default": False
+                    }
+                },
+                "required": ["kernel_path", "options"]
+            }
+        ),
     ]
 
 
@@ -937,6 +970,54 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 output += "  sudo apt install virtme-ng"
 
             return [TextContent(type="text", text=output)]
+
+        elif name == "modify_kernel_config":
+            kernel_path = Path(arguments["kernel_path"])
+            options = arguments["options"]
+            cross_compile = _parse_cross_compile_args(arguments)
+
+            if not kernel_path.exists():
+                return [TextContent(type="text", text=f"Error: Kernel path does not exist: {kernel_path}")]
+
+            # Modify config
+            result = config_manager.modify_kernel_config(
+                kernel_path=kernel_path,
+                options=options,
+                cross_compile=cross_compile
+            )
+
+            # Format output
+            output_lines = []
+
+            if result["success"]:
+                output_lines.append("✓ Configuration modified successfully")
+            else:
+                output_lines.append("⚠ Configuration modified with warnings/errors")
+
+            output_lines.append("")
+
+            # Show changes
+            if result["changes"]:
+                output_lines.append(f"Modified {len(result['changes'])} option(s):")
+                for option_name, old_value, new_value in result["changes"]:
+                    output_lines.append(f"  • {option_name}: {old_value} → {new_value}")
+            else:
+                output_lines.append("No changes made (options already had requested values)")
+
+            # Show errors/warnings
+            if result["errors"]:
+                output_lines.append("")
+                output_lines.append("Messages:")
+                for error in result["errors"]:
+                    output_lines.append(f"  {error}")
+
+            output_lines.append("")
+            output_lines.append(f"Updated config: {kernel_path / '.config'}")
+
+            if cross_compile:
+                output_lines.append(f"Architecture: {cross_compile.arch}")
+
+            return [TextContent(type="text", text="\n".join(output_lines))]
 
         else:
             raise ValueError(f"Unknown tool: {name}")

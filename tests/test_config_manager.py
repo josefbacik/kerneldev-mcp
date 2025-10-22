@@ -259,3 +259,156 @@ def test_cross_compile_config_native():
     env = cross.to_make_env()
     assert env["ARCH"] == "x86_64"
     assert "CROSS_COMPILE" not in env
+
+
+def test_modify_kernel_config_no_config(tmp_path):
+    """Test modify_kernel_config with no existing .config."""
+    manager = ConfigManager()
+
+    result = manager.modify_kernel_config(
+        kernel_path=tmp_path,
+        options={"CONFIG_DEBUG_INFO": "y"}
+    )
+
+    assert not result["success"]
+    assert len(result["errors"]) > 0
+    assert "No .config found" in result["errors"][0]
+
+
+def test_modify_kernel_config_basic(tmp_path):
+    """Test basic config modification."""
+    manager = ConfigManager()
+
+    # Create a minimal .config
+    config = KernelConfig()
+    config.set_option("CONFIG_NET", "y")
+    config.set_option("CONFIG_DEBUG_INFO", None)  # Not set
+    config.to_file(tmp_path / ".config")
+
+    # Create minimal Makefile to mock kernel tree
+    makefile = tmp_path / "Makefile"
+    makefile.write_text("""
+# Mock Makefile for testing
+VERSION = 6
+PATCHLEVEL = 16
+SUBLEVEL = 0
+
+olddefconfig:
+\t@echo "Running olddefconfig"
+""")
+
+    # Modify config
+    result = manager.modify_kernel_config(
+        kernel_path=tmp_path,
+        options={
+            "CONFIG_DEBUG_INFO": "y",  # Change from not set to y
+            "CONFIG_KASAN": "y"        # Add new option
+        }
+    )
+
+    # Check result
+    assert len(result["changes"]) >= 1  # At least DEBUG_INFO should change
+
+    # Find the DEBUG_INFO change
+    debug_info_change = None
+    for change in result["changes"]:
+        if change[0] == "CONFIG_DEBUG_INFO":
+            debug_info_change = change
+            break
+
+    assert debug_info_change is not None
+    assert debug_info_change[1] == "not set"  # old value
+    assert debug_info_change[2] == "y"        # new value
+
+
+def test_modify_kernel_config_with_prefix(tmp_path):
+    """Test that CONFIG_ prefix is optional."""
+    manager = ConfigManager()
+
+    # Create a minimal .config
+    config = KernelConfig()
+    config.set_option("CONFIG_NET", "y")
+    config.to_file(tmp_path / ".config")
+
+    # Create minimal Makefile
+    makefile = tmp_path / "Makefile"
+    makefile.write_text("""
+olddefconfig:
+\t@echo "Running olddefconfig"
+""")
+
+    # Modify config without CONFIG_ prefix
+    result = manager.modify_kernel_config(
+        kernel_path=tmp_path,
+        options={
+            "DEBUG_KERNEL": "y",  # No CONFIG_ prefix
+        }
+    )
+
+    # Should have added CONFIG_DEBUG_KERNEL
+    assert any("CONFIG_DEBUG_KERNEL" in change[0] for change in result["changes"])
+
+
+def test_modify_kernel_config_unset_option(tmp_path):
+    """Test unsetting a config option."""
+    manager = ConfigManager()
+
+    # Create a minimal .config with an option enabled
+    config = KernelConfig()
+    config.set_option("CONFIG_DEBUG_INFO", "y")
+    config.to_file(tmp_path / ".config")
+
+    # Create minimal Makefile
+    makefile = tmp_path / "Makefile"
+    makefile.write_text("""
+olddefconfig:
+\t@echo "Running olddefconfig"
+""")
+
+    # Unset the option
+    result = manager.modify_kernel_config(
+        kernel_path=tmp_path,
+        options={
+            "CONFIG_DEBUG_INFO": None  # Unset
+        }
+    )
+
+    # Should show change from y to not set
+    assert len(result["changes"]) >= 1
+    debug_change = None
+    for change in result["changes"]:
+        if change[0] == "CONFIG_DEBUG_INFO":
+            debug_change = change
+            break
+
+    assert debug_change is not None
+    assert debug_change[1] == "y"
+    assert debug_change[2] == "not set"
+
+
+def test_modify_kernel_config_no_changes(tmp_path):
+    """Test when options already have requested values."""
+    manager = ConfigManager()
+
+    # Create a minimal .config
+    config = KernelConfig()
+    config.set_option("CONFIG_NET", "y")
+    config.to_file(tmp_path / ".config")
+
+    # Create minimal Makefile
+    makefile = tmp_path / "Makefile"
+    makefile.write_text("""
+olddefconfig:
+\t@echo "Running olddefconfig"
+""")
+
+    # Request same value
+    result = manager.modify_kernel_config(
+        kernel_path=tmp_path,
+        options={
+            "CONFIG_NET": "y"  # Already set to y
+        }
+    )
+
+    # Should have no changes
+    assert len(result["changes"]) == 0

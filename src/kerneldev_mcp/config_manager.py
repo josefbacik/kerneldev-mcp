@@ -392,6 +392,124 @@ class ConfigManager:
             print(f"Warning: olddefconfig failed: {e.stderr}")
             return False
 
+    def modify_kernel_config(
+        self,
+        kernel_path: Path,
+        options: Dict[str, Optional[str]],
+        cross_compile: Optional[CrossCompileConfig] = None
+    ) -> Dict[str, any]:
+        """Modify specific config options in existing .config file.
+
+        Args:
+            kernel_path: Path to kernel source directory
+            options: Dictionary of CONFIG_NAME -> value (y/n/m/string/None for unset)
+            cross_compile: Cross-compilation configuration
+
+        Returns:
+            Dictionary with:
+                - success: bool
+                - changes: List of tuples (option_name, old_value, new_value)
+                - errors: List of error messages
+        """
+        kernel_path = Path(kernel_path)
+        config_path = kernel_path / ".config"
+
+        result = {
+            "success": False,
+            "changes": [],
+            "errors": []
+        }
+
+        # Check if .config exists
+        if not config_path.exists():
+            result["errors"].append(f"No .config found at {config_path}. Run defconfig or apply a configuration first.")
+            return result
+
+        # Read current config
+        try:
+            current_config = KernelConfig.from_file(config_path)
+        except Exception as e:
+            result["errors"].append(f"Failed to read .config: {e}")
+            return result
+
+        # Track what we're changing
+        changes = []
+
+        # Modify options
+        for option_name, new_value in options.items():
+            # Normalize option name (add CONFIG_ prefix if missing)
+            if not option_name.startswith("CONFIG_"):
+                option_name = f"CONFIG_{option_name}"
+
+            # Get old value
+            old_value = current_config.options.get(option_name)
+            if old_value and old_value.value is not None:
+                old_val_str = old_value.value
+            else:
+                old_val_str = "not set"
+
+            # Set new value
+            current_config.set_option(option_name, new_value)
+
+            # Get actual new value (might be different after set_option processes it)
+            new_option = current_config.options.get(option_name)
+            if new_option and new_option.value is not None:
+                new_val_str = new_option.value
+            else:
+                new_val_str = "not set"
+
+            # Track change
+            if old_val_str != new_val_str:
+                changes.append((option_name, old_val_str, new_val_str))
+
+        # Write modified config back
+        try:
+            current_config.to_file(config_path)
+        except Exception as e:
+            result["errors"].append(f"Failed to write .config: {e}")
+            return result
+
+        # Run olddefconfig to resolve dependencies
+        try:
+            cmd = ["make", "olddefconfig"]
+
+            if cross_compile:
+                cmd.extend(cross_compile.to_make_args())
+
+            subprocess.run(
+                cmd,
+                cwd=kernel_path,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+        except subprocess.CalledProcessError as e:
+            result["errors"].append(f"make olddefconfig failed: {e.stderr}")
+            return result
+
+        # Read config again to see what olddefconfig changed
+        try:
+            final_config = KernelConfig.from_file(config_path)
+
+            # Check for additional changes from olddefconfig
+            for option_name, _, requested_value in changes:
+                actual_value = final_config.options.get(option_name)
+                actual_val_str = actual_value.value if actual_value else "not set"
+
+                if actual_val_str != requested_value:
+                    # olddefconfig changed our value (dependency conflict)
+                    result["errors"].append(
+                        f"Warning: {option_name} was set to {requested_value} but olddefconfig changed it to {actual_val_str} (likely due to dependency conflicts)"
+                    )
+
+        except Exception as e:
+            result["errors"].append(f"Failed to verify final config: {e}")
+
+        result["success"] = len(result["errors"]) == 0 or all("Warning:" in e for e in result["errors"])
+        result["changes"] = changes
+
+        return result
+
     def search_config_options(
         self,
         query: str,
