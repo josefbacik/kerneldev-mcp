@@ -24,13 +24,14 @@ from .build_manager import KernelBuilder, BuildResult, format_build_errors
 from .boot_manager import BootManager, BootResult, format_boot_result
 from .device_manager import DeviceManager, DeviceConfig, DeviceSetupResult
 from .fstests_manager import (
-    FstestsManager, FstestsConfig, FstestsRunResult,
+    FstestsManager, FstestsConfig, FstestsRunResult, TestResult,
     format_fstests_result
 )
 from .baseline_manager import (
     BaselineManager, Baseline, ComparisonResult,
     format_comparison_result
 )
+from .git_manager import GitManager, GitNoteMetadata
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -803,7 +804,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="compare_fstests_results",
-            description="Compare test results against a baseline",
+            description="Compare test results against a baseline. Current results can be loaded from git notes or a JSON file.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -811,9 +812,21 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Name of baseline to compare against"
                     },
+                    "kernel_path": {
+                        "type": "string",
+                        "description": "Path to kernel source directory (git repository) to load results from git notes"
+                    },
+                    "branch_name": {
+                        "type": "string",
+                        "description": "Branch name to load current results from (defaults to current branch)"
+                    },
+                    "commit_sha": {
+                        "type": "string",
+                        "description": "Commit SHA to load current results from (overrides branch_name)"
+                    },
                     "current_results_file": {
                         "type": "string",
-                        "description": "Path to current results JSON file (optional if just ran tests)"
+                        "description": "Path to current results JSON file (alternative to git notes)"
                     }
                 },
                 "required": ["baseline_name"]
@@ -825,6 +838,127 @@ async def list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {}
+            }
+        ),
+        Tool(
+            name="run_and_save_fstests",
+            description="Run fstests and save results to git notes for future comparison. Results are stored as git notes attached to the current commit or branch.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "kernel_path": {
+                        "type": "string",
+                        "description": "Path to kernel source directory (must be a git repository)"
+                    },
+                    "fstests_path": {
+                        "type": "string",
+                        "description": "Path to fstests installation (optional)"
+                    },
+                    "tests": {
+                        "type": "array",
+                        "description": "Tests to run (e.g., ['generic/001'] or ['-g', 'quick'])",
+                        "items": {"type": "string"}
+                    },
+                    "exclude_file": {
+                        "type": "string",
+                        "description": "Path to exclude file"
+                    },
+                    "randomize": {
+                        "type": "boolean",
+                        "description": "Randomize test order",
+                        "default": False
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Timeout in seconds",
+                        "minimum": 60
+                    },
+                    "fstype": {
+                        "type": "string",
+                        "description": "Filesystem type being tested",
+                        "default": "ext4"
+                    },
+                    "target": {
+                        "type": "string",
+                        "description": "Where to attach git note",
+                        "enum": ["branch", "commit"],
+                        "default": "branch"
+                    },
+                    "branch_name": {
+                        "type": "string",
+                        "description": "Branch name (for 'branch' target, defaults to current branch)"
+                    },
+                    "kernel_version": {
+                        "type": "string",
+                        "description": "Kernel version for metadata (auto-detected if not provided)"
+                    }
+                },
+                "required": ["kernel_path"]
+            }
+        ),
+        Tool(
+            name="load_fstests_from_git",
+            description="Load fstests results from git notes",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "kernel_path": {
+                        "type": "string",
+                        "description": "Path to kernel source directory (git repository)"
+                    },
+                    "branch_name": {
+                        "type": "string",
+                        "description": "Branch name to load from (defaults to current branch)"
+                    },
+                    "commit_sha": {
+                        "type": "string",
+                        "description": "Commit SHA to load from (overrides branch_name)"
+                    }
+                },
+                "required": ["kernel_path"]
+            }
+        ),
+        Tool(
+            name="list_git_fstests_results",
+            description="List commits with stored fstests results",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "kernel_path": {
+                        "type": "string",
+                        "description": "Path to kernel source directory (git repository)"
+                    },
+                    "max_count": {
+                        "type": "integer",
+                        "description": "Maximum number of results to return",
+                        "default": 20,
+                        "minimum": 1,
+                        "maximum": 100
+                    }
+                },
+                "required": ["kernel_path"]
+            }
+        ),
+        Tool(
+            name="delete_git_fstests_results",
+            description="Delete fstests results from git notes",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "kernel_path": {
+                        "type": "string",
+                        "description": "Path to kernel source directory (git repository)"
+                    },
+                    "branch_name": {
+                        "type": "string",
+                        "description": "Branch name to delete from"
+                    },
+                    "commit_sha": {
+                        "type": "string",
+                        "description": "Commit SHA to delete from"
+                    }
+                },
+                "required": ["kernel_path"]
             }
         ),
     ]
@@ -1625,7 +1759,11 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
         elif name == "compare_fstests_results":
             baseline_name = arguments["baseline_name"]
             current_results_file = arguments.get("current_results_file")
+            kernel_path = arguments.get("kernel_path")
+            branch_name = arguments.get("branch_name")
+            commit_sha = arguments.get("commit_sha")
 
+            # Load baseline
             baseline = baseline_manager.load_baseline(baseline_name)
 
             if not baseline:
@@ -1634,12 +1772,72 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     text=f"Error: Baseline '{baseline_name}' not found"
                 )]
 
-            # Load current results (would need to be stored from previous run_fstests)
-            # For now, return error asking user to run tests first
-            # TODO: Implement storing last run results or loading from file
+            # Load current results
+            current_results = None
 
-            output = "Error: Current results comparison not yet implemented.\n"
-            output += "Need to run tests first and store results, or provide results file."
+            # Try loading from git notes if kernel_path provided
+            if kernel_path:
+                try:
+                    git_mgr = GitManager(Path(kernel_path))
+                    current_results = git_mgr.load_fstests_run_result(
+                        branch_name=branch_name,
+                        commit_sha=commit_sha
+                    )
+                    if current_results:
+                        logger.info("Loaded current results from git notes")
+                except ValueError as e:
+                    return [TextContent(
+                        type="text",
+                        text=f"Error: {str(e)}"
+                    )]
+
+            # Try loading from file if provided
+            if not current_results and current_results_file:
+                # Load from JSON file
+                try:
+                    with open(current_results_file) as f:
+                        data = json.load(f)
+
+                    # Parse into FstestsRunResult
+                    test_results = [
+                        TestResult(
+                            test_name=t["test_name"],
+                            status=t["status"],
+                            duration=t["duration"],
+                            failure_reason=t.get("failure_reason")
+                        )
+                        for t in data["test_results"]
+                    ]
+
+                    current_results = FstestsRunResult(
+                        success=data["success"],
+                        total_tests=data["total_tests"],
+                        passed=data["passed"],
+                        failed=data["failed"],
+                        notrun=data["notrun"],
+                        test_results=test_results,
+                        duration=data["duration"]
+                    )
+                    logger.info("Loaded current results from file")
+                except (OSError, json.JSONDecodeError, KeyError) as e:
+                    return [TextContent(
+                        type="text",
+                        text=f"Error loading results file: {str(e)}"
+                    )]
+
+            if not current_results:
+                output = "Error: No current results to compare.\n\n"
+                output += "Please provide one of:\n"
+                output += "  • kernel_path - to load results from git notes\n"
+                output += "  • current_results_file - path to JSON results file\n\n"
+                output += "Or run tests first with run_and_save_fstests tool."
+                return [TextContent(type="text", text=output)]
+
+            # Perform comparison
+            comparison = baseline_manager.compare_results(current_results, baseline)
+
+            # Format output
+            output = format_comparison_result(comparison, baseline_name)
 
             return [TextContent(type="text", text=output)]
 
@@ -1717,6 +1915,194 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 output += format_fstests_result(fstests_result)
             else:
                 output += "✗ fstests did not complete (boot failed or timed out)\n"
+
+            return [TextContent(type="text", text=output)]
+
+        elif name == "run_and_save_fstests":
+            kernel_path = Path(arguments["kernel_path"])
+            fstests_path = arguments.get("fstests_path")
+            tests = arguments.get("tests")
+            exclude_file = arguments.get("exclude_file")
+            randomize = arguments.get("randomize", False)
+            timeout = arguments.get("timeout")
+            fstype = arguments.get("fstype", "ext4")
+            target = arguments.get("target", "branch")
+            branch_name = arguments.get("branch_name")
+            kernel_version = arguments.get("kernel_version")
+
+            # Verify kernel path is a git repo
+            try:
+                git_mgr = GitManager(kernel_path)
+            except ValueError as e:
+                return [TextContent(
+                    type="text",
+                    text=f"Error: {str(e)}"
+                )]
+
+            # Auto-detect kernel version if not provided
+            if not kernel_version:
+                try:
+                    from .build_manager import KernelBuilder
+                    builder = KernelBuilder(kernel_path)
+                    kernel_version = builder.get_kernel_version()
+                except Exception:
+                    kernel_version = None
+
+            # Run fstests
+            if fstests_path:
+                manager = FstestsManager(Path(fstests_path))
+            else:
+                manager = fstests_manager
+
+            if not manager.check_installed():
+                return [TextContent(
+                    type="text",
+                    text=f"Error: fstests not installed at {manager.fstests_path}"
+                )]
+
+            logger.info("Running fstests...")
+            result = manager.run_tests(
+                tests=tests,
+                exclude_file=Path(exclude_file) if exclude_file else None,
+                randomize=randomize,
+                iterations=1,
+                timeout=timeout
+            )
+
+            # Save to git notes
+            test_selection = " ".join(tests) if tests else "-g quick"
+            success = git_mgr.save_fstests_results(
+                results=result,
+                target=target,
+                branch_name=branch_name,
+                kernel_version=kernel_version,
+                fstype=fstype,
+                test_selection=test_selection
+            )
+
+            # Format output
+            output = format_fstests_result(result)
+            output += "\n\n"
+
+            if success:
+                output += "✓ Results saved to git notes\n"
+                if target == "branch":
+                    branch = branch_name or git_mgr.get_current_branch()
+                    output += f"  Location: {target} '{branch}'\n"
+                else:
+                    commit = git_mgr.get_current_commit()
+                    output += f"  Location: commit {commit[:8] if commit else 'HEAD'}\n"
+                output += f"  Filesystem: {fstype}\n"
+                output += f"  Tests: {test_selection}\n"
+                output += "\nUse compare_fstests_results to compare against a baseline."
+            else:
+                output += "⚠ Failed to save results to git notes"
+
+            return [TextContent(type="text", text=output)]
+
+        elif name == "load_fstests_from_git":
+            kernel_path = Path(arguments["kernel_path"])
+            branch_name = arguments.get("branch_name")
+            commit_sha = arguments.get("commit_sha")
+
+            try:
+                git_mgr = GitManager(kernel_path)
+            except ValueError as e:
+                return [TextContent(
+                    type="text",
+                    text=f"Error: {str(e)}"
+                )]
+
+            # Load results
+            data = git_mgr.load_fstests_results(
+                branch_name=branch_name,
+                commit_sha=commit_sha
+            )
+
+            if not data:
+                location = commit_sha or branch_name or "current commit"
+                return [TextContent(
+                    type="text",
+                    text=f"✗ No fstests results found for {location}"
+                )]
+
+            # Reconstruct and format results
+            result = git_mgr.load_fstests_run_result(
+                branch_name=branch_name,
+                commit_sha=commit_sha
+            )
+
+            metadata = data["metadata"]
+            output = "=== Fstests Results from Git Notes ===\n\n"
+            output += f"Commit: {metadata['commit_sha'][:8]}\n"
+            if metadata.get("branch_name"):
+                output += f"Branch: {metadata['branch_name']}\n"
+            if metadata.get("kernel_version"):
+                output += f"Kernel: {metadata['kernel_version']}\n"
+            output += f"Filesystem: {metadata['fstype']}\n"
+            output += f"Tests: {metadata['test_selection']}\n"
+            output += f"Created: {metadata['created_at']}\n\n"
+
+            if result:
+                output += result.summary()
+
+            return [TextContent(type="text", text=output)]
+
+        elif name == "list_git_fstests_results":
+            kernel_path = Path(arguments["kernel_path"])
+            max_count = arguments.get("max_count", 20)
+
+            try:
+                git_mgr = GitManager(kernel_path)
+            except ValueError as e:
+                return [TextContent(
+                    type="text",
+                    text=f"Error: {str(e)}"
+                )]
+
+            results = git_mgr.list_commits_with_results(max_count=max_count)
+
+            if not results:
+                output = "No fstests results found in git notes"
+            else:
+                output = f"Found {len(results)} commit(s) with fstests results:\n\n"
+                for i, meta in enumerate(results, 1):
+                    output += f"{i}. {meta.commit_sha[:8]}"
+                    if meta.branch_name:
+                        output += f" ({meta.branch_name})"
+                    output += "\n"
+                    if meta.kernel_version:
+                        output += f"   Kernel: {meta.kernel_version}\n"
+                    output += f"   Filesystem: {meta.fstype}\n"
+                    output += f"   Tests: {meta.test_selection}\n"
+                    output += f"   Created: {meta.created_at}\n\n"
+
+            return [TextContent(type="text", text=output)]
+
+        elif name == "delete_git_fstests_results":
+            kernel_path = Path(arguments["kernel_path"])
+            branch_name = arguments.get("branch_name")
+            commit_sha = arguments.get("commit_sha")
+
+            try:
+                git_mgr = GitManager(kernel_path)
+            except ValueError as e:
+                return [TextContent(
+                    type="text",
+                    text=f"Error: {str(e)}"
+                )]
+
+            success = git_mgr.delete_fstests_results(
+                branch_name=branch_name,
+                commit_sha=commit_sha
+            )
+
+            if success:
+                location = commit_sha or branch_name or "current commit"
+                output = f"✓ Deleted fstests results for {location}"
+            else:
+                location = commit_sha or branch_name or "current commit"
+                output = f"✗ Failed to delete results for {location}"
 
             return [TextContent(type="text", text=output)]
 
