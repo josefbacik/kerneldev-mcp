@@ -1864,6 +1864,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             kernel_path = Path(arguments["kernel_path"])
             fstests_path = Path(arguments["fstests_path"])
             tests = arguments.get("tests", ["-g", "quick"])
+            fstype = arguments.get("fstype", "ext4")
             timeout = arguments.get("timeout", 300)
             memory = arguments.get("memory", "4G")
             cpus = arguments.get("cpus", 4)
@@ -1896,6 +1897,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             boot_result, fstests_result = boot_mgr.boot_with_fstests(
                 fstests_path=fstests_path,
                 tests=tests,
+                fstype=fstype,
                 timeout=timeout,
                 memory=memory,
                 cpus=cpus,
@@ -1913,6 +1915,11 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             if fstests_result:
                 output += "=== fstests Results ===\n\n"
                 output += format_fstests_result(fstests_result)
+
+                # Check if tests actually succeeded
+                if not fstests_result.success:
+                    output += "\n⚠ WARNING: fstests completed but some tests FAILED\n"
+                    output += f"Failed: {fstests_result.failed}, Passed: {fstests_result.passed}\n"
             else:
                 output += "✗ fstests did not complete (boot failed or timed out)\n"
 

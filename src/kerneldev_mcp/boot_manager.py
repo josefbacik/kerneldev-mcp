@@ -726,6 +726,7 @@ class BootManager:
         self,
         fstests_path: Path,
         tests: List[str],
+        fstype: str = "ext4",
         timeout: int = 300,
         memory: str = "4G",
         cpus: int = 4,
@@ -737,6 +738,7 @@ class BootManager:
         Args:
             fstests_path: Path to fstests installation
             tests: Tests to run (e.g., ["-g", "quick"])
+            fstype: Filesystem type to test (e.g., "ext4", "btrfs", "xfs")
             timeout: Total timeout in seconds
             memory: Memory size for VM
             cpus: Number of CPUs
@@ -845,12 +847,6 @@ class BootManager:
 
         # Build test command to run inside VM
         test_args = " ".join(tests) if tests else "-g quick"
-
-        # Determine filesystem type from test args
-        # Default to ext4, but use btrfs if test path contains "btrfs"
-        fstype = "ext4"
-        if any("btrfs" in t for t in tests):
-            fstype = "btrfs"
 
         # Create script to run inside VM
         # Note: virtme-ng runs as root, so no sudo needed
