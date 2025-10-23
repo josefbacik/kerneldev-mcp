@@ -1942,7 +1942,6 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             # Auto-detect kernel version if not provided
             if not kernel_version:
                 try:
-                    from .build_manager import KernelBuilder
                     builder = KernelBuilder(kernel_path)
                     kernel_version = builder.get_kernel_version()
                 except Exception:
