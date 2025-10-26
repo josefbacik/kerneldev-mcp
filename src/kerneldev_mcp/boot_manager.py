@@ -449,7 +449,7 @@ def _save_boot_log(output: str, success: bool) -> Path:
     return log_file
 
 
-def _run_with_pty(cmd: List[str], cwd: Path, timeout: int) -> Tuple[int, str]:
+def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = False) -> Tuple[int, str]:
     """Run a command with a pseudo-terminal.
 
     This is needed for virtme-ng which requires a valid PTS.
@@ -458,6 +458,7 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int) -> Tuple[int, str]:
         cmd: Command and arguments to run
         cwd: Working directory
         timeout: Timeout in seconds
+        emit_output: If True, emit output in real-time to logger (for long operations)
 
     Returns:
         Tuple of (exit_code, output)
@@ -486,6 +487,8 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int) -> Tuple[int, str]:
         # Read output with timeout
         output = []
         start_time = time.time()
+        last_progress_log = start_time
+        lines_since_last_log = []
 
         while True:
             # Check if process is still running
@@ -493,7 +496,8 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int) -> Tuple[int, str]:
                 break
 
             # Check timeout
-            if time.time() - start_time > timeout:
+            elapsed = time.time() - start_time
+            if elapsed > timeout:
                 # Kill the entire process group to ensure child processes (QEMU) are also killed
                 try:
                     os.killpg(os.getpgid(process.pid), signal.SIGKILL)
@@ -503,6 +507,21 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int) -> Tuple[int, str]:
                 process.wait()
                 raise subprocess.TimeoutExpired(cmd, timeout, b''.join(output))
 
+            # Emit progress log every 10 seconds if emit_output is enabled
+            if emit_output and (time.time() - last_progress_log) > 10:
+                logger.info(f"  ... still running ({elapsed:.0f}s elapsed, {timeout - elapsed:.0f}s remaining)")
+                # Also log any interesting lines we've seen
+                if lines_since_last_log:
+                    # Look for lines with "===", "ERROR", "FAIL", or test names
+                    for line in lines_since_last_log[-5:]:  # Last 5 lines
+                        if any(marker in line for marker in ["===", "ERROR", "FAIL", "btrfs/", "generic/", "xfs/"]):
+                            logger.info(f"    {line[:100]}")
+                    lines_since_last_log.clear()
+                last_progress_log = time.time()
+                # Explicitly flush logs
+                for handler in logger.handlers:
+                    handler.flush()
+
             # Try to read with a short timeout
             ready, _, _ = select.select([master_fd], [], [], 0.1)
             if ready:
@@ -510,6 +529,13 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int) -> Tuple[int, str]:
                     data = os.read(master_fd, 4096)
                     if data:
                         output.append(data)
+                        # Track lines for progress logging
+                        if emit_output:
+                            try:
+                                text = data.decode('utf-8', errors='replace')
+                                lines_since_last_log.extend(text.splitlines())
+                            except Exception:
+                                pass
                 except OSError:
                     break
 
@@ -788,6 +814,16 @@ class BootManager:
         # Import here to avoid circular dependency
         from .fstests_manager import FstestsManager, FstestsRunResult
 
+        logger.info("=" * 60)
+        logger.info(f"Starting kernel boot with fstests: {self.kernel_path}")
+        logger.info(f"Config: fstype={fstype}, memory={memory}, cpus={cpus}, timeout={timeout}s")
+        test_args = " ".join(tests) if tests else "-g quick"
+        logger.info(f"Tests: {test_args}")
+        if cross_compile:
+            logger.info(f"Cross-compile arch: {cross_compile.arch}")
+        if force_9p:
+            logger.info("Using 9p filesystem (virtio-fs disabled)")
+
         start_time = time.time()
 
         # Track created loop devices for cleanup
@@ -795,6 +831,8 @@ class BootManager:
 
         # Check virtme-ng is available
         if not self.check_virtme_ng():
+            logger.error("✗ virtme-ng not found")
+            logger.info("=" * 60)
             return (BootResult(
                 success=False,
                 duration=time.time() - start_time,
@@ -850,6 +888,7 @@ class BootManager:
 
         # Create loop devices on host for passing to VM
         # We need: 1 test device + 5 scratch pool devices + 1 log-writes device = 7 total
+        logger.info("Creating loop devices on host (7 x 10G)...")
         device_size = "10G"
         device_names = ["test", "pool1", "pool2", "pool3", "pool4", "pool5", "logwrites"]
 
@@ -1034,9 +1073,16 @@ exit $exit_code
         # Execute the test script
         cmd.extend(["--", "bash", str(script_file)])
 
-        # Run with PTY
+        # Run with PTY (with real-time progress logging)
+        logger.info(f"✓ Loop devices created: {len(created_loop_devices)}")
+        logger.info(f"Booting kernel and running fstests... (timeout: {timeout}s)")
+        logger.info("  Progress updates will be logged every 10 seconds")
+        # Flush before long operation
+        for handler in logger.handlers:
+            handler.flush()
+
         try:
-            exit_code, output = _run_with_pty(cmd, self.kernel_path, timeout)
+            exit_code, output = _run_with_pty(cmd, self.kernel_path, timeout, emit_output=True)
 
             duration = time.time() - start_time
 
@@ -1056,6 +1102,20 @@ exit $exit_code
             boot_success = (exit_code == 0 or exit_code == 1) and len(panics) == 0  # exit 1 is OK if tests failed
             log_file = _save_boot_log(output, boot_success)
 
+            # Log completion
+            if boot_success:
+                logger.info(f"✓ Kernel boot and fstests completed successfully in {duration:.1f}s")
+                if fstests_result:
+                    logger.info(f"  Tests: {fstests_result.passed} passed, {fstests_result.failed} failed, {fstests_result.notrun} not run")
+            else:
+                logger.error(f"✗ Kernel boot or fstests failed after {duration:.1f}s")
+                logger.error(f"  Panics: {len(panics)}, Oops: {len(oops)}, Errors: {len(errors)}")
+            logger.info(f"Boot log saved: {log_file}")
+            logger.info("=" * 60)
+            # Flush logs
+            for handler in logger.handlers:
+                handler.flush()
+
             boot_result = BootResult(
                 success=boot_success,
                 duration=duration,
@@ -1074,12 +1134,18 @@ exit $exit_code
 
         except subprocess.TimeoutExpired as e:
             duration = time.time() - start_time
+            logger.error(f"✗ Boot test timed out after {timeout}s (ran for {duration:.1f}s)")
             output = ""
             if e.output:
                 output = e.output.decode() if isinstance(e.output, bytes) else e.output
 
             full_output = output + f"\n\nERROR: Test timed out after {timeout}s"
             log_file = _save_boot_log(full_output, success=False)
+            logger.info(f"Boot log saved: {log_file}")
+            logger.info("=" * 60)
+            # Flush logs
+            for handler in logger.handlers:
+                handler.flush()
 
             return (BootResult(
                 success=False,
@@ -1093,8 +1159,14 @@ exit $exit_code
 
         except Exception as e:
             duration = time.time() - start_time
+            logger.error(f"✗ Boot test failed with exception: {e}")
             error_output = f"ERROR: {str(e)}"
             log_file = _save_boot_log(error_output, success=False)
+            logger.info(f"Boot log saved: {log_file}")
+            logger.info("=" * 60)
+            # Flush logs
+            for handler in logger.handlers:
+                handler.flush()
 
             return (BootResult(
                 success=False,
