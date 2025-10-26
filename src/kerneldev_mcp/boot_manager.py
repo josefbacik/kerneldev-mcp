@@ -57,6 +57,7 @@ class BootResult:
     exit_code: int = 0
     timeout_occurred: bool = False
     log_file_path: Optional[Path] = None  # Path to saved boot log
+    progress_log: List[str] = field(default_factory=list)  # Progress messages during execution
 
     @property
     def error_count(self) -> int:
@@ -449,7 +450,7 @@ def _save_boot_log(output: str, success: bool) -> Path:
     return log_file
 
 
-def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = False) -> Tuple[int, str]:
+def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = False) -> Tuple[int, str, List[str]]:
     """Run a command with a pseudo-terminal.
 
     This is needed for virtme-ng which requires a valid PTS.
@@ -461,7 +462,7 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = F
         emit_output: If True, emit output in real-time to logger (for long operations)
 
     Returns:
-        Tuple of (exit_code, output)
+        Tuple of (exit_code, output, progress_messages)
     """
     # Create a pseudo-terminal
     master_fd, slave_fd = pty.openpty()
@@ -486,9 +487,11 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = F
 
         # Read output with timeout
         output = []
+        progress_messages = []  # Accumulate progress for return to caller
         start_time = time.time()
         last_progress_log = start_time
         lines_since_last_log = []
+        all_lines_buffer = []  # Buffer for more verbose logging
 
         while True:
             # Check if process is still running
@@ -509,13 +512,31 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = F
 
             # Emit progress log every 10 seconds if emit_output is enabled
             if emit_output and (time.time() - last_progress_log) > 10:
-                logger.info(f"  ... still running ({elapsed:.0f}s elapsed, {timeout - elapsed:.0f}s remaining)")
-                # Also log any interesting lines we've seen
+                progress_msg = f"[{elapsed:.0f}s] Still running ({timeout - elapsed:.0f}s remaining)"
+                logger.info(f"  {progress_msg}")
+                progress_messages.append(progress_msg)
+
+                # Log recent output lines (more verbose logging to file)
+                if all_lines_buffer:
+                    # Log last 20 lines to file (at INFO level so it appears in log)
+                    for line in all_lines_buffer[-20:]:
+                        if line.strip():  # Only log non-empty lines
+                            logger.info(f"    OUT: {line[:200]}")
+                    all_lines_buffer.clear()
+
+                # Also log any interesting lines we've seen (to both log and progress)
                 if lines_since_last_log:
                     # Look for lines with "===", "ERROR", "FAIL", or test names
-                    for line in lines_since_last_log[-5:]:  # Last 5 lines
-                        if any(marker in line for marker in ["===", "ERROR", "FAIL", "btrfs/", "generic/", "xfs/"]):
-                            logger.info(f"    {line[:100]}")
+                    interesting_lines = []
+                    for line in lines_since_last_log[-10:]:  # Last 10 lines
+                        if any(marker in line for marker in ["===", "ERROR", "FAIL", "btrfs/", "generic/", "xfs/", "ext4/", "FSTYP", "Passed", "Failed"]):
+                            interesting_lines.append(line[:150])
+
+                    if interesting_lines:
+                        for line in interesting_lines:
+                            logger.info(f"    {line}")
+                            progress_messages.append(f"  {line}")
+
                     lines_since_last_log.clear()
                 last_progress_log = time.time()
                 # Explicitly flush logs
@@ -533,7 +554,9 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = F
                         if emit_output:
                             try:
                                 text = data.decode('utf-8', errors='replace')
-                                lines_since_last_log.extend(text.splitlines())
+                                new_lines = text.splitlines()
+                                lines_since_last_log.extend(new_lines)
+                                all_lines_buffer.extend(new_lines)
                             except Exception:
                                 pass
                 except OSError:
@@ -555,7 +578,7 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = F
         # Decode output
         output_str = b''.join(output).decode('utf-8', errors='replace')
 
-        return exit_code, output_str
+        return exit_code, output_str, progress_messages
 
     finally:
         # Ensure cleanup of process group if process is still alive
@@ -697,7 +720,7 @@ class BootManager:
 
         # Run boot test with PTY (virtme-ng requires a valid PTS)
         try:
-            exit_code, dmesg_output = _run_with_pty(cmd, self.kernel_path, timeout)
+            exit_code, dmesg_output, _ = _run_with_pty(cmd, self.kernel_path, timeout)
 
             duration = time.time() - start_time
 
@@ -1082,7 +1105,7 @@ exit $exit_code
             handler.flush()
 
         try:
-            exit_code, output = _run_with_pty(cmd, self.kernel_path, timeout, emit_output=True)
+            exit_code, output, progress_messages = _run_with_pty(cmd, self.kernel_path, timeout, emit_output=True)
 
             duration = time.time() - start_time
 
@@ -1127,7 +1150,8 @@ exit $exit_code
                 dmesg_output=output,
                 exit_code=exit_code,
                 timeout_occurred=False,
-                log_file_path=log_file
+                log_file_path=log_file,
+                progress_log=progress_messages
             )
 
             return (boot_result, fstests_result)
@@ -1211,6 +1235,15 @@ def format_boot_result(result: BootResult, max_errors: int = 10) -> str:
 
     if result.kernel_version:
         lines.append(f"Kernel version: {result.kernel_version}")
+        lines.append("")
+
+    # Show progress log if available (for long-running operations)
+    if result.progress_log:
+        lines.append("Progress Log:")
+        lines.append("=" * 80)
+        for msg in result.progress_log:
+            lines.append(msg)
+        lines.append("=" * 80)
         lines.append("")
 
     # If boot failed, show last 200 lines of console output
