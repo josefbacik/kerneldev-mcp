@@ -490,8 +490,11 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = F
         progress_messages = []  # Accumulate progress for return to caller
         start_time = time.time()
         last_progress_log = start_time
-        lines_since_last_log = []
-        all_lines_buffer = []  # Buffer for more verbose logging
+
+        # Line buffering: accumulate partial lines properly
+        line_buffer = ""  # Accumulates characters until we see a newline
+        complete_lines_since_last_log = []  # Complete lines for "interesting" detection
+        complete_lines_for_verbose = []  # Complete lines for verbose output logging
 
         while True:
             # Check if process is still running
@@ -517,18 +520,18 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = F
                 progress_messages.append(progress_msg)
 
                 # Log recent output lines (more verbose logging to file)
-                if all_lines_buffer:
-                    # Log last 20 lines to file (at INFO level so it appears in log)
-                    for line in all_lines_buffer[-20:]:
+                if complete_lines_for_verbose:
+                    # Log last 20 complete lines to file
+                    for line in complete_lines_for_verbose[-20:]:
                         if line.strip():  # Only log non-empty lines
                             logger.info(f"    OUT: {line[:200]}")
-                    all_lines_buffer.clear()
+                    complete_lines_for_verbose.clear()
 
                 # Also log any interesting lines we've seen (to both log and progress)
-                if lines_since_last_log:
+                if complete_lines_since_last_log:
                     # Look for lines with "===", "ERROR", "FAIL", or test names
                     interesting_lines = []
-                    for line in lines_since_last_log[-10:]:  # Last 10 lines
+                    for line in complete_lines_since_last_log[-10:]:  # Last 10 lines
                         if any(marker in line for marker in ["===", "ERROR", "FAIL", "btrfs/", "generic/", "xfs/", "ext4/", "FSTYP", "Passed", "Failed"]):
                             interesting_lines.append(line[:150])
 
@@ -537,7 +540,7 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = F
                             logger.info(f"    {line}")
                             progress_messages.append(f"  {line}")
 
-                    lines_since_last_log.clear()
+                    complete_lines_since_last_log.clear()
                 last_progress_log = time.time()
                 # Explicitly flush logs
                 for handler in logger.handlers:
@@ -554,9 +557,20 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = F
                         if emit_output:
                             try:
                                 text = data.decode('utf-8', errors='replace')
-                                new_lines = text.splitlines()
-                                lines_since_last_log.extend(new_lines)
-                                all_lines_buffer.extend(new_lines)
+                                # Accumulate into line buffer and extract complete lines
+                                line_buffer += text
+
+                                # Split on newlines but keep incomplete last line in buffer
+                                if '\n' in line_buffer:
+                                    parts = line_buffer.split('\n')
+                                    # All but last part are complete lines
+                                    complete_lines = parts[:-1]
+                                    # Last part is incomplete (or empty if ended with \n)
+                                    line_buffer = parts[-1]
+
+                                    # Add complete lines to our tracking lists
+                                    complete_lines_since_last_log.extend(complete_lines)
+                                    complete_lines_for_verbose.extend(complete_lines)
                             except Exception:
                                 pass
                 except OSError:
