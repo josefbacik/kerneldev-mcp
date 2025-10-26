@@ -1,6 +1,7 @@
 """
 Kernel configuration management - generation, merging, and manipulation.
 """
+import logging
 import os
 import re
 import subprocess
@@ -9,6 +10,8 @@ from typing import Dict, List, Optional, Set, Union
 from dataclasses import dataclass
 
 from .templates import TemplateManager
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -347,6 +350,9 @@ class ConfigManager:
         Returns:
             True if successful
         """
+        logger.info("=" * 60)
+        logger.info("Applying kernel configuration")
+
         if kernel_path is None:
             kernel_path = self.kernel_path
 
@@ -357,24 +363,32 @@ class ConfigManager:
         if not kernel_path.exists():
             raise ValueError(f"Kernel path does not exist: {kernel_path}")
 
+        logger.info(f"  Kernel path: {kernel_path}")
+        if cross_compile:
+            logger.info(f"  Cross-compile arch: {cross_compile.arch}")
+
         config_path = kernel_path / ".config"
 
         # Load config if needed
         if isinstance(config, (str, Path)):
+            logger.info(f"  Loading config from: {config}")
             config_obj = KernelConfig.from_file(config)
         else:
             config_obj = config
 
         # Merge with existing if requested
         if merge_with_existing and config_path.exists():
+            logger.info("  Merging with existing .config")
             existing = KernelConfig.from_file(config_path)
             existing.merge(config_obj)
             config_obj = existing
 
         # Write config
+        logger.info(f"  Writing config to: {config_path}")
         config_obj.to_file(config_path)
 
         # Run olddefconfig to resolve dependencies
+        logger.info("  Running make olddefconfig...")
         try:
             cmd = ["make", "olddefconfig"]
 
@@ -389,16 +403,21 @@ class ConfigManager:
                 capture_output=True,
                 text=True
             )
+            logger.info("  ✓ olddefconfig completed")
         except subprocess.CalledProcessError as e:
-            print(f"Warning: olddefconfig failed: {e.stderr}")
+            logger.error(f"  ✗ olddefconfig failed: {e.stderr}")
+            logger.info("=" * 60)
             return False
 
         # Apply virtme-ng requirements if requested
         if enable_virtme:
+            logger.info("  Applying virtme-ng requirements...")
             if not self.apply_virtme_requirements(kernel_path, cross_compile):
-                print("Warning: Failed to apply virtme-ng requirements, but config was applied")
+                logger.warning("  ⚠ Failed to apply virtme-ng requirements, but config was applied")
                 # Don't fail completely, config is still applied
 
+        logger.info("✓ Configuration applied successfully")
+        logger.info("=" * 60)
         return True
 
     def apply_virtme_requirements(
@@ -444,19 +463,19 @@ class ConfigManager:
                 # Check stderr for actual errors vs warnings
                 stderr_lower = result.stderr.lower()
                 if "error" in stderr_lower and "warning" not in stderr_lower:
-                    print(f"Warning: vng --kconfig failed: {result.stderr}")
+                    logger.warning(f"vng --kconfig failed: {result.stderr}")
                     return False
 
             return True
 
         except subprocess.TimeoutExpired:
-            print("Warning: vng --kconfig timed out")
+            logger.warning("vng --kconfig timed out")
             return False
         except FileNotFoundError:
-            print("Warning: vng (virtme-ng) not found. Install with: pip install virtme-ng")
+            logger.warning("vng (virtme-ng) not found. Install with: pip install virtme-ng")
             return False
         except Exception as e:
-            print(f"Warning: vng --kconfig failed: {e}")
+            logger.warning(f"vng --kconfig failed: {e}")
             return False
 
     def modify_kernel_config(

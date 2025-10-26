@@ -1,6 +1,7 @@
 """
 Kernel build management - building kernels and handling build errors.
 """
+import logging
 import os
 import re
 import subprocess
@@ -10,6 +11,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from dataclasses import dataclass, field
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .config_manager import CrossCompileConfig
@@ -202,6 +205,14 @@ class KernelBuilder:
         Returns:
             BuildResult with build status and errors
         """
+        logger.info("=" * 60)
+        logger.info(f"Starting kernel build: {self.kernel_path}")
+        logger.info(f"Target: {target}, Jobs: {jobs or os.cpu_count()}")
+        if cross_compile:
+            logger.info(f"Cross-compiling for: {cross_compile.arch}")
+        if build_dir:
+            logger.info(f"Out-of-tree build dir: {build_dir}")
+
         start_time = time.time()
 
         # Build make command
@@ -270,6 +281,10 @@ class KernelBuilder:
         # Target
         cmd.append(target)
 
+        # Log the full command
+        logger.info(f"Build command: {' '.join(cmd)}")
+        logger.info("Build started... (this may take several minutes)")
+
         # Run build
         try:
             result = subprocess.run(
@@ -287,6 +302,19 @@ class KernelBuilder:
             combined_output = result.stdout + result.stderr
             errors, warnings = BuildOutputParser.parse_output(combined_output)
 
+            # Log result
+            if result.returncode == 0:
+                logger.info(f"✓ Build completed successfully in {duration:.1f}s")
+                logger.info(f"  Warnings: {len(warnings)}")
+            else:
+                logger.error(f"✗ Build failed after {duration:.1f}s")
+                logger.error(f"  Errors: {len(errors)}, Warnings: {len(warnings)}")
+                logger.error(f"  Exit code: {result.returncode}")
+                # Log first few errors
+                for i, err in enumerate(errors[:3]):
+                    logger.error(f"  Error {i+1}: {err}")
+            logger.info("=" * 60)
+
             return BuildResult(
                 success=(result.returncode == 0),
                 duration=duration,
@@ -298,6 +326,9 @@ class KernelBuilder:
 
         except subprocess.TimeoutExpired as e:
             duration = time.time() - start_time
+            logger.error(f"✗ Build timeout after {timeout}s (ran for {duration:.1f}s)")
+            logger.info("=" * 60)
+
             output = ""
             if e.stdout:
                 output += e.stdout.decode() if isinstance(e.stdout, bytes) else e.stdout
@@ -324,6 +355,9 @@ class KernelBuilder:
 
         except Exception as e:
             duration = time.time() - start_time
+            logger.error(f"✗ Build failed with exception: {e}")
+            logger.info("=" * 60)
+
             return BuildResult(
                 success=False,
                 duration=duration,
@@ -355,6 +389,10 @@ class KernelBuilder:
         Returns:
             True if successful
         """
+        logger.info(f"Cleaning build artifacts: make {target}")
+        if build_dir:
+            logger.info(f"  Build dir: {build_dir}")
+
         cmd = ["make"]
 
         # Cross-compilation settings
@@ -374,8 +412,10 @@ class KernelBuilder:
                 capture_output=True,
                 stdin=subprocess.DEVNULL  # Prevent hanging on interactive prompts
             )
+            logger.info(f"✓ Clean completed: make {target}")
             return True
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
+            logger.error(f"✗ Clean failed: make {target}")
             return False
 
     def get_kernel_version(self) -> Optional[str]:

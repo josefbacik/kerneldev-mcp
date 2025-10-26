@@ -1,6 +1,7 @@
 """
 Kernel boot testing and validation using virtme-ng.
 """
+import logging
 import os
 import pty
 import re
@@ -12,6 +13,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from dataclasses import dataclass, field
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .config_manager import CrossCompileConfig
@@ -602,6 +605,14 @@ class BootManager:
         Returns:
             BootResult with boot status and analysis
         """
+        logger.info("=" * 60)
+        logger.info(f"Starting kernel boot test: {self.kernel_path}")
+        logger.info(f"Config: memory={memory}, cpus={cpus}, timeout={timeout}s")
+        if cross_compile:
+            logger.info(f"Cross-compile arch: {cross_compile.arch}")
+        if use_host_kernel:
+            logger.info("Using host kernel (not building from source)")
+
         start_time = time.time()
 
         # Cleanup old boot logs
@@ -609,6 +620,8 @@ class BootManager:
 
         # Check virtme-ng is available
         if not self.check_virtme_ng():
+            logger.error("✗ virtme-ng not found")
+            logger.info("=" * 60)
             return BootResult(
                 success=False,
                 duration=time.time() - start_time,
@@ -621,6 +634,8 @@ class BootManager:
         if not use_host_kernel:
             vmlinux = self.kernel_path / "vmlinux"
             if not vmlinux.exists():
+                logger.error(f"✗ Kernel not built: vmlinux not found at {vmlinux}")
+                logger.info("=" * 60)
                 return BootResult(
                     success=False,
                     duration=time.time() - start_time,
@@ -631,6 +646,7 @@ class BootManager:
 
         # Build vng command
         cmd = ["vng", "--verbose"]  # --verbose is critical to capture serial console output
+        logger.info(f"Boot command: {' '.join(cmd[:5])}...")  # Don't log full command (may be long)
 
         # Use --run for host kernel
         if use_host_kernel:
@@ -651,6 +667,8 @@ class BootManager:
         # Execute command to get dmesg
         cmd.extend(["--", "dmesg"])
 
+        logger.info("Booting kernel... (this may take a minute)")
+
         # Run boot test with PTY (virtme-ng requires a valid PTS)
         try:
             exit_code, dmesg_output = _run_with_pty(cmd, self.kernel_path, timeout)
@@ -668,11 +686,24 @@ class BootManager:
                     match = re.search(r"Linux version ([\d\.\-\w]+)", line)
                     if match:
                         kernel_version = match.group(1)
+                        logger.info(f"Booted kernel version: {kernel_version}")
                     break
 
             # Save boot log to file
             boot_success = (exit_code == 0 and len(panics) == 0)
             log_file = _save_boot_log(dmesg_output, boot_success)
+
+            # Log result
+            if boot_success:
+                logger.info(f"✓ Boot completed successfully in {duration:.1f}s")
+                logger.info(f"  Errors: {len(errors)}, Warnings: {len(warnings)}")
+            else:
+                logger.error(f"✗ Boot failed after {duration:.1f}s")
+                logger.error(f"  Panics: {len(panics)}, Oops: {len(oops)}")
+                logger.error(f"  Errors: {len(errors)}, Warnings: {len(warnings)}")
+                logger.error(f"  Exit code: {exit_code}")
+            logger.info(f"Boot log saved: {log_file}")
+            logger.info("=" * 60)
 
             return BootResult(
                 success=boot_success,
@@ -691,6 +722,9 @@ class BootManager:
 
         except subprocess.TimeoutExpired as e:
             duration = time.time() - start_time
+            logger.error(f"✗ Boot timeout after {timeout}s (ran for {duration:.1f}s)")
+            logger.info("=" * 60)
+
             output = ""
             if e.output:
                 output = e.output.decode() if isinstance(e.output, bytes) else e.output
@@ -710,6 +744,9 @@ class BootManager:
 
         except Exception as e:
             duration = time.time() - start_time
+            logger.error(f"✗ Boot failed with exception: {e}")
+            logger.info("=" * 60)
+
             error_output = f"ERROR: {str(e)}"
             log_file = _save_boot_log(error_output, success=False)
 

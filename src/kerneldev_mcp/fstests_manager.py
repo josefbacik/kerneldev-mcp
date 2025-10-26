@@ -2,6 +2,7 @@
 Core fstests management - installation, configuration, execution, and result parsing.
 """
 import json
+import logging
 import os
 import re
 import subprocess
@@ -10,6 +11,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -657,7 +660,12 @@ class FstestsManager:
         Returns:
             FstestsRunResult with test results
         """
+        logger.info("=" * 60)
+        logger.info(f"Starting fstests: {self.fstests_path}")
+
         if not self.check_installed():
+            logger.error("✗ fstests not installed")
+            logger.info("=" * 60)
             return FstestsRunResult(
                 success=False,
                 total_tests=0,
@@ -674,23 +682,29 @@ class FstestsManager:
         # Add test selection
         if tests:
             cmd.extend(tests)
+            logger.info(f"Test selection: {' '.join(tests)}")
         else:
             # Default to quick group
             cmd.extend(["-g", "quick"])
+            logger.info("Test selection: -g quick (default)")
 
         # Add exclude file
         if exclude_file and exclude_file.exists():
             cmd.extend(["-E", str(exclude_file)])
+            logger.info(f"Exclude file: {exclude_file}")
 
         # Randomize order
         if randomize:
             cmd.append("-r")
+            logger.info("Randomized test order enabled")
 
         # Iterations
         if iterations > 1:
             cmd.extend(["-i", str(iterations)])
+            logger.info(f"Running {iterations} iterations")
 
         # Run tests
+        logger.info("Running fstests... (this may take several minutes)")
         start_time = time.time()
 
         try:
@@ -709,10 +723,27 @@ class FstestsManager:
             fstests_result = self.parse_check_output(result.stdout, check_log if check_log.exists() else None)
             fstests_result.duration = duration
 
+            # Log results
+            if fstests_result.success:
+                logger.info(f"✓ fstests completed in {duration:.1f}s")
+            else:
+                logger.error(f"✗ fstests completed with failures in {duration:.1f}s")
+            logger.info(f"  Total: {fstests_result.total_tests}, Passed: {fstests_result.passed}, "
+                       f"Failed: {fstests_result.failed}, Not run: {fstests_result.notrun}")
+            # Log first few failures
+            failed_tests = [t for t in fstests_result.test_results if t.status == "failed"]
+            for i, test in enumerate(failed_tests[:3]):
+                logger.error(f"  Failed: {test.test_name}")
+            if len(failed_tests) > 3:
+                logger.error(f"  ... and {len(failed_tests) - 3} more failures")
+            logger.info("=" * 60)
+
             return fstests_result
 
         except subprocess.TimeoutExpired as e:
             duration = time.time() - start_time
+            logger.error(f"✗ fstests timeout after {timeout}s (ran for {duration:.1f}s)")
+            logger.info("=" * 60)
 
             # Try to parse partial output
             output = e.stdout.decode() if isinstance(e.stdout, bytes) else (e.stdout or "")
@@ -723,6 +754,8 @@ class FstestsManager:
             return fstests_result
 
         except Exception as e:
+            logger.error(f"✗ fstests failed with exception: {e}")
+            logger.info("=" * 60)
             return FstestsRunResult(
                 success=False,
                 total_tests=0,

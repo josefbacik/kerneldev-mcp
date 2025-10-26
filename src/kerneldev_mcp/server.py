@@ -33,9 +33,24 @@ from .baseline_manager import (
 )
 from .git_manager import GitManager, GitNoteMetadata
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging - log to both file and stderr
+# File logging allows tailing progress: tail -f /tmp/kerneldev-mcp.log
+# Stderr logging may be captured by MCP client (Claude Code)
+log_file = Path("/tmp/kerneldev-mcp.log")
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file, mode='a'),  # Append mode
+        logging.StreamHandler()  # stderr - may show in MCP client
+    ]
+)
 logger = logging.getLogger(__name__)
+logger.info("=" * 80)
+logger.info(f"kerneldev-mcp server starting")
+logger.info(f"Log file: {log_file}")
+logger.info(f"Tip: Monitor progress with: tail -f {log_file}")
+logger.info("=" * 80)
 
 # Initialize server
 app = Server("kerneldev-mcp")
