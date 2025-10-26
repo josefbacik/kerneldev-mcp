@@ -861,6 +861,20 @@ class BootManager:
         if force_9p:
             logger.info("Using 9p filesystem (virtio-fs disabled)")
 
+        # Validate test arguments
+        if tests:
+            is_valid, error_msg = FstestsManager.validate_test_args(tests)
+            if not is_valid:
+                logger.error(f"✗ Invalid test arguments: {error_msg}")
+                logger.info("=" * 60)
+                return (BootResult(
+                    success=False,
+                    duration=0.0,
+                    boot_completed=False,
+                    dmesg_output=f"ERROR: {error_msg}",
+                    exit_code=-1
+                ), None)
+
         start_time = time.time()
 
         # Track created loop devices for cleanup

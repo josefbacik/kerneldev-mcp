@@ -150,6 +150,52 @@ class FstestsManager:
         "compress": "Compression tests",
     }
 
+    @staticmethod
+    def validate_test_args(tests: List[str]) -> Tuple[bool, Optional[str]]:
+        """Validate test arguments for correct usage.
+
+        Checks that:
+        - "-g" flag is only used with group names, not individual test names
+        - Individual test names (category/number format) are not used with "-g"
+
+        Args:
+            tests: List of test arguments (e.g., ["-g", "quick"] or ["btrfs/010"])
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        if not tests:
+            return True, None
+
+        # Pattern for individual test names: category/number (e.g., btrfs/010, generic/001)
+        test_name_pattern = re.compile(r'^[a-z0-9_]+/\d+$')
+
+        i = 0
+        while i < len(tests):
+            arg = tests[i]
+
+            # Check if this is a "-g" flag
+            if arg == "-g":
+                # Make sure there's a next argument
+                if i + 1 >= len(tests):
+                    return False, "'-g' flag requires a group name argument"
+
+                next_arg = tests[i + 1]
+
+                # Check if the next argument looks like an individual test name
+                if test_name_pattern.match(next_arg):
+                    return False, (
+                        f"Invalid test argument: '-g {next_arg}'. "
+                        f"The '-g' flag is for groups (like 'quick', 'auto'), not individual tests. "
+                        f"To run individual test '{next_arg}', use it without '-g': ['{next_arg}']"
+                    )
+
+                i += 2  # Skip both -g and its argument
+            else:
+                i += 1
+
+        return True, None
+
     def __init__(self, fstests_path: Optional[Path] = None):
         """Initialize fstests manager.
 
@@ -629,8 +675,25 @@ class FstestsManager:
         duration_match = re.search(r'Ran:\s+.*?\s+in\s+(\d+)s', output)
         total_duration = float(duration_match.group(1)) if duration_match else 0.0
 
+        # Check for error messages that indicate command failure
+        # These should mark the run as failed even if no individual test failures were detected
+        error_patterns = [
+            r'Group\s+"[^"]+"\s+is empty or not defined',  # Invalid group name
+            r'Usage:.*check',  # Usage message (invalid arguments)
+            r'check:\s+invalid option',  # Invalid option
+            r'ERROR:',  # Generic error
+        ]
+
+        has_error_message = any(re.search(pattern, output, re.IGNORECASE) for pattern in error_patterns)
+
+        # If we found error messages and no tests ran, this is a command failure
+        if has_error_message and total_tests == 0:
+            success = False
+        else:
+            success = (failed == 0)
+
         return FstestsRunResult(
-            success=(failed == 0),
+            success=success,
             total_tests=total_tests,
             passed=passed,
             failed=failed,
@@ -662,6 +725,22 @@ class FstestsManager:
         """
         logger.info("=" * 60)
         logger.info(f"Starting fstests: {self.fstests_path}")
+
+        # Validate test arguments
+        if tests:
+            is_valid, error_msg = self.validate_test_args(tests)
+            if not is_valid:
+                logger.error(f"✗ Invalid test arguments: {error_msg}")
+                logger.info("=" * 60)
+                return FstestsRunResult(
+                    success=False,
+                    total_tests=0,
+                    passed=0,
+                    failed=0,
+                    notrun=0,
+                    test_results=[],
+                    duration=0.0
+                )
 
         if not self.check_installed():
             logger.error("✗ fstests not installed")
