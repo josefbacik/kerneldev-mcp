@@ -1058,7 +1058,9 @@ class BootManager:
         cpus: int = 4,
         cross_compile: Optional["CrossCompileConfig"] = None,
         force_9p: bool = False,
-        io_scheduler: str = "mq-deadline"
+        io_scheduler: str = "mq-deadline",
+        use_custom_rootfs: bool = False,
+        custom_rootfs_path: Optional[Path] = None
     ) -> Tuple[BootResult, Optional[object]]:
         """Boot kernel and run fstests inside VM.
 
@@ -1073,6 +1075,8 @@ class BootManager:
             force_9p: Force use of 9p filesystem instead of virtio-fs
             io_scheduler: IO scheduler to use for block devices (default: "mq-deadline")
                          Valid values: "mq-deadline", "none", "bfq", "kyber"
+            use_custom_rootfs: Use custom test rootfs instead of host filesystem
+            custom_rootfs_path: Path to custom rootfs (default: ~/.kerneldev-mcp/test-rootfs)
 
         Returns:
             Tuple of (BootResult, FstestsRunResult or None)
@@ -1090,6 +1094,8 @@ class BootManager:
             logger.info(f"Cross-compile arch: {cross_compile.arch}")
         if force_9p:
             logger.info("Using 9p filesystem (virtio-fs disabled)")
+        if use_custom_rootfs:
+            logger.info("Using custom test rootfs (isolated from host)")
 
         # Validate test arguments
         if tests:
@@ -1146,6 +1152,52 @@ class BootManager:
                     logger.info(f"✓ Kernel architecture matches host: {detected_arch}")
             else:
                 logger.warning("Could not auto-detect kernel architecture, assuming host architecture")
+
+        # Check and setup custom rootfs if requested
+        rootfs_path = None
+        if use_custom_rootfs:
+            from .rootfs_manager import RootfsManager
+
+            rootfs_mgr = RootfsManager(custom_rootfs_path)
+
+            if not rootfs_mgr.check_exists():
+                logger.error(f"✗ Custom rootfs not found at {rootfs_mgr.rootfs_path}")
+                logger.info("  Create rootfs with: mcp__kerneldev__create_test_rootfs")
+                logger.info("=" * 60)
+                return (BootResult(
+                    success=False,
+                    duration=time.time() - start_time,
+                    boot_completed=False,
+                    dmesg_output=(
+                        f"ERROR: Custom rootfs not found at {rootfs_mgr.rootfs_path}\n"
+                        "Create it first using the create_test_rootfs tool."
+                    ),
+                    exit_code=-1
+                ), None)
+
+            is_configured, msg = rootfs_mgr.check_configured()
+            if not is_configured:
+                logger.error(f"✗ Custom rootfs not properly configured: {msg}")
+                logger.info("  Recreate rootfs with: mcp__kerneldev__create_test_rootfs (force=true)")
+                logger.info("=" * 60)
+                return (BootResult(
+                    success=False,
+                    duration=time.time() - start_time,
+                    boot_completed=False,
+                    dmesg_output=(
+                        f"ERROR: Custom rootfs not properly configured: {msg}\n"
+                        "Recreate it using the create_test_rootfs tool with force=true."
+                    ),
+                    exit_code=-1
+                ), None)
+
+            rootfs_path = rootfs_mgr.rootfs_path
+            logger.info(f"✓ Using custom rootfs: {rootfs_path}")
+            info = rootfs_mgr.get_info()
+            if info.get("size"):
+                logger.info(f"  Size: {info['size']}")
+            if info.get("users"):
+                logger.info(f"  Test users: {', '.join(info['users'])}")
 
         # Check QEMU is available for target architecture
         qemu_available, qemu_info = self.check_qemu(target_arch)
@@ -1439,6 +1491,11 @@ exit $exit_code
         # Add architecture if specified or auto-detected
         if target_arch:
             cmd.extend(["--arch", target_arch])
+
+        # Add custom rootfs if requested
+        if rootfs_path:
+            cmd.extend(["--root", str(rootfs_path)])
+            logger.info(f"Using custom rootfs: {rootfs_path}")
 
         # Pass loop devices to VM via --disk
         # They will appear as /dev/sda, /dev/sdb, etc. in the VM
