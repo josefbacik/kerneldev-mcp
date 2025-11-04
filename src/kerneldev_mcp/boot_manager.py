@@ -933,13 +933,6 @@ class BootManager:
         if use_host_kernel:
             cmd.append("--run")
 
-        # Force full machine type (not microvm) to ensure virtio-serial is available
-        # microvm is too minimal - it lacks PCI, virtio-serial, and other devices needed for testing
-        # Use --disable-microvm flag to prevent virtme-ng from using microvm on x86_64
-        if not target_arch or target_arch in ["x86_64", "x86"]:
-            cmd.append("--disable-microvm")
-            logger.info("Using QEMU machine type: q35 (via --disable-microvm)")
-
         # Add memory and CPU options
         cmd.extend(["--memory", memory])
         cmd.extend(["--cpus", str(cpus)])
@@ -1474,13 +1467,6 @@ exit $exit_code
         # Force 9p if requested (required for old kernels without virtio-fs)
         if force_9p:
             cmd.append("--force-9p")
-
-        # Force full machine type (not microvm) to ensure virtio-serial is available
-        # microvm is too minimal - it lacks PCI, virtio-serial, and other devices needed for testing
-        # Use --disable-microvm flag to prevent virtme-ng from using microvm on x86_64
-        if not target_arch or target_arch in ["x86_64", "x86"]:
-            cmd.append("--disable-microvm")
-            logger.info("Using QEMU machine type: q35 (via --disable-microvm)")
 
         # Add memory and CPU options
         cmd.extend(["--memory", memory])
