@@ -244,6 +244,52 @@ def test_boot_manager_check_virtme_ng():
     assert isinstance(result, bool)
 
 
+def test_boot_manager_check_qemu():
+    """Test checking if QEMU is available."""
+    manager = BootManager(Path.cwd())
+
+    # Test checking for default architecture (x86_64)
+    available, info = manager.check_qemu()
+    assert isinstance(available, bool)
+    assert isinstance(info, str)
+
+    # Info should contain either version info or error message
+    if available:
+        # Should contain "QEMU" or "qemu" in version string
+        assert "qemu" in info.lower() or "version" in info.lower()
+    else:
+        # Should contain error description
+        assert len(info) > 0
+
+
+def test_boot_manager_check_qemu_different_arch():
+    """Test checking QEMU for different architectures."""
+    manager = BootManager(Path.cwd())
+
+    # Test a few different architectures
+    for arch in ["x86_64", "arm64", "riscv"]:
+        available, info = manager.check_qemu(arch)
+        assert isinstance(available, bool)
+        assert isinstance(info, str)
+
+        # If not available, should mention the QEMU binary name
+        if not available:
+            assert "qemu-system" in info.lower()
+
+
+def test_boot_manager_check_qemu_invalid_arch():
+    """Test checking QEMU with invalid architecture."""
+    manager = BootManager(Path.cwd())
+
+    # Use a definitely non-existent architecture
+    available, info = manager.check_qemu("nonexistent-arch-xyz")
+
+    # Should return False for non-existent architecture
+    assert available is False
+    assert isinstance(info, str)
+    assert len(info) > 0
+
+
 def test_dmesg_parser_empty_line():
     """Test parsing empty lines."""
     msg = DmesgParser.parse_dmesg_line("")

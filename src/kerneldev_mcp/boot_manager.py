@@ -646,6 +646,47 @@ class BootManager:
         except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
             return False
 
+    def check_qemu(self, arch: Optional[str] = None) -> Tuple[bool, Optional[str]]:
+        """Check if QEMU is installed for the target architecture.
+
+        Args:
+            arch: Target architecture (e.g., "x86_64", "arm64"). If None, checks for x86_64.
+
+        Returns:
+            Tuple of (is_available, qemu_binary_path or error_message)
+        """
+        # Map architecture names to QEMU binary names
+        arch_to_qemu = {
+            "x86_64": "qemu-system-x86_64",
+            "x86": "qemu-system-i386",
+            "arm64": "qemu-system-aarch64",
+            "arm": "qemu-system-arm",
+            "riscv": "qemu-system-riscv64",
+            "powerpc": "qemu-system-ppc64",
+            "mips": "qemu-system-mips64",
+        }
+
+        # Default to x86_64 if no arch specified
+        target_arch = arch or "x86_64"
+        qemu_binary = arch_to_qemu.get(target_arch, f"qemu-system-{target_arch}")
+
+        try:
+            result = subprocess.run(
+                [qemu_binary, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                # Extract QEMU version for informational purposes
+                version_line = result.stdout.splitlines()[0] if result.stdout else ""
+                return True, version_line
+            return False, f"QEMU binary '{qemu_binary}' exists but returned error"
+        except FileNotFoundError:
+            return False, f"QEMU binary '{qemu_binary}' not found in PATH"
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            return False, f"Error checking QEMU: {str(e)}"
+
     def boot_test(
         self,
         timeout: int = 60,
@@ -692,6 +733,28 @@ class BootManager:
                 dmesg_output="ERROR: virtme-ng (vng) not found. Install with: pip install virtme-ng",
                 exit_code=-1
             )
+
+        # Check QEMU is available for target architecture
+        target_arch = cross_compile.arch if cross_compile else None
+        qemu_available, qemu_info = self.check_qemu(target_arch)
+        if not qemu_available:
+            logger.error(f"✗ QEMU not found: {qemu_info}")
+            logger.info("=" * 60)
+            install_instructions = (
+                "Install QEMU for your distribution:\n"
+                "  Fedora/RHEL: sudo dnf install qemu-system-x86\n"
+                "  Ubuntu/Debian: sudo apt-get install qemu-system-x86\n"
+                "  Arch: sudo pacman -S qemu-system-x86"
+            )
+            return BootResult(
+                success=False,
+                duration=time.time() - start_time,
+                boot_completed=False,
+                dmesg_output=f"ERROR: {qemu_info}\n\n{install_instructions}",
+                exit_code=-1
+            )
+        else:
+            logger.info(f"✓ QEMU available: {qemu_info}")
 
         # Check if kernel is built (vmlinux exists) unless using host kernel
         if not use_host_kernel:
@@ -891,6 +954,28 @@ class BootManager:
                 dmesg_output="ERROR: virtme-ng (vng) not found. Install with: pip install virtme-ng",
                 exit_code=-1
             ), None)
+
+        # Check QEMU is available for target architecture
+        target_arch = cross_compile.arch if cross_compile else None
+        qemu_available, qemu_info = self.check_qemu(target_arch)
+        if not qemu_available:
+            logger.error(f"✗ QEMU not found: {qemu_info}")
+            logger.info("=" * 60)
+            install_instructions = (
+                "Install QEMU for your distribution:\n"
+                "  Fedora/RHEL: sudo dnf install qemu-system-x86\n"
+                "  Ubuntu/Debian: sudo apt-get install qemu-system-x86\n"
+                "  Arch: sudo pacman -S qemu-system-x86"
+            )
+            return (BootResult(
+                success=False,
+                duration=time.time() - start_time,
+                boot_completed=False,
+                dmesg_output=f"ERROR: {qemu_info}\n\n{install_instructions}",
+                exit_code=-1
+            ), None)
+        else:
+            logger.info(f"✓ QEMU available: {qemu_info}")
 
         # Check if kernel is built
         vmlinux = self.kernel_path / "vmlinux"

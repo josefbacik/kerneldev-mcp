@@ -1477,12 +1477,18 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             return [TextContent(type="text", text=output)]
 
         elif name == "check_virtme_ng":
-            # Check if virtme-ng is available
+            # Check if virtme-ng and QEMU are available
             boot_manager = BootManager(Path.cwd())
-            available = boot_manager.check_virtme_ng()
+            vng_available = boot_manager.check_virtme_ng()
+            qemu_available, qemu_info = boot_manager.check_qemu()
 
-            if available:
-                # Try to get version
+            output_lines = []
+            output_lines.append("Kernel Boot Prerequisites Check")
+            output_lines.append("=" * 60)
+            output_lines.append("")
+
+            # Check virtme-ng
+            if vng_available:
                 try:
                     result = subprocess.run(
                         ["vng", "--version"],
@@ -1491,18 +1497,42 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                         timeout=5
                     )
                     version_info = result.stdout.strip()
-                    output = f"✓ virtme-ng is installed and available\n\n{version_info}"
+                    output_lines.append(f"✓ virtme-ng: {version_info}")
                 except Exception as e:
-                    output = f"✓ virtme-ng is installed and available\n\nVersion: Unable to determine ({e})"
+                    output_lines.append(f"✓ virtme-ng: Installed (version check failed: {e})")
             else:
-                output = "✗ virtme-ng is not available\n\n"
-                output += "Install virtme-ng with:\n"
-                output += "  pip install virtme-ng\n\n"
-                output += "Or on Fedora/Ubuntu:\n"
-                output += "  sudo dnf install virtme-ng\n"
-                output += "  sudo apt install virtme-ng"
+                output_lines.append("✗ virtme-ng: Not found")
+                output_lines.append("")
+                output_lines.append("  Install with:")
+                output_lines.append("    pip install virtme-ng")
+                output_lines.append("  Or:")
+                output_lines.append("    sudo dnf install virtme-ng  # Fedora/RHEL")
+                output_lines.append("    sudo apt install virtme-ng  # Ubuntu/Debian")
 
-            return [TextContent(type="text", text=output)]
+            output_lines.append("")
+
+            # Check QEMU
+            if qemu_available:
+                output_lines.append(f"✓ QEMU: {qemu_info}")
+            else:
+                output_lines.append(f"✗ QEMU: {qemu_info}")
+                output_lines.append("")
+                output_lines.append("  Install with:")
+                output_lines.append("    sudo dnf install qemu-system-x86  # Fedora/RHEL")
+                output_lines.append("    sudo apt install qemu-system-x86  # Ubuntu/Debian")
+                output_lines.append("    sudo pacman -S qemu-system-x86    # Arch Linux")
+
+            output_lines.append("")
+            output_lines.append("=" * 60)
+
+            # Summary
+            both_available = vng_available and qemu_available
+            if both_available:
+                output_lines.append("✓ All prerequisites are available - ready to boot kernels!")
+            else:
+                output_lines.append("✗ Missing prerequisites - install the missing components above")
+
+            return [TextContent(type="text", text="\n".join(output_lines))]
 
         elif name == "modify_kernel_config":
             kernel_path = Path(arguments["kernel_path"])
