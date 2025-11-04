@@ -1,6 +1,58 @@
 # Changelog
 
-## [Unreleased] - 2024-01-XX
+## [Unreleased] - 2025-01-XX
+
+### BREAKING CHANGES
+
+#### fstests Tool Reorganization
+All fstests-related tools have been renamed with clear category prefixes to improve discoverability and workflow understanding. This is a **breaking change** - existing code using the old tool names will need to be updated.
+
+**Migration Guide:**
+
+Setup tools (run in sequence):
+- `check_fstests` → `fstests_setup_check`
+- `install_fstests` → `fstests_setup_install`
+- `setup_fstests_devices` → `fstests_setup_devices`
+- `configure_fstests` → `fstests_setup_configure`
+
+Run tools:
+- `run_fstests` → `fstests_run`
+- `run_and_save_fstests` → `fstests_run_and_save`
+
+Baseline tools:
+- `get_fstests_baseline` → `fstests_baseline_get`
+- `compare_fstests_results` → `fstests_baseline_compare`
+- `list_fstests_baselines` → `fstests_baseline_list`
+
+Git integration tools:
+- `load_fstests_from_git` → `fstests_git_load`
+- `list_git_fstests_results` → `fstests_git_list`
+- `delete_git_fstests_results` → `fstests_git_delete`
+
+Info tools:
+- `list_fstests_groups` → `fstests_groups_list`
+
+VM tools (all-in-one):
+- `boot_kernel_with_fstests` → `fstests_vm_boot_and_run`
+
+**Rationale:**
+- Visual grouping by prefix makes tool relationships clear
+- Sequential numbering implicit in setup tools (check → install → devices → configure)
+- Easier for AI assistants to understand the workflow
+- Reduces confusion about prerequisites
+
+### Enhanced
+
+#### Improved Tool Descriptions
+All fstests tools now include workflow context in their descriptions:
+- Setup tools explain their position in the sequence
+- Run tools list prerequisites
+- VM tool highlighted as the "easy path" for automated testing
+- Baseline comparison tools emphasize regression detection
+
+This helps AI assistants understand the correct workflow without trial and error.
+
+## [Previous] - 2024-01-XX
 
 ### Added
 

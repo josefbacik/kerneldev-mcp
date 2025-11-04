@@ -16,7 +16,7 @@ fstests (formerly xfstests) is the standard regression test suite for Linux file
 
 ```python
 {
-  "tool": "check_fstests"
+  "tool": "fstests_setup_check"
 }
 ```
 
@@ -24,7 +24,7 @@ fstests (formerly xfstests) is the standard regression test suite for Linux file
 
 ```python
 {
-  "tool": "install_fstests"
+  "tool": "fstests_setup_install"
 }
 ```
 
@@ -36,7 +36,7 @@ This will clone and build fstests to `~/.kerneldev-mcp/fstests`.
 
 ```python
 {
-  "tool": "setup_fstests_devices",
+  "tool": "fstests_setup_devices",
   "params": {
     "mode": "loop",
     "test_size": "10G",
@@ -50,7 +50,7 @@ This will clone and build fstests to `~/.kerneldev-mcp/fstests`.
 
 ```python
 {
-  "tool": "setup_fstests_devices",
+  "tool": "fstests_setup_devices",
   "params": {
     "mode": "existing",
     "test_dev": "/dev/vdb",
@@ -64,7 +64,7 @@ This will clone and build fstests to `~/.kerneldev-mcp/fstests`.
 
 ```python
 {
-  "tool": "configure_fstests",
+  "tool": "fstests_setup_configure",
   "params": {
     "test_dev": "/dev/loop0",
     "scratch_dev": "/dev/loop1",
@@ -79,7 +79,7 @@ This will clone and build fstests to `~/.kerneldev-mcp/fstests`.
 
 ```python
 {
-  "tool": "run_fstests",
+  "tool": "fstests_run",
   "params": {
     "tests": ["-g", "quick"],
     "save_baseline": true,
@@ -95,7 +95,7 @@ After making your kernel changes, rebuild and run tests again:
 
 ```python
 {
-  "tool": "run_fstests",
+  "tool": "fstests_run",
   "params": {
     "tests": ["-g", "quick"]
   }
@@ -106,7 +106,7 @@ After making your kernel changes, rebuild and run tests again:
 
 ```python
 {
-  "tool": "compare_fstests_results",
+  "tool": "fstests_baseline_compare",
   "params": {
     "baseline_name": "upstream-master"
   }
@@ -115,7 +115,7 @@ After making your kernel changes, rebuild and run tests again:
 
 ## Available Tools
 
-### check_fstests
+### fstests_setup_check
 
 Check if fstests is installed and get version information.
 
@@ -125,7 +125,7 @@ Check if fstests is installed and get version information.
 **Returns:**
 - Installation status and version
 
-### install_fstests
+### fstests_setup_install
 
 Clone and build fstests from git.
 
@@ -136,7 +136,7 @@ Clone and build fstests from git.
 **Returns:**
 - Installation status and version
 
-### setup_fstests_devices
+### fstests_setup_devices
 
 Setup test and scratch devices for fstests.
 
@@ -156,7 +156,7 @@ Setup test and scratch devices for fstests.
 **Returns:**
 - Device configuration and status
 
-### configure_fstests
+### fstests_setup_configure
 
 Create or update fstests local.config file.
 
@@ -173,7 +173,7 @@ Create or update fstests local.config file.
 **Returns:**
 - Configuration file content and status
 
-### run_fstests
+### fstests_run
 
 Run fstests and capture results.
 
@@ -195,7 +195,7 @@ Run fstests and capture results.
 - Test results with pass/fail/notrun counts
 - Detailed failure information
 
-### list_fstests_groups
+### fstests_groups_list
 
 List available test groups.
 
@@ -215,7 +215,7 @@ Common groups:
 - `encrypt` - Encryption tests
 - `compress` - Compression tests
 
-### get_fstests_baseline
+### fstests_baseline_get
 
 Get information about a stored baseline.
 
@@ -225,7 +225,7 @@ Get information about a stored baseline.
 **Returns:**
 - Baseline metadata and summary
 
-### compare_fstests_results
+### fstests_baseline_compare
 
 Compare test results against a baseline to detect regressions.
 
@@ -240,14 +240,14 @@ Compare test results against a baseline to detect regressions.
   - Still failing (pre-existing)
   - Regression status
 
-### list_fstests_baselines
+### fstests_baseline_list
 
 List all stored baselines.
 
 **Returns:**
 - List of baselines with metadata
 
-### boot_kernel_with_fstests
+### fstests_vm_boot_and_run
 
 Boot kernel in VM with fstests and run tests (TODO: not yet implemented).
 
@@ -287,7 +287,7 @@ The **accepted practice** is baseline comparison:
 
 ```python
 {
-  "tool": "run_fstests",
+  "tool": "fstests_run",
   "params": {
     "tests": ["-g", "auto"],
     "save_baseline": true,
@@ -309,7 +309,7 @@ The **accepted practice** is baseline comparison:
 
 ```python
 {
-  "tool": "run_fstests",
+  "tool": "fstests_run",
   "params": {
     "tests": ["-g", "auto"]
   }
@@ -320,7 +320,7 @@ The **accepted practice** is baseline comparison:
 
 ```python
 {
-  "tool": "compare_fstests_results",
+  "tool": "fstests_baseline_compare",
   "params": {
     "baseline_name": "upstream-6.12-rc1"
   }
@@ -343,12 +343,12 @@ You can maintain separate baselines for:
 ```python
 # List all baselines
 {
-  "tool": "list_fstests_baselines"
+  "tool": "fstests_baseline_list"
 }
 
 # Get specific baseline info
 {
-  "tool": "get_fstests_baseline",
+  "tool": "fstests_baseline_get",
   "params": {
     "baseline_name": "upstream-6.12-rc1"
   }
@@ -361,7 +361,7 @@ You can maintain separate baselines for:
 
 ```python
 {
-  "tool": "setup_fstests_devices",
+  "tool": "fstests_setup_devices",
   "params": {
     "mode": "loop",
     "fstype": "ext4",
@@ -374,7 +374,7 @@ You can maintain separate baselines for:
 
 ```python
 {
-  "tool": "setup_fstests_devices",
+  "tool": "fstests_setup_devices",
   "params": {
     "mode": "loop",
     "fstype": "btrfs",
@@ -387,7 +387,7 @@ You can maintain separate baselines for:
 
 ```python
 {
-  "tool": "setup_fstests_devices",
+  "tool": "fstests_setup_devices",
   "params": {
     "mode": "loop",
     "fstype": "xfs"
@@ -403,7 +403,7 @@ For fast iteration during development:
 
 ```python
 {
-  "tool": "run_fstests",
+  "tool": "fstests_run",
   "params": {
     "tests": ["-g", "quick"]
   }
@@ -416,7 +416,7 @@ For pre-submission testing:
 
 ```python
 {
-  "tool": "run_fstests",
+  "tool": "fstests_run",
   "params": {
     "tests": ["-g", "auto"]
   }
@@ -429,7 +429,7 @@ To debug a specific failure:
 
 ```python
 {
-  "tool": "run_fstests",
+  "tool": "fstests_run",
   "params": {
     "tests": ["generic/001"]
   }
@@ -440,7 +440,7 @@ To debug a specific failure:
 
 ```python
 {
-  "tool": "run_fstests",
+  "tool": "fstests_run",
   "params": {
     "tests": ["generic/001", "generic/002", "generic/003"]
   }
@@ -453,7 +453,7 @@ Use an exclude file to skip known failures:
 
 ```python
 {
-  "tool": "run_fstests",
+  "tool": "fstests_run",
   "params": {
     "tests": ["-g", "auto"],
     "exclude_file": "/path/to/exclude.txt"
@@ -506,7 +506,7 @@ Use an exclude file to skip known failures:
 ✗ fstests is not installed at ~/.kerneldev-mcp/fstests
 ```
 
-**Solution**: Use `install_fstests` tool
+**Solution**: Use `fstests_setup_install` tool
 
 ### Device setup fails
 

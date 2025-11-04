@@ -574,8 +574,13 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="check_fstests",
-            description="Check if fstests is installed and get version info",
+            name="fstests_setup_check",
+            description="""Check if fstests is installed and get version info.
+
+WORKFLOW: This is step 1 of the setup process.
+Next steps: fstests_setup_install (if not installed), then fstests_setup_devices, then fstests_setup_configure
+
+For automatic VM-based testing without manual setup, use fstests_vm_boot_and_run instead.""",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -587,8 +592,11 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="install_fstests",
-            description="Clone and build fstests from git",
+            name="fstests_setup_install",
+            description="""Clone and build fstests from git.
+
+WORKFLOW: This is step 2 of the setup process (run only if fstests_setup_check shows not installed).
+Next steps: fstests_setup_devices, then fstests_setup_configure""",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -604,8 +612,12 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="setup_fstests_devices",
-            description="Setup test and scratch devices for fstests",
+            name="fstests_setup_devices",
+            description="""Setup test and scratch devices for fstests.
+
+WORKFLOW: This is step 3 of the setup process.
+Prerequisites: fstests_setup_install must succeed first
+Next step: fstests_setup_configure""",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -651,8 +663,12 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="configure_fstests",
-            description="Create or update fstests local.config file",
+            name="fstests_setup_configure",
+            description="""Create or update fstests local.config file.
+
+WORKFLOW: This is step 4 (final step) of the setup process.
+Prerequisites: fstests_setup_devices must succeed first
+Next step: fstests_run to actually run tests""",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -695,8 +711,16 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="run_fstests",
-            description="Run fstests and capture results",
+            name="fstests_run",
+            description="""Run fstests and capture results.
+
+PREREQUISITES: All setup steps must be complete first:
+  1. fstests_setup_check
+  2. fstests_setup_install
+  3. fstests_setup_devices
+  4. fstests_setup_configure
+
+For automatic setup in a VM, use fstests_vm_boot_and_run instead.""",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -746,8 +770,17 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="boot_kernel_with_fstests",
-            description="Boot kernel in VM with fstests configured and run tests",
+            name="fstests_vm_boot_and_run",
+            description="""Boot kernel in VM with fstests and run tests - ALL-IN-ONE tool with automatic setup.
+
+This is the EASIEST way to run fstests. It automatically:
+  - Boots your kernel in a VM
+  - Creates loop devices inside the VM
+  - Sets up fstests configuration
+  - Runs the specified tests
+  - Reports results
+
+Use this instead of the manual fstests_setup_* workflow when testing in a VM.""",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -802,16 +835,16 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="list_fstests_groups",
-            description="List available fstests test groups",
+            name="fstests_groups_list",
+            description="List available fstests test groups (e.g., quick, auto, dangerous, etc.)",
             inputSchema={
                 "type": "object",
                 "properties": {}
             }
         ),
         Tool(
-            name="get_fstests_baseline",
-            description="Get or create baseline for current kernel/config",
+            name="fstests_baseline_get",
+            description="Get information about a stored baseline (results from a previous test run)",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -824,8 +857,11 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="compare_fstests_results",
-            description="Compare test results against a baseline. Current results can be loaded from git notes or a JSON file.",
+            name="fstests_baseline_compare",
+            description="""Compare test results against a baseline to detect regressions.
+
+This is the key tool for kernel development - it identifies NEW failures (regressions) vs pre-existing failures.
+Current results can be loaded from git notes or a JSON file.""",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -854,16 +890,19 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="list_fstests_baselines",
-            description="List all stored baselines",
+            name="fstests_baseline_list",
+            description="List all stored baselines with their metadata",
             inputSchema={
                 "type": "object",
                 "properties": {}
             }
         ),
         Tool(
-            name="run_and_save_fstests",
-            description="Run fstests and save results to git notes for future comparison. Results are stored as git notes attached to the current commit or branch.",
+            name="fstests_run_and_save",
+            description="""Run fstests and save results to git notes for future comparison.
+
+Results are stored as git notes attached to the current commit or branch.
+PREREQUISITES: Same as fstests_run - all setup steps must be complete.""",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -918,8 +957,8 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="load_fstests_from_git",
-            description="Load fstests results from git notes",
+            name="fstests_git_load",
+            description="Load fstests results from git notes (previously saved with fstests_run_and_save)",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -940,8 +979,8 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="list_git_fstests_results",
-            description="List commits with stored fstests results",
+            name="fstests_git_list",
+            description="List commits with stored fstests results (saved via fstests_run_and_save)",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -961,7 +1000,7 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="delete_git_fstests_results",
+            name="fstests_git_delete",
             description="Delete fstests results from git notes",
             inputSchema={
                 "type": "object",
@@ -1588,7 +1627,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
             return [TextContent(type="text", text="\n".join(output_lines))]
 
-        elif name == "check_fstests":
+        elif name == "fstests_setup_check":
             fstests_path = arguments.get("fstests_path")
             if fstests_path:
                 manager = FstestsManager(Path(fstests_path))
@@ -1608,7 +1647,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
             return [TextContent(type="text", text=output)]
 
-        elif name == "install_fstests":
+        elif name == "fstests_setup_install":
             install_path = arguments.get("install_path")
             git_url = arguments.get("git_url")
 
@@ -1637,7 +1676,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
             return [TextContent(type="text", text=output)]
 
-        elif name == "setup_fstests_devices":
+        elif name == "fstests_setup_devices":
             mode = arguments.get("mode", "loop")
             fstype = arguments.get("fstype", "ext4")
             mount_options = arguments.get("mount_options")
@@ -1686,7 +1725,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
             return [TextContent(type="text", text=output)]
 
-        elif name == "configure_fstests":
+        elif name == "fstests_setup_configure":
             fstests_path = arguments.get("fstests_path")
             test_dev = arguments["test_dev"]
             scratch_dev = arguments["scratch_dev"]
@@ -1730,7 +1769,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
             return [TextContent(type="text", text=output)]
 
-        elif name == "run_fstests":
+        elif name == "fstests_run":
             fstests_path = arguments.get("fstests_path")
             tests = arguments.get("tests")
             exclude_file = arguments.get("exclude_file")
@@ -1778,7 +1817,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
             return [TextContent(type="text", text=output)]
 
-        elif name == "list_fstests_groups":
+        elif name == "fstests_groups_list":
             groups = fstests_manager.list_groups()
 
             output = "Available fstests groups:\n\n"
@@ -1787,7 +1826,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
             return [TextContent(type="text", text=output)]
 
-        elif name == "get_fstests_baseline":
+        elif name == "fstests_baseline_get":
             baseline_name = arguments["baseline_name"]
 
             baseline = baseline_manager.load_baseline(baseline_name)
@@ -1807,7 +1846,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
             return [TextContent(type="text", text=output)]
 
-        elif name == "compare_fstests_results":
+        elif name == "fstests_baseline_compare":
             baseline_name = arguments["baseline_name"]
             current_results_file = arguments.get("current_results_file")
             kernel_path = arguments.get("kernel_path")
@@ -1892,7 +1931,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
             return [TextContent(type="text", text=output)]
 
-        elif name == "list_fstests_baselines":
+        elif name == "fstests_baseline_list":
             baselines = baseline_manager.list_baselines()
 
             if not baselines:
@@ -1911,7 +1950,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
             return [TextContent(type="text", text=output)]
 
-        elif name == "boot_kernel_with_fstests":
+        elif name == "fstests_vm_boot_and_run":
             kernel_path = Path(arguments["kernel_path"])
             fstests_path = Path(arguments["fstests_path"])
             tests = arguments.get("tests", ["-g", "quick"])
@@ -1978,7 +2017,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
             return [TextContent(type="text", text=output)]
 
-        elif name == "run_and_save_fstests":
+        elif name == "fstests_run_and_save":
             kernel_path = Path(arguments["kernel_path"])
             fstests_path = arguments.get("fstests_path")
             tests = arguments.get("tests")
@@ -2059,7 +2098,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
             return [TextContent(type="text", text=output)]
 
-        elif name == "load_fstests_from_git":
+        elif name == "fstests_git_load":
             kernel_path = Path(arguments["kernel_path"])
             branch_name = arguments.get("branch_name")
             commit_sha = arguments.get("commit_sha")
@@ -2107,7 +2146,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
             return [TextContent(type="text", text=output)]
 
-        elif name == "list_git_fstests_results":
+        elif name == "fstests_git_list":
             kernel_path = Path(arguments["kernel_path"])
             max_count = arguments.get("max_count", 20)
 
@@ -2138,7 +2177,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
             return [TextContent(type="text", text=output)]
 
-        elif name == "delete_git_fstests_results":
+        elif name == "fstests_git_delete":
             kernel_path = Path(arguments["kernel_path"])
             branch_name = arguments.get("branch_name")
             commit_sha = arguments.get("commit_sha")

@@ -68,7 +68,7 @@ An MCP (Model Context Protocol) server for intelligent Linux kernel configuratio
   - Identify new failures vs pre-existing issues
   - Essential for filesystem patch development
 
-See [FSTESTS.md](FSTESTS.md) for detailed filesystem testing documentation.
+See [docs/implementation/FSTESTS.md](docs/implementation/FSTESTS.md) for detailed filesystem testing documentation.
 
 ## Installation
 
