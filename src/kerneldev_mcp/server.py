@@ -661,8 +661,8 @@ Creates TEST_DEV, SCRATCH_DEV, and optionally SCRATCH_DEV_POOL (for RAID and mul
                     },
                     "pool_size": {
                         "type": "string",
-                        "description": "Size of each pool device (e.g., '5G'). Only used if pool_count > 0.",
-                        "default": "5G"
+                        "description": "Size of each pool device (e.g., '10G'). Only used if pool_count > 0.",
+                        "default": "10G"
                     },
                     "fstype": {
                         "type": "string",
@@ -1706,7 +1706,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             mount_options = arguments.get("mount_options")
             mkfs_options = arguments.get("mkfs_options")
             pool_count = arguments.get("pool_count", 4)
-            pool_size = arguments.get("pool_size", "5G")
+            pool_size = arguments.get("pool_size", "10G")
 
             if mode == "loop":
                 test_size = arguments.get("test_size", "10G")

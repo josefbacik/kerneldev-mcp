@@ -290,7 +290,7 @@ class DeviceManager:
         mkfs_options: Optional[str] = None,
         mount_options: Optional[str] = None,
         pool_count: int = 0,
-        pool_size: str = "5G"
+        pool_size: str = "10G"
     ) -> DeviceSetupResult:
         """Setup test and scratch devices using loop devices, optionally with pool devices.
 
@@ -303,7 +303,7 @@ class DeviceManager:
             mkfs_options: Options for mkfs
             mount_options: Options for mount
             pool_count: Number of pool devices to create for SCRATCH_DEV_POOL (default: 0)
-            pool_size: Size of each pool device (default: 5G)
+            pool_size: Size of each pool device (default: 10G)
 
         Returns:
             DeviceSetupResult with device configurations including pool devices
