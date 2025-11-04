@@ -938,7 +938,8 @@ class BootManager:
         # Use q35 for modern x86_64, or default machine for other architectures
         machine_type = "q35" if not target_arch or target_arch in ["x86_64", "x86"] else None
         if machine_type:
-            cmd.extend(["--qemu-opts", f"-machine {machine_type}"])
+            # Use equals sign to pass as single argument (argparse would interpret "-machine" as a new flag otherwise)
+            cmd.append(f"--qemu-opts=-machine {machine_type}")
             logger.info(f"Using QEMU machine type: {machine_type}")
 
         # Add memory and CPU options
@@ -1481,7 +1482,8 @@ exit $exit_code
         # Use q35 for modern x86_64, or default machine for other architectures
         machine_type = "q35" if not target_arch or target_arch in ["x86_64", "x86"] else None
         if machine_type:
-            cmd.extend(["--qemu-opts", f"-machine {machine_type}"])
+            # Use equals sign to pass as single argument (argparse would interpret "-machine" as a new flag otherwise)
+            cmd.append(f"--qemu-opts=-machine {machine_type}")
             logger.info(f"Using QEMU machine type: {machine_type}")
 
         # Add memory and CPU options
