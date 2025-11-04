@@ -935,12 +935,10 @@ class BootManager:
 
         # Force full machine type (not microvm) to ensure virtio-serial is available
         # microvm is too minimal - it lacks PCI, virtio-serial, and other devices needed for testing
-        # Use q35 for modern x86_64, or default machine for other architectures
-        machine_type = "q35" if not target_arch or target_arch in ["x86_64", "x86"] else None
-        if machine_type:
-            # Use -M (short form) and equals sign to pass as single argument
-            cmd.append(f"--qemu-opts=-M {machine_type}")
-            logger.info(f"Using QEMU machine type: {machine_type}")
+        # Use --disable-microvm flag to prevent virtme-ng from using microvm on x86_64
+        if not target_arch or target_arch in ["x86_64", "x86"]:
+            cmd.append("--disable-microvm")
+            logger.info("Using QEMU machine type: q35 (via --disable-microvm)")
 
         # Add memory and CPU options
         cmd.extend(["--memory", memory])
@@ -1479,12 +1477,10 @@ exit $exit_code
 
         # Force full machine type (not microvm) to ensure virtio-serial is available
         # microvm is too minimal - it lacks PCI, virtio-serial, and other devices needed for testing
-        # Use q35 for modern x86_64, or default machine for other architectures
-        machine_type = "q35" if not target_arch or target_arch in ["x86_64", "x86"] else None
-        if machine_type:
-            # Use -M (short form) and equals sign to pass as single argument
-            cmd.append(f"--qemu-opts=-M {machine_type}")
-            logger.info(f"Using QEMU machine type: {machine_type}")
+        # Use --disable-microvm flag to prevent virtme-ng from using microvm on x86_64
+        if not target_arch or target_arch in ["x86_64", "x86"]:
+            cmd.append("--disable-microvm")
+            logger.info("Using QEMU machine type: q35 (via --disable-microvm)")
 
         # Add memory and CPU options
         cmd.extend(["--memory", memory])
