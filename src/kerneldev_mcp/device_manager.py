@@ -30,6 +30,7 @@ class DeviceSetupResult:
     success: bool
     test_device: Optional[DeviceConfig] = None
     scratch_device: Optional[DeviceConfig] = None
+    pool_devices: Optional[List[DeviceConfig]] = None
     message: str = ""
     cleanup_needed: bool = False
 
@@ -287,9 +288,11 @@ class DeviceManager:
         test_mount: Optional[Path] = None,
         scratch_mount: Optional[Path] = None,
         mkfs_options: Optional[str] = None,
-        mount_options: Optional[str] = None
+        mount_options: Optional[str] = None,
+        pool_count: int = 0,
+        pool_size: str = "5G"
     ) -> DeviceSetupResult:
-        """Setup test and scratch devices using loop devices.
+        """Setup test and scratch devices using loop devices, optionally with pool devices.
 
         Args:
             test_size: Size of test device
@@ -299,9 +302,11 @@ class DeviceManager:
             scratch_mount: Mount point for scratch device (default: /mnt/scratch)
             mkfs_options: Options for mkfs
             mount_options: Options for mount
+            pool_count: Number of pool devices to create for SCRATCH_DEV_POOL (default: 0)
+            pool_size: Size of each pool device (default: 5G)
 
         Returns:
-            DeviceSetupResult with device configurations
+            DeviceSetupResult with device configurations including pool devices
         """
         test_mount = test_mount or Path("/mnt/test")
         scratch_mount = scratch_mount or Path("/mnt/scratch")
@@ -364,11 +369,42 @@ class DeviceManager:
             backing_file=scratch_backing
         )
 
+        # Create pool devices if requested
+        pool_configs = []
+        if pool_count > 0:
+            for i in range(pool_count):
+                pool_dev, pool_backing = self.create_loop_device(pool_size, f"pool{i+1}")
+                if not pool_dev:
+                    self.cleanup_all()
+                    return DeviceSetupResult(
+                        success=False,
+                        message=f"Failed to create pool device {i+1}/{pool_count}"
+                    )
+
+                # Pool devices are NOT formatted - tests format them as needed
+                pool_config = DeviceConfig(
+                    device_path=pool_dev,
+                    mount_point=Path("/mnt"),  # Not mounted
+                    filesystem_type=fstype,
+                    size=pool_size,
+                    mount_options=mount_options,
+                    mkfs_options=mkfs_options,
+                    is_loop_device=True,
+                    backing_file=pool_backing
+                )
+                pool_configs.append(pool_config)
+
+        message = f"Successfully setup loop devices: test={test_dev}, scratch={scratch_dev}"
+        if pool_configs:
+            pool_devs = ", ".join([pc.device_path for pc in pool_configs])
+            message += f", pool=[{pool_devs}]"
+
         return DeviceSetupResult(
             success=True,
             test_device=test_config,
             scratch_device=scratch_config,
-            message=f"Successfully setup loop devices: test={test_dev}, scratch={scratch_dev}",
+            pool_devices=pool_configs if pool_configs else None,
+            message=message,
             cleanup_needed=True
         )
 
@@ -381,9 +417,10 @@ class DeviceManager:
         scratch_mount: Optional[Path] = None,
         format_test: bool = True,
         mkfs_options: Optional[str] = None,
-        mount_options: Optional[str] = None
+        mount_options: Optional[str] = None,
+        pool_devs: Optional[List[str]] = None
     ) -> DeviceSetupResult:
-        """Setup test and scratch devices using existing devices.
+        """Setup test and scratch devices using existing devices, optionally with pool devices.
 
         Args:
             test_dev: Path to test device
@@ -394,9 +431,10 @@ class DeviceManager:
             format_test: Whether to format test device
             mkfs_options: Options for mkfs
             mount_options: Options for mount
+            pool_devs: List of pool device paths for SCRATCH_DEV_POOL (optional)
 
         Returns:
-            DeviceSetupResult with device configurations
+            DeviceSetupResult with device configurations including pool devices
         """
         test_mount = test_mount or Path("/mnt/test")
         scratch_mount = scratch_mount or Path("/mnt/scratch")
@@ -448,11 +486,38 @@ class DeviceManager:
             is_loop_device=False
         )
 
+        # Validate and setup pool devices if provided
+        pool_configs = []
+        if pool_devs:
+            for i, pool_dev in enumerate(pool_devs):
+                if not self.validate_device(pool_dev):
+                    return DeviceSetupResult(
+                        success=False,
+                        message=f"Pool device {pool_dev} is not valid or doesn't exist"
+                    )
+
+                # Pool devices are not formatted or mounted
+                pool_config = DeviceConfig(
+                    device_path=pool_dev,
+                    mount_point=Path("/mnt"),  # Not mounted
+                    filesystem_type=fstype,
+                    mount_options=mount_options,
+                    mkfs_options=mkfs_options,
+                    is_loop_device=False
+                )
+                pool_configs.append(pool_config)
+
+        message = f"Successfully setup existing devices: test={test_dev}, scratch={scratch_dev}"
+        if pool_configs:
+            pool_paths = ", ".join([pc.device_path for pc in pool_configs])
+            message += f", pool=[{pool_paths}]"
+
         return DeviceSetupResult(
             success=True,
             test_device=test_config,
             scratch_device=scratch_config,
-            message=f"Successfully setup existing devices: test={test_dev}, scratch={scratch_dev}",
+            pool_devices=pool_configs if pool_configs else None,
+            message=message,
             cleanup_needed=False
         )
 

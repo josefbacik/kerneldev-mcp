@@ -27,6 +27,7 @@ class FstestsConfig:
     fstype: str
     mount_options: Optional[str] = None
     mkfs_options: Optional[str] = None
+    scratch_dev_pool: Optional[List[str]] = None
     additional_vars: Dict[str, str] = field(default_factory=dict)
 
     def to_config_text(self) -> str:
@@ -62,6 +63,13 @@ class FstestsConfig:
         if self.mkfs_options:
             lines.append("# mkfs options")
             lines.append(f'export MKFS_OPTIONS="{self.mkfs_options}"')
+            lines.append("")
+
+        # Add scratch device pool if provided
+        if self.scratch_dev_pool:
+            lines.append("# Pool devices for multi-device tests (RAID, etc.)")
+            pool_str = " ".join(self.scratch_dev_pool)
+            lines.append(f'export SCRATCH_DEV_POOL="{pool_str}"')
             lines.append("")
 
         # Add additional variables

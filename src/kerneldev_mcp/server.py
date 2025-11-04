@@ -613,11 +613,13 @@ Next steps: fstests_setup_devices, then fstests_setup_configure""",
         ),
         Tool(
             name="fstests_setup_devices",
-            description="""Setup test and scratch devices for fstests.
+            description="""Setup test and scratch devices for fstests, including SCRATCH_DEV_POOL for multi-device tests.
 
 WORKFLOW: This is step 3 of the setup process.
 Prerequisites: fstests_setup_install must succeed first
-Next step: fstests_setup_configure""",
+Next step: fstests_setup_configure
+
+Creates TEST_DEV, SCRATCH_DEV, and optionally SCRATCH_DEV_POOL (for RAID and multi-device tests).""",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -635,6 +637,11 @@ Next step: fstests_setup_configure""",
                         "type": "string",
                         "description": "Scratch device path (for 'existing' mode)"
                     },
+                    "pool_devs": {
+                        "type": "array",
+                        "description": "List of pool device paths for SCRATCH_DEV_POOL (for 'existing' mode)",
+                        "items": {"type": "string"}
+                    },
                     "test_size": {
                         "type": "string",
                         "description": "Test device size for loop mode (e.g., '10G')",
@@ -644,6 +651,18 @@ Next step: fstests_setup_configure""",
                         "type": "string",
                         "description": "Scratch device size for loop mode (e.g., '10G')",
                         "default": "10G"
+                    },
+                    "pool_count": {
+                        "type": "integer",
+                        "description": "Number of SCRATCH_DEV_POOL devices to create (default: 4, set to 0 to disable). Required for RAID and multi-device filesystem tests.",
+                        "default": 4,
+                        "minimum": 0,
+                        "maximum": 10
+                    },
+                    "pool_size": {
+                        "type": "string",
+                        "description": "Size of each pool device (e.g., '5G'). Only used if pool_count > 0.",
+                        "default": "5G"
                     },
                     "fstype": {
                         "type": "string",
@@ -705,6 +724,11 @@ Next step: fstests_run to actually run tests""",
                     "mkfs_options": {
                         "type": "string",
                         "description": "mkfs options"
+                    },
+                    "pool_devices": {
+                        "type": "array",
+                        "description": "List of pool device paths for SCRATCH_DEV_POOL (e.g., from fstests_setup_devices)",
+                        "items": {"type": "string"}
                     }
                 },
                 "required": ["test_dev", "scratch_dev", "fstype"]
@@ -1681,6 +1705,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             fstype = arguments.get("fstype", "ext4")
             mount_options = arguments.get("mount_options")
             mkfs_options = arguments.get("mkfs_options")
+            pool_count = arguments.get("pool_count", 4)
+            pool_size = arguments.get("pool_size", "5G")
 
             if mode == "loop":
                 test_size = arguments.get("test_size", "10G")
@@ -1691,11 +1717,14 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     scratch_size=scratch_size,
                     fstype=fstype,
                     mount_options=mount_options,
-                    mkfs_options=mkfs_options
+                    mkfs_options=mkfs_options,
+                    pool_count=pool_count,
+                    pool_size=pool_size
                 )
             else:  # existing
                 test_dev = arguments.get("test_dev")
                 scratch_dev = arguments.get("scratch_dev")
+                pool_devs = arguments.get("pool_devs")  # Optional list of pool device paths
 
                 if not test_dev or not scratch_dev:
                     return [TextContent(
@@ -1708,7 +1737,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     scratch_dev=scratch_dev,
                     fstype=fstype,
                     mount_options=mount_options,
-                    mkfs_options=mkfs_options
+                    mkfs_options=mkfs_options,
+                    pool_devs=pool_devs
                 )
 
             if result.success:
@@ -1717,9 +1747,14 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 output += f"Test mount: {result.test_device.mount_point}\n"
                 output += f"Scratch device: {result.scratch_device.device_path}\n"
                 output += f"Scratch mount: {result.scratch_device.mount_point}\n"
+                if result.pool_devices:
+                    pool_paths = [pd.device_path for pd in result.pool_devices]
+                    output += f"Pool devices: {', '.join(pool_paths)}\n"
                 output += f"Filesystem: {fstype}\n"
                 if result.cleanup_needed:
                     output += "\n⚠ Cleanup required when done (loop devices)"
+                if result.pool_devices:
+                    output += f"\n\n💡 Remember to pass pool_devices to fstests_setup_configure"
             else:
                 output = f"✗ {result.message}"
 
@@ -1734,6 +1769,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             scratch_dir = Path(arguments.get("scratch_dir", "/mnt/scratch"))
             mount_options = arguments.get("mount_options")
             mkfs_options = arguments.get("mkfs_options")
+            pool_devices = arguments.get("pool_devices")
 
             if fstests_path:
                 manager = FstestsManager(Path(fstests_path))
@@ -1755,7 +1791,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 scratch_dir=scratch_dir,
                 fstype=fstype,
                 mount_options=mount_options,
-                mkfs_options=mkfs_options
+                mkfs_options=mkfs_options,
+                scratch_dev_pool=pool_devices
             )
 
             # Write config
