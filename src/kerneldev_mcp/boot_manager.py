@@ -933,15 +933,12 @@ class BootManager:
         if use_host_kernel:
             cmd.append("--run")
 
-        # Force q35 machine type to ensure virtio-serial is available
+        # Force full machine type (not microvm) to ensure virtio-serial is available
         # microvm is too minimal - it lacks PCI, virtio-serial, and other devices needed for testing
-        # We must both disable microvm AND specify q35 explicitly
-        # Must use separate --qemu-opts calls (one for -machine, one for q35) to work correctly
+        # Use q35 for modern x86_64, or default machine for other architectures
         machine_type = "q35" if not target_arch or target_arch in ["x86_64", "x86"] else None
         if machine_type:
-            cmd.append("--disable-microvm")
-            cmd.append("--qemu-opts=-machine")
-            cmd.append(f"--qemu-opts={machine_type}")
+            cmd.extend(["--qemu-opts", f"-machine {machine_type}"])
             logger.info(f"Using QEMU machine type: {machine_type}")
 
         # Add memory and CPU options
@@ -1479,15 +1476,12 @@ exit $exit_code
         if force_9p:
             cmd.append("--force-9p")
 
-        # Force q35 machine type to ensure virtio-serial is available
+        # Force full machine type (not microvm) to ensure virtio-serial is available
         # microvm is too minimal - it lacks PCI, virtio-serial, and other devices needed for testing
-        # We must both disable microvm AND specify q35 explicitly
-        # Must use separate --qemu-opts calls (one for -machine, one for q35) to work correctly
+        # Use q35 for modern x86_64, or default machine for other architectures
         machine_type = "q35" if not target_arch or target_arch in ["x86_64", "x86"] else None
         if machine_type:
-            cmd.append("--disable-microvm")
-            cmd.append("--qemu-opts=-machine")
-            cmd.append(f"--qemu-opts={machine_type}")
+            cmd.extend(["--qemu-opts", f"-machine {machine_type}"])
             logger.info(f"Using QEMU machine type: {machine_type}")
 
         # Add memory and CPU options
