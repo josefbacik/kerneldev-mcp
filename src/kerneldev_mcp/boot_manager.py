@@ -933,12 +933,15 @@ class BootManager:
         if use_host_kernel:
             cmd.append("--run")
 
-        # Force full machine type (not microvm) to ensure virtio-serial is available
+        # Force q35 machine type to ensure virtio-serial is available
         # microvm is too minimal - it lacks PCI, virtio-serial, and other devices needed for testing
-        # Use q35 for modern x86_64, or default machine for other architectures
+        # We must both disable microvm AND specify q35 explicitly
+        # Must use separate --qemu-opts calls (one for -machine, one for q35) to work correctly
         machine_type = "q35" if not target_arch or target_arch in ["x86_64", "x86"] else None
         if machine_type:
-            cmd.extend(["--qemu-opts", f"-machine {machine_type}"])
+            cmd.append("--disable-microvm")
+            cmd.append("--qemu-opts=-machine")
+            cmd.append(f"--qemu-opts={machine_type}")
             logger.info(f"Using QEMU machine type: {machine_type}")
 
         # Add memory and CPU options
@@ -1476,12 +1479,15 @@ exit $exit_code
         if force_9p:
             cmd.append("--force-9p")
 
-        # Force full machine type (not microvm) to ensure virtio-serial is available
+        # Force q35 machine type to ensure virtio-serial is available
         # microvm is too minimal - it lacks PCI, virtio-serial, and other devices needed for testing
-        # Use q35 for modern x86_64, or default machine for other architectures
+        # We must both disable microvm AND specify q35 explicitly
+        # Must use separate --qemu-opts calls (one for -machine, one for q35) to work correctly
         machine_type = "q35" if not target_arch or target_arch in ["x86_64", "x86"] else None
         if machine_type:
-            cmd.extend(["--qemu-opts", f"-machine {machine_type}"])
+            cmd.append("--disable-microvm")
+            cmd.append("--qemu-opts=-machine")
+            cmd.append(f"--qemu-opts={machine_type}")
             logger.info(f"Using QEMU machine type: {machine_type}")
 
         # Add memory and CPU options
@@ -1533,8 +1539,13 @@ exit $exit_code
             # Store result for later comparison
             self._last_fstests_result = fstests_result
 
+            # Determine if boot actually completed
+            # Boot is considered "completed" if vng ran successfully enough to actually boot the kernel
+            # Exit codes: 0 = success, 1 = tests failed (but kernel booted), 2+ = vng failed to start
+            boot_completed = (exit_code == 0 or exit_code == 1)
+
             # Save boot log
-            boot_success = (exit_code == 0 or exit_code == 1) and len(panics) == 0  # exit 1 is OK if tests failed
+            boot_success = boot_completed and len(panics) == 0  # Boot succeeded if completed without panics
             log_file = _save_boot_log(output, boot_success)
 
             # Log completion
@@ -1554,7 +1565,7 @@ exit $exit_code
             boot_result = BootResult(
                 success=boot_success,
                 duration=duration,
-                boot_completed=True,
+                boot_completed=boot_completed,
                 errors=errors,
                 warnings=warnings,
                 panics=panics,
