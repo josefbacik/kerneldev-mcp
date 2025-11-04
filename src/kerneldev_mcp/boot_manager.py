@@ -349,6 +349,75 @@ def _create_host_loop_device(size: str, name: str) -> Tuple[Optional[str], Optio
         return None, None
 
 
+def _get_available_schedulers(device: str) -> Optional[List[str]]:
+    """Get available IO schedulers for a block device.
+
+    Args:
+        device: Block device path (e.g., "/dev/loop0")
+
+    Returns:
+        List of available scheduler names, or None on error
+    """
+    # Extract device name (e.g., "loop0" from "/dev/loop0")
+    device_name = Path(device).name
+    scheduler_file = Path(f"/sys/block/{device_name}/queue/scheduler")
+
+    if not scheduler_file.exists():
+        logger.warning(f"Scheduler file not found for {device}: {scheduler_file}")
+        return None
+
+    try:
+        content = scheduler_file.read_text().strip()
+        # Format is like: "[none] mq-deadline kyber bfq"
+        # Extract all schedulers (remove brackets from current one)
+        schedulers = []
+        for sched in content.split():
+            schedulers.append(sched.strip("[]"))
+        return schedulers
+    except Exception as e:
+        logger.warning(f"Failed to read schedulers for {device}: {e}")
+        return None
+
+
+def _set_io_scheduler(device: str, scheduler: str) -> bool:
+    """Set IO scheduler for a block device.
+
+    Args:
+        device: Block device path (e.g., "/dev/loop0")
+        scheduler: Scheduler name (e.g., "mq-deadline", "none", "bfq", "kyber")
+
+    Returns:
+        True if successful, False otherwise
+    """
+    # Extract device name (e.g., "loop0" from "/dev/loop0")
+    device_name = Path(device).name
+    scheduler_file = Path(f"/sys/block/{device_name}/queue/scheduler")
+
+    if not scheduler_file.exists():
+        logger.error(f"Scheduler file not found for {device}: {scheduler_file}")
+        return False
+
+    # Verify scheduler is available
+    available = _get_available_schedulers(device)
+    if available is None:
+        logger.error(f"Cannot determine available schedulers for {device}")
+        return False
+
+    if scheduler not in available:
+        logger.error(f"Scheduler '{scheduler}' not available for {device}")
+        logger.error(f"Available schedulers: {', '.join(available)}")
+        return False
+
+    try:
+        # Write scheduler name to sysfs file
+        scheduler_file.write_text(scheduler)
+        logger.info(f"✓ Set IO scheduler for {device}: {scheduler}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to set IO scheduler for {device}: {e}")
+        return False
+
+
 def _cleanup_host_loop_device(loop_device: str, backing_file: Optional[Path] = None):
     """Cleanup a host loop device and its backing file.
 
@@ -988,7 +1057,8 @@ class BootManager:
         memory: str = "4G",
         cpus: int = 4,
         cross_compile: Optional["CrossCompileConfig"] = None,
-        force_9p: bool = False
+        force_9p: bool = False,
+        io_scheduler: str = "mq-deadline"
     ) -> Tuple[BootResult, Optional[object]]:
         """Boot kernel and run fstests inside VM.
 
@@ -1001,6 +1071,8 @@ class BootManager:
             cpus: Number of CPUs
             cross_compile: Cross-compilation configuration
             force_9p: Force use of 9p filesystem instead of virtio-fs
+            io_scheduler: IO scheduler to use for block devices (default: "mq-deadline")
+                         Valid values: "mq-deadline", "none", "bfq", "kyber"
 
         Returns:
             Tuple of (BootResult, FstestsRunResult or None)
@@ -1013,6 +1085,7 @@ class BootManager:
         logger.info(f"Config: fstype={fstype}, memory={memory}, cpus={cpus}, timeout={timeout}s")
         test_args = " ".join(tests) if tests else "-g quick"
         logger.info(f"Tests: {test_args}")
+        logger.info(f"IO scheduler: {io_scheduler}")
         if cross_compile:
             logger.info(f"Cross-compile arch: {cross_compile.arch}")
         if force_9p:
@@ -1231,6 +1304,49 @@ done
 echo "TEST_DEV=$TEST_DEV"
 echo "SCRATCH_DEV_POOL=$POOL1 $POOL2 $POOL3 $POOL4 $POOL5"
 echo "LOGWRITES_DEV=$LOGWRITES_DEV"
+
+# Set IO scheduler on all devices
+echo "Setting IO scheduler to '{io_scheduler}' on all devices..."
+for dev in $TEST_DEV $POOL1 $POOL2 $POOL3 $POOL4 $POOL5 $LOGWRITES_DEV; do
+    # Extract device name (e.g., "vda" from "/dev/vda")
+    devname=$(basename $dev)
+    scheduler_file="/sys/block/$devname/queue/scheduler"
+
+    if [ ! -f "$scheduler_file" ]; then
+        echo "ERROR: Scheduler file not found: $scheduler_file"
+        exit 1
+    fi
+
+    # Check if scheduler is available
+    available=$(cat "$scheduler_file")
+    if ! echo "$available" | grep -qw "{io_scheduler}"; then
+        echo "ERROR: IO scheduler '{io_scheduler}' is not available for $dev"
+        echo "Available schedulers: $available"
+        echo ""
+        echo "Make sure the scheduler is enabled in your kernel config:"
+        echo "  CONFIG_MQ_IOSCHED_DEADLINE=y (for mq-deadline)"
+        echo "  CONFIG_MQ_IOSCHED_KYBER=y (for kyber)"
+        echo "  CONFIG_BFQ_GROUP_IOSCHED=y (for bfq)"
+        exit 1
+    fi
+
+    # Set the scheduler
+    echo "{io_scheduler}" > "$scheduler_file"
+    if [ $? -ne 0 ]; then
+        echo "ERROR: Failed to set scheduler '{io_scheduler}' on $dev"
+        exit 1
+    fi
+
+    # Verify it was set
+    current=$(cat "$scheduler_file" | grep -o '\[.*\]' | tr -d '[]')
+    if [ "$current" != "{io_scheduler}" ]; then
+        echo "ERROR: Failed to verify scheduler on $dev (expected '{io_scheduler}', got '$current')"
+        exit 1
+    fi
+
+    echo "  ✓ $dev: {io_scheduler}"
+done
+echo ""
 
 # Format filesystems
 echo "Formatting filesystems as {fstype}..."

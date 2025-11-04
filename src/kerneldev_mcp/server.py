@@ -790,6 +790,12 @@ async def list_tools() -> list[Tool]:
                         "type": "boolean",
                         "description": "Force use of 9p filesystem instead of virtio-fs (required for old kernels < 5.14 that lack virtio-fs support)",
                         "default": False
+                    },
+                    "io_scheduler": {
+                        "type": "string",
+                        "description": "IO scheduler to use for block devices (default: mq-deadline). Valid values: mq-deadline, none, bfq, kyber",
+                        "default": "mq-deadline",
+                        "enum": ["mq-deadline", "none", "bfq", "kyber"]
                     }
                 },
                 "required": ["kernel_path", "fstests_path"]
@@ -1914,6 +1920,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             memory = arguments.get("memory", "4G")
             cpus = arguments.get("cpus", 4)
             force_9p = arguments.get("force_9p", False)
+            io_scheduler = arguments.get("io_scheduler", "mq-deadline")
 
             # Check kernel path exists
             if not kernel_path.exists():
@@ -1946,7 +1953,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 timeout=timeout,
                 memory=memory,
                 cpus=cpus,
-                force_9p=force_9p
+                force_9p=force_9p,
+                io_scheduler=io_scheduler
             )
 
             # Format output
