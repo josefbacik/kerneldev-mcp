@@ -1607,14 +1607,31 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             if cross_compile:
                 output += f"\n  Architecture: {cross_compile.arch}"
 
-            # For successful boots, show first 50 lines of dmesg
+            # For successful boots, show first 100 and last 200 lines to give context
             # (failure output is already shown by format_boot_result)
             if result.boot_completed and result.dmesg_output:
-                output += "\n\nDmesg Output (first 50 lines):"
-                lines = result.dmesg_output.splitlines()[:50]
-                output += "\n" + "\n".join(lines)
-                if len(result.dmesg_output.splitlines()) > 50:
-                    output += f"\n... ({len(result.dmesg_output.splitlines()) - 50} more lines)"
+                dmesg_lines = result.dmesg_output.splitlines()
+                total_lines = len(dmesg_lines)
+
+                output += f"\n\nDmesg Output (showing {min(300, total_lines)} of {total_lines} lines):"
+                output += f"\nFull log: {result.log_file_path}\n"
+
+                if total_lines <= 300:
+                    # Show everything for short logs
+                    output += "\n" + "\n".join(dmesg_lines)
+                else:
+                    # Show first 100 lines (boot start)
+                    output += "\n\n=== First 100 lines (boot initialization) ===\n"
+                    for i, line in enumerate(dmesg_lines[:100], 1):
+                        output += f"{i:5d} | {line}\n"
+
+                    output += f"\n... ({total_lines - 300} lines omitted) ...\n"
+
+                    # Show last 200 lines (boot completion and results)
+                    output += "\n=== Last 200 lines (boot completion) ===\n"
+                    start_line = total_lines - 200
+                    for i, line in enumerate(dmesg_lines[-200:], start_line + 1):
+                        output += f"{i:5d} | {line}\n"
 
             return [TextContent(type="text", text=output)]
 
@@ -2128,6 +2145,29 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     output += f"Failed: {fstests_result.failed}, Passed: {fstests_result.passed}\n"
             else:
                 output += "✗ fstests did not complete (boot failed or timed out)\n"
+
+            # For successful boots, include console output to show what happened
+            # This is valuable for debugging and verification
+            if boot_result.boot_completed and boot_result.dmesg_output:
+                console_lines = boot_result.dmesg_output.splitlines()
+                total_lines = len(console_lines)
+
+                # Show last 300 lines which typically includes:
+                # - Kernel boot completion
+                # - fstests setup
+                # - All test output
+                # - Test summary
+                output += "\n\n=== Console Output (last 300 lines) ===\n"
+                output += f"Full log saved to: {boot_result.log_file_path}\n\n"
+
+                last_lines = console_lines[-300:] if total_lines > 300 else console_lines
+                start_line_num = max(1, total_lines - len(last_lines) + 1)
+
+                for i, line in enumerate(last_lines, start=start_line_num):
+                    output += f"{i:5d} | {line}\n"
+
+                if total_lines > 300:
+                    output += f"\n... showing last 300 of {total_lines} total lines\n"
 
             return [TextContent(type="text", text=output)]
 
