@@ -290,6 +290,22 @@ def test_boot_manager_check_qemu_invalid_arch():
     assert len(info) > 0
 
 
+def test_boot_manager_detect_kernel_architecture():
+    """Test detecting kernel architecture from vmlinux."""
+    manager = BootManager(Path.cwd())
+
+    # This test will only work if there's a built kernel in cwd
+    # Just verify the method doesn't crash and returns the right type
+    arch = manager.detect_kernel_architecture()
+
+    # Should return None or a valid architecture string
+    if arch is not None:
+        assert isinstance(arch, str)
+        # Should be one of the known architectures
+        valid_arches = ["x86_64", "x86", "arm64", "arm", "riscv", "riscv32", "powerpc", "mips"]
+        assert arch in valid_arches
+
+
 def test_dmesg_parser_empty_line():
     """Test parsing empty lines."""
     msg = DmesgParser.parse_dmesg_line("")

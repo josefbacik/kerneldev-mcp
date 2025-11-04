@@ -687,6 +687,68 @@ class BootManager:
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             return False, f"Error checking QEMU: {str(e)}"
 
+    def detect_kernel_architecture(self, vmlinux_path: Optional[Path] = None) -> Optional[str]:
+        """Detect the target architecture of a compiled kernel.
+
+        Args:
+            vmlinux_path: Path to vmlinux binary. If None, uses kernel_path/vmlinux.
+
+        Returns:
+            Architecture string compatible with virtme-ng (e.g., "x86_64", "arm64", "riscv")
+            or None if detection fails.
+        """
+        if vmlinux_path is None:
+            vmlinux_path = self.kernel_path / "vmlinux"
+
+        if not vmlinux_path.exists():
+            logger.warning(f"vmlinux not found at {vmlinux_path}, cannot detect architecture")
+            return None
+
+        try:
+            # Use 'file' command to detect ELF architecture
+            result = subprocess.run(
+                ["file", str(vmlinux_path)],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+
+            if result.returncode != 0:
+                logger.warning(f"Failed to run 'file' command on {vmlinux_path}")
+                return None
+
+            output = result.stdout.lower()
+
+            # Map file output to virtme-ng architecture names
+            if "x86-64" in output or "x86_64" in output:
+                return "x86_64"
+            elif "x86" in output or "80386" in output or "i386" in output:
+                return "x86"
+            elif "aarch64" in output or "arm64" in output:
+                return "arm64"
+            elif "arm" in output:
+                return "arm"
+            elif "riscv" in output:
+                # Detect whether it's 32-bit or 64-bit RISC-V
+                if "64-bit" in output:
+                    return "riscv"
+                else:
+                    return "riscv32"
+            elif "powerpc" in output or "ppc64" in output:
+                return "powerpc"
+            elif "mips" in output:
+                return "mips"
+
+            logger.warning(f"Could not determine architecture from: {output}")
+            return None
+
+        except FileNotFoundError:
+            logger.warning("'file' command not found, cannot detect kernel architecture")
+            return None
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            logger.warning(f"Error detecting kernel architecture: {e}")
+            return None
+
     def boot_test(
         self,
         timeout: int = 60,
@@ -734,8 +796,32 @@ class BootManager:
                 exit_code=-1
             )
 
+        # Auto-detect kernel architecture if not explicitly specified and not using host kernel
+        target_arch = None
+        if cross_compile:
+            target_arch = cross_compile.arch
+        elif not use_host_kernel:
+            # Try to detect architecture from vmlinux
+            detected_arch = self.detect_kernel_architecture()
+            if detected_arch:
+                import platform
+                host_arch = platform.machine()
+                # Normalize host arch names
+                if host_arch == "amd64":
+                    host_arch = "x86_64"
+                elif host_arch == "aarch64":
+                    host_arch = "arm64"
+
+                if detected_arch != host_arch:
+                    target_arch = detected_arch
+                    logger.info(f"✓ Auto-detected kernel architecture: {detected_arch}")
+                    logger.info(f"  (different from host: {host_arch})")
+                else:
+                    logger.info(f"✓ Kernel architecture matches host: {detected_arch}")
+            else:
+                logger.warning("Could not auto-detect kernel architecture, assuming host architecture")
+
         # Check QEMU is available for target architecture
-        target_arch = cross_compile.arch if cross_compile else None
         qemu_available, qemu_info = self.check_qemu(target_arch)
         if not qemu_available:
             logger.error(f"✗ QEMU not found: {qemu_info}")
@@ -782,9 +868,9 @@ class BootManager:
         cmd.extend(["--memory", memory])
         cmd.extend(["--cpus", str(cpus)])
 
-        # Add cross-compilation architecture if specified
-        if cross_compile:
-            cmd.extend(["--arch", cross_compile.arch])
+        # Add architecture if specified or auto-detected
+        if target_arch:
+            cmd.extend(["--arch", target_arch])
 
         # Add any extra arguments
         if extra_args:
@@ -955,8 +1041,32 @@ class BootManager:
                 exit_code=-1
             ), None)
 
+        # Auto-detect kernel architecture if not explicitly specified
+        target_arch = None
+        if cross_compile:
+            target_arch = cross_compile.arch
+        else:
+            # Try to detect architecture from vmlinux
+            detected_arch = self.detect_kernel_architecture()
+            if detected_arch:
+                import platform
+                host_arch = platform.machine()
+                # Normalize host arch names
+                if host_arch == "amd64":
+                    host_arch = "x86_64"
+                elif host_arch == "aarch64":
+                    host_arch = "arm64"
+
+                if detected_arch != host_arch:
+                    target_arch = detected_arch
+                    logger.info(f"✓ Auto-detected kernel architecture: {detected_arch}")
+                    logger.info(f"  (different from host: {host_arch})")
+                else:
+                    logger.info(f"✓ Kernel architecture matches host: {detected_arch}")
+            else:
+                logger.warning("Could not auto-detect kernel architecture, assuming host architecture")
+
         # Check QEMU is available for target architecture
-        target_arch = cross_compile.arch if cross_compile else None
         qemu_available, qemu_info = self.check_qemu(target_arch)
         if not qemu_available:
             logger.error(f"✗ QEMU not found: {qemu_info}")
@@ -1194,9 +1304,9 @@ exit $exit_code
         cmd.extend(["--memory", memory])
         cmd.extend(["--cpus", str(cpus)])
 
-        # Add cross-compilation architecture if specified
-        if cross_compile:
-            cmd.extend(["--arch", cross_compile.arch])
+        # Add architecture if specified or auto-detected
+        if target_arch:
+            cmd.extend(["--arch", target_arch])
 
         # Pass loop devices to VM via --disk
         # They will appear as /dev/sda, /dev/sdb, etc. in the VM
