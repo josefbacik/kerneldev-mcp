@@ -1584,6 +1584,10 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             force = arguments.get("force", False)
             signal_type = "SIGKILL (-9)" if force else "SIGTERM"
 
+            logger.info("=" * 80)
+            logger.info(f"kill_hanging_vms: Starting (force={force})")
+            logger.info(f"MCP Server PID: {os.getpid()}")
+
             output_lines = []
             output_lines.append("Killing Tracked VM Processes (This Session Only)")
             output_lines.append("=" * 60)
@@ -1592,10 +1596,14 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             output_lines.append("")
 
             # Clean up dead processes from tracking first
+            logger.info("Cleaning up dead tracked processes...")
             _cleanup_dead_tracked_processes()
+            logger.info("Cleanup complete")
 
             # Get tracked processes
+            logger.info("Getting tracked processes...")
             tracked = _get_tracked_vm_processes()
+            logger.info(f"Found {len(tracked)} tracked processes: {list(tracked.keys())}")
 
             if not tracked:
                 output_lines.append("✓ No tracked VM processes found in this session")
@@ -1611,6 +1619,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 errors = []
 
                 for pid, info in tracked.items():
+                    logger.info(f"Processing PID {pid}")
                     pgid = info.get("pgid", pid)
                     description = info.get("description", "Unknown")
                     started_at = info.get("started_at", 0)
@@ -1622,6 +1631,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     else:
                         running_str = "unknown"
 
+                    logger.info(f"  PID={pid}, PGID={pgid}, Description={description}, Running={running_str}")
+
                     output_lines.append(f"  • PID {pid} (PGID {pgid})")
                     output_lines.append(f"    Description: {description}")
                     output_lines.append(f"    Running for: {running_str}")
@@ -1630,82 +1641,111 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     # Use subprocess with timeout to prevent hanging
                     try:
                         sig_num = "9" if force else "15"
+                        logger.info(f"  Signal to use: -{sig_num}")
 
                         # Step 1: Find all child processes (including QEMU)
+                        logger.info(f"  Step 1: Finding children of PID {pid}")
                         # pgrep -P <pid> finds children of the parent
                         try:
+                            logger.info(f"  Running: pgrep -P {pid}")
                             child_result = subprocess.run(
                                 ["pgrep", "-P", str(pid)],
                                 capture_output=True,
                                 timeout=1,
                                 text=True
                             )
+                            logger.info(f"  pgrep completed: rc={child_result.returncode}")
                             child_pids = []
                             if child_result.returncode == 0 and child_result.stdout.strip():
                                 child_pids = child_result.stdout.strip().split('\n')
+                                logger.info(f"  Found {len(child_pids)} children: {child_pids}")
 
                             # Log what we found
                             if child_pids:
                                 output_lines.append(f"    Children: {', '.join(child_pids)}")
                         except subprocess.TimeoutExpired:
+                            logger.warning(f"  pgrep timed out for PID {pid}")
                             child_pids = []
 
                         # Step 2: Kill all children first (QEMU processes)
+                        logger.info(f"  Step 2: Killing {len(child_pids)} children")
                         for child_pid in child_pids:
                             try:
+                                logger.info(f"  Running: kill -{sig_num} {child_pid}")
                                 subprocess.run(
                                     ["kill", f"-{sig_num}", child_pid],
                                     capture_output=True,
                                     timeout=1,
                                     text=True
                                 )
-                            except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
-                                pass  # Continue even if one child fails
+                                logger.info(f"  Successfully killed child {child_pid}")
+                            except subprocess.TimeoutExpired:
+                                logger.warning(f"  Timeout killing child {child_pid}")
+                            except subprocess.CalledProcessError as e:
+                                logger.warning(f"  Error killing child {child_pid}: {e}")
 
                         # Step 3: Kill the parent (vng) process
+                        logger.info(f"  Step 3: Killing parent PID {pid}")
+                        logger.info(f"  Running: kill -{sig_num} {pid}")
                         subprocess.run(
                             ["kill", f"-{sig_num}", str(pid)],
                             capture_output=True,
                             timeout=1,
                             text=True
                         )
+                        logger.info(f"  Successfully killed parent {pid}")
 
                         # Step 4: Also try to kill the entire process group as backup
+                        logger.info(f"  Step 4: Killing process group {pgid}")
                         # Syntax: kill -15 -- -<pgid> to kill process group
+                        logger.info(f"  Running: kill -{sig_num} -- -{pgid}")
                         subprocess.run(
                             ["kill", f"-{sig_num}", "--", f"-{pgid}"],
                             capture_output=True,
                             timeout=1,
                             text=True
                         )
+                        logger.info(f"  Successfully killed process group {pgid}")
 
                         killed_count += 1
+                        logger.info(f"  Completed killing PID {pid}")
                         output_lines.append(f"    Status: ✓ Killed (parent + {len(child_pids)} child processes)")
-                    except subprocess.TimeoutExpired:
+                    except subprocess.TimeoutExpired as e:
+                        logger.error(f"  TIMEOUT killing PID {pid}: {e}")
                         errors.append(f"Timeout killing PID {pid} (process may be stuck)")
                         output_lines.append(f"    Status: ✗ Timeout (stuck)")
                     except (ProcessLookupError, OSError, subprocess.CalledProcessError) as e:
+                        logger.error(f"  ERROR killing PID {pid}: {e}")
                         errors.append(f"Failed to kill PID {pid}: {e}")
                         output_lines.append(f"    Status: ✗ Failed ({e})")
 
                     output_lines.append("")
+                    logger.info(f"Finished processing PID {pid}")
 
                 # Clean up tracking file after killing
+                logger.info("Cleaning up tracking file after killing...")
                 _cleanup_dead_tracked_processes()
+                logger.info("Cleanup complete")
 
                 output_lines.append("=" * 60)
                 if killed_count > 0:
+                    logger.info(f"Successfully killed {killed_count} process(es)")
                     output_lines.append(f"✓ Successfully killed {killed_count} process(es)")
                 else:
+                    logger.warning("Failed to kill any processes")
                     output_lines.append("✗ Failed to kill any processes")
 
                 if errors:
+                    logger.error(f"Encountered {len(errors)} errors:")
+                    for error in errors:
+                        logger.error(f"  {error}")
                     output_lines.append("")
                     output_lines.append("Errors:")
                     for error in errors:
                         output_lines.append(f"  • {error}")
 
             # Check for orphaned loop devices
+            logger.info("Checking for orphaned loop devices...")
             output_lines.append("")
             output_lines.append("Checking for orphaned loop devices...")
             try:
@@ -1738,7 +1778,14 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 else:
                     output_lines.append("✓ No loop devices active")
             except Exception as e:
+                logger.error(f"Error checking loop devices: {e}")
                 output_lines.append(f"⚠ Error checking loop devices: {e}")
+
+            logger.info("kill_hanging_vms: Complete")
+            logger.info("=" * 80)
+            # Flush logs to ensure everything is written
+            for handler in logger.handlers:
+                handler.flush()
 
             return [TextContent(type="text", text="\n".join(output_lines))]
 
