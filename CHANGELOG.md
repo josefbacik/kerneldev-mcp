@@ -23,6 +23,13 @@ Use when VM hangs, tests need to be stopped before timeout, or cleaning up after
 - Processes automatically tracked on launch and untracked on exit
 - Dead processes automatically cleaned up from tracking file
 
+**Kill strategy (kills entire process tree):**
+1. Find all child processes with `pgrep -P <parent_pid>` (finds QEMU)
+2. Kill all children first (QEMU VMs) with 1-second timeout each
+3. Kill the parent (vng) process with 1-second timeout
+4. Kill entire process group as backup with 1-second timeout
+5. Returns within seconds even if processes are stuck in uninterruptible state
+
 ### Removed
 
 #### Custom Rootfs Feature
