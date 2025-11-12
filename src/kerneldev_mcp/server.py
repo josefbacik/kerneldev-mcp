@@ -1,6 +1,7 @@
 """
 MCP server for kernel development configuration management.
 """
+import atexit
 import json
 import logging
 import os
@@ -57,6 +58,18 @@ app = Server("kerneldev-mcp")
 
 # Initialize managers
 template_manager = TemplateManager()
+
+# Register cleanup handler to remove tracking file on exit
+def _cleanup_on_exit():
+    """Clean up VM tracking file when server exits."""
+    from .boot_manager import VM_PID_TRACKING_FILE
+    try:
+        if VM_PID_TRACKING_FILE.exists():
+            VM_PID_TRACKING_FILE.unlink()
+    except Exception:
+        pass  # Ignore cleanup errors
+
+atexit.register(_cleanup_on_exit)
 config_manager = ConfigManager()
 fstests_manager = FstestsManager()
 device_manager = DeviceManager()
@@ -542,7 +555,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="kill_hanging_vms",
-            description="""Kill hanging VM processes launched by kerneldev-mcp.
+            description="""Kill hanging VM processes launched by THIS kerneldev-mcp session.
 
 Use this when:
   • VM has hung and not responding
@@ -550,12 +563,15 @@ Use this when:
   • Need to clean up after interrupted/failed VM runs
 
 This tool will:
-  • Find and kill VMs launched by kerneldev-mcp (tracked processes only)
+  • Find and kill VMs launched by THIS session (tracked processes only)
   • Kill the entire process group (includes QEMU child processes)
   • Check for orphaned loop devices and provide cleanup commands
 
-IMPORTANT: This only kills VMs that were launched by kerneldev-mcp tools.
-It will NOT kill other QEMU VMs running on your system.
+IMPORTANT: This only kills VMs from this specific Claude/MCP session.
+- Will NOT kill VMs from other Claude sessions
+- Will NOT kill other QEMU VMs on your system
+- Each MCP server instance tracks its own VMs independently
+
 Each tracked VM shows: PID, description, and running time.""",
             inputSchema={
                 "type": "object",
@@ -1569,8 +1585,9 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             signal_type = "SIGKILL (-9)" if force else "SIGTERM"
 
             output_lines = []
-            output_lines.append("Killing Tracked VM Processes")
+            output_lines.append("Killing Tracked VM Processes (This Session Only)")
             output_lines.append("=" * 60)
+            output_lines.append(f"MCP Server PID: {os.getpid()}")
             output_lines.append(f"Signal: {signal_type}")
             output_lines.append("")
 
@@ -1581,9 +1598,10 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             tracked = _get_tracked_vm_processes()
 
             if not tracked:
-                output_lines.append("✓ No tracked VM processes found")
+                output_lines.append("✓ No tracked VM processes found in this session")
                 output_lines.append("")
-                output_lines.append("Note: This tool only kills VMs launched by kerneldev-mcp.")
+                output_lines.append("Note: This tool only kills VMs launched by THIS MCP session.")
+                output_lines.append("Each Claude session has independent VM tracking.")
                 output_lines.append("Use 'ps aux | grep qemu' to see all QEMU processes on the system.")
             else:
                 output_lines.append(f"Found {len(tracked)} tracked VM process(es):")

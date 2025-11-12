@@ -6,8 +6,9 @@
 
 #### kill_hanging_vms Tool
 New MCP tool to manually kill stuck VM processes launched by kerneldev-mcp:
-- **Safe operation**: Only kills VMs launched by kerneldev-mcp, not other QEMU processes on the system
-- Tracks all launched VMs in `/tmp/kerneldev-mcp-vm-pids.json` with PID, PGID, description, and start time
+- **Per-session isolation**: Only kills VMs from the current MCP session
+- **Safe operation**: Won't kill VMs from other Claude sessions or other QEMU processes
+- Tracks all launched VMs in `/tmp/kerneldev-mcp-vm-pids-{server_pid}.json` with PID, PGID, description, and start time
 - Kills entire process group (includes QEMU child processes)
 - Optional `force` parameter for immediate SIGKILL (-9) termination
 - Detects orphaned loop devices from interrupted test runs
@@ -17,6 +18,8 @@ Use when VM hangs, tests need to be stopped before timeout, or cleaning up after
 
 **Technical details:**
 - Process tracking added to `_run_with_pty()` in boot_manager.py
+- Each MCP server instance tracks its own VMs using server PID in filename
+- Tracking file automatically cleaned up when server exits
 - Processes automatically tracked on launch and untracked on exit
 - Dead processes automatically cleaned up from tracking file
 

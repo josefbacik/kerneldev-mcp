@@ -286,7 +286,10 @@ BOOT_LOG_DIR = Path("/tmp/kerneldev-boot-logs")
 HOST_LOOP_WORK_DIR = Path("/var/tmp/kerneldev-loop-devices")
 
 # PID tracking for launched VMs (so we can kill only our VMs)
-VM_PID_TRACKING_FILE = Path("/tmp/kerneldev-mcp-vm-pids.json")
+# Use server PID in filename so each MCP server instance has its own tracking file
+# This prevents multiple Claude sessions from killing each other's VMs
+_MCP_SERVER_PID = os.getpid()
+VM_PID_TRACKING_FILE = Path(f"/tmp/kerneldev-mcp-vm-pids-{_MCP_SERVER_PID}.json")
 
 
 def _track_vm_process(pid: int, pgid: int, description: str = ""):
