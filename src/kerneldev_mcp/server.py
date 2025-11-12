@@ -1627,14 +1627,29 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     output_lines.append(f"    Running for: {running_str}")
 
                     # Kill the process group (includes QEMU child processes)
+                    # Use subprocess with timeout to prevent hanging
                     try:
-                        if force:
-                            os.killpg(pgid, signal.SIGKILL)
-                        else:
-                            os.killpg(pgid, signal.SIGTERM)
+                        sig_num = "9" if force else "15"
+                        # Use kill command with timeout to prevent hanging
+                        result = subprocess.run(
+                            ["kill", f"-{sig_num}", str(pid)],
+                            capture_output=True,
+                            timeout=2,
+                            text=True
+                        )
+                        # Also try to kill the process group
+                        subprocess.run(
+                            ["kill", f"-{sig_num}", f"-{pgid}"],
+                            capture_output=True,
+                            timeout=2,
+                            text=True
+                        )
                         killed_count += 1
                         output_lines.append(f"    Status: ✓ Killed")
-                    except (ProcessLookupError, OSError) as e:
+                    except subprocess.TimeoutExpired:
+                        errors.append(f"Timeout killing PID {pid} (process may be stuck)")
+                        output_lines.append(f"    Status: ✗ Timeout (stuck)")
+                    except (ProcessLookupError, OSError, subprocess.CalledProcessError) as e:
                         errors.append(f"Failed to kill PID {pid}: {e}")
                         output_lines.append(f"    Status: ✗ Failed ({e})")
 
