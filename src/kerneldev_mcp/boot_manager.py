@@ -285,6 +285,138 @@ BOOT_LOG_DIR = Path("/tmp/kerneldev-boot-logs")
 # Host loop device management for fstests
 HOST_LOOP_WORK_DIR = Path("/var/tmp/kerneldev-loop-devices")
 
+# PID tracking for launched VMs (so we can kill only our VMs)
+VM_PID_TRACKING_FILE = Path("/tmp/kerneldev-mcp-vm-pids.json")
+
+
+def _track_vm_process(pid: int, pgid: int, description: str = ""):
+    """Track a VM process so it can be killed later if needed.
+
+    Args:
+        pid: Process ID
+        pgid: Process group ID
+        description: Human-readable description (e.g., "fstests on kernel X.Y.Z")
+    """
+    import json
+    import time
+
+    # Read existing tracking data
+    tracking_data = {}
+    if VM_PID_TRACKING_FILE.exists():
+        try:
+            with open(VM_PID_TRACKING_FILE, 'r') as f:
+                tracking_data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            # File corrupted or unreadable, start fresh
+            tracking_data = {}
+
+    # Add new process
+    tracking_data[str(pid)] = {
+        "pid": pid,
+        "pgid": pgid,
+        "description": description,
+        "started_at": time.time(),
+    }
+
+    # Write back
+    try:
+        with open(VM_PID_TRACKING_FILE, 'w') as f:
+            json.dump(tracking_data, f, indent=2)
+    except OSError as e:
+        logger.warning(f"Failed to track VM process {pid}: {e}")
+
+
+def _untrack_vm_process(pid: int):
+    """Remove a VM process from tracking (called when process exits).
+
+    Args:
+        pid: Process ID to untrack
+    """
+    import json
+
+    if not VM_PID_TRACKING_FILE.exists():
+        return
+
+    try:
+        with open(VM_PID_TRACKING_FILE, 'r') as f:
+            tracking_data = json.load(f)
+
+        # Remove this PID
+        if str(pid) in tracking_data:
+            del tracking_data[str(pid)]
+
+        # Write back (or delete file if empty)
+        if tracking_data:
+            with open(VM_PID_TRACKING_FILE, 'w') as f:
+                json.dump(tracking_data, f, indent=2)
+        else:
+            VM_PID_TRACKING_FILE.unlink()
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning(f"Failed to untrack VM process {pid}: {e}")
+
+
+def _get_tracked_vm_processes() -> Dict[int, Dict[str, any]]:
+    """Get all currently tracked VM processes.
+
+    Returns:
+        Dictionary mapping PID to process info
+    """
+    import json
+
+    if not VM_PID_TRACKING_FILE.exists():
+        return {}
+
+    try:
+        with open(VM_PID_TRACKING_FILE, 'r') as f:
+            tracking_data = json.load(f)
+
+        # Convert string keys back to ints and filter out dead processes
+        result = {}
+        for pid_str, info in tracking_data.items():
+            pid = int(pid_str)
+            # Check if process is still alive
+            try:
+                os.kill(pid, 0)  # Signal 0 checks if process exists
+                result[pid] = info
+            except (OSError, ProcessLookupError):
+                # Process is dead, skip it (will be cleaned up next time)
+                pass
+
+        return result
+    except (json.JSONDecodeError, OSError, ValueError):
+        return {}
+
+
+def _cleanup_dead_tracked_processes():
+    """Remove dead processes from tracking file."""
+    import json
+
+    if not VM_PID_TRACKING_FILE.exists():
+        return
+
+    try:
+        with open(VM_PID_TRACKING_FILE, 'r') as f:
+            tracking_data = json.load(f)
+
+        # Filter out dead processes
+        alive_data = {}
+        for pid_str, info in tracking_data.items():
+            try:
+                pid = int(pid_str)
+                os.kill(pid, 0)  # Check if alive
+                alive_data[pid_str] = info
+            except (OSError, ProcessLookupError, ValueError):
+                pass
+
+        # Write back or delete if empty
+        if alive_data:
+            with open(VM_PID_TRACKING_FILE, 'w') as f:
+                json.dump(alive_data, f, indent=2)
+        else:
+            VM_PID_TRACKING_FILE.unlink()
+    except (json.JSONDecodeError, OSError):
+        pass
+
 
 def _create_host_loop_device(size: str, name: str) -> Tuple[Optional[str], Optional[Path]]:
     """Create a loop device on the host for passing to VM.
@@ -519,7 +651,7 @@ def _save_boot_log(output: str, success: bool) -> Path:
     return log_file
 
 
-def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = False) -> Tuple[int, str, List[str]]:
+def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = False, description: str = "") -> Tuple[int, str, List[str]]:
     """Run a command with a pseudo-terminal.
 
     This is needed for virtme-ng which requires a valid PTS.
@@ -529,6 +661,7 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = F
         cwd: Working directory
         timeout: Timeout in seconds
         emit_output: If True, emit output in real-time to logger (for long operations)
+        description: Description of what's running (for tracking)
 
     Returns:
         Tuple of (exit_code, output, progress_messages)
@@ -550,6 +683,10 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = F
             close_fds=True,
             start_new_session=True  # Create new process group
         )
+
+        # Track this VM process so we can kill it later if needed
+        pgid = os.getpgid(process.pid)
+        _track_vm_process(process.pid, pgid, description)
 
         # Close the slave FD in the parent process
         os.close(slave_fd)
@@ -658,6 +795,9 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = F
         # Wait for process to finish
         exit_code = process.wait()
 
+        # Untrack the process since it's finished
+        _untrack_vm_process(process.pid)
+
         # Decode output
         output_str = b''.join(output).decode('utf-8', errors='replace')
 
@@ -675,6 +815,10 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = F
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 pass
+
+        # Untrack the process if it exists (in case of exception path)
+        if process:
+            _untrack_vm_process(process.pid)
 
         try:
             os.close(master_fd)
@@ -952,7 +1096,8 @@ class BootManager:
 
         # Run boot test with PTY (virtme-ng requires a valid PTS)
         try:
-            exit_code, dmesg_output, _ = _run_with_pty(cmd, self.kernel_path, timeout)
+            description = f"boot_kernel_test: {self.kernel_path.name}"
+            exit_code, dmesg_output, _ = _run_with_pty(cmd, self.kernel_path, timeout, description=description)
 
             duration = time.time() - start_time
 
@@ -1459,7 +1604,8 @@ exit $exit_code
             handler.flush()
 
         try:
-            exit_code, output, progress_messages = _run_with_pty(cmd, self.kernel_path, timeout, emit_output=True)
+            description = f"fstests {fstype} on {self.kernel_path.name}"
+            exit_code, output, progress_messages = _run_with_pty(cmd, self.kernel_path, timeout, emit_output=True, description=description)
 
             duration = time.time() - start_time
 

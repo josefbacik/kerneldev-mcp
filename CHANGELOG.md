@@ -2,6 +2,24 @@
 
 ## [Unreleased] - 2025-01-XX
 
+### Added
+
+#### kill_hanging_vms Tool
+New MCP tool to manually kill stuck VM processes launched by kerneldev-mcp:
+- **Safe operation**: Only kills VMs launched by kerneldev-mcp, not other QEMU processes on the system
+- Tracks all launched VMs in `/tmp/kerneldev-mcp-vm-pids.json` with PID, PGID, description, and start time
+- Kills entire process group (includes QEMU child processes)
+- Optional `force` parameter for immediate SIGKILL (-9) termination
+- Detects orphaned loop devices from interrupted test runs
+- Shows running time and description for each tracked VM
+
+Use when VM hangs, tests need to be stopped before timeout, or cleaning up after crashes.
+
+**Technical details:**
+- Process tracking added to `_run_with_pty()` in boot_manager.py
+- Processes automatically tracked on launch and untracked on exit
+- Dead processes automatically cleaned up from tracking file
+
 ### Removed
 
 #### Custom Rootfs Feature

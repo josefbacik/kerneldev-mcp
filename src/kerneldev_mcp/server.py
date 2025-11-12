@@ -541,6 +541,34 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
+            name="kill_hanging_vms",
+            description="""Kill hanging VM processes launched by kerneldev-mcp.
+
+Use this when:
+  • VM has hung and not responding
+  • Want to stop long-running tests before timeout
+  • Need to clean up after interrupted/failed VM runs
+
+This tool will:
+  • Find and kill VMs launched by kerneldev-mcp (tracked processes only)
+  • Kill the entire process group (includes QEMU child processes)
+  • Check for orphaned loop devices and provide cleanup commands
+
+IMPORTANT: This only kills VMs that were launched by kerneldev-mcp tools.
+It will NOT kill other QEMU VMs running on your system.
+Each tracked VM shows: PID, description, and running time.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "force": {
+                        "type": "boolean",
+                        "description": "Use SIGKILL (-9) instead of SIGTERM for immediate termination",
+                        "default": False
+                    }
+                }
+            }
+        ),
+        Tool(
             name="modify_kernel_config",
             description="Enable, disable, or modify specific kernel configuration options in an existing .config file",
             inputSchema={
@@ -1530,6 +1558,119 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 output_lines.append("✓ All prerequisites are available - ready to boot kernels!")
             else:
                 output_lines.append("✗ Missing prerequisites - install the missing components above")
+
+            return [TextContent(type="text", text="\n".join(output_lines))]
+
+        elif name == "kill_hanging_vms":
+            from .boot_manager import _get_tracked_vm_processes, _cleanup_dead_tracked_processes
+            import datetime
+
+            force = arguments.get("force", False)
+            signal_type = "SIGKILL (-9)" if force else "SIGTERM"
+
+            output_lines = []
+            output_lines.append("Killing Tracked VM Processes")
+            output_lines.append("=" * 60)
+            output_lines.append(f"Signal: {signal_type}")
+            output_lines.append("")
+
+            # Clean up dead processes from tracking first
+            _cleanup_dead_tracked_processes()
+
+            # Get tracked processes
+            tracked = _get_tracked_vm_processes()
+
+            if not tracked:
+                output_lines.append("✓ No tracked VM processes found")
+                output_lines.append("")
+                output_lines.append("Note: This tool only kills VMs launched by kerneldev-mcp.")
+                output_lines.append("Use 'ps aux | grep qemu' to see all QEMU processes on the system.")
+            else:
+                output_lines.append(f"Found {len(tracked)} tracked VM process(es):")
+                output_lines.append("")
+
+                killed_count = 0
+                errors = []
+
+                for pid, info in tracked.items():
+                    pgid = info.get("pgid", pid)
+                    description = info.get("description", "Unknown")
+                    started_at = info.get("started_at", 0)
+
+                    # Calculate running time
+                    if started_at:
+                        running_time = datetime.datetime.now().timestamp() - started_at
+                        running_str = f"{int(running_time)}s"
+                    else:
+                        running_str = "unknown"
+
+                    output_lines.append(f"  • PID {pid} (PGID {pgid})")
+                    output_lines.append(f"    Description: {description}")
+                    output_lines.append(f"    Running for: {running_str}")
+
+                    # Kill the process group (includes QEMU child processes)
+                    try:
+                        if force:
+                            os.killpg(pgid, signal.SIGKILL)
+                        else:
+                            os.killpg(pgid, signal.SIGTERM)
+                        killed_count += 1
+                        output_lines.append(f"    Status: ✓ Killed")
+                    except (ProcessLookupError, OSError) as e:
+                        errors.append(f"Failed to kill PID {pid}: {e}")
+                        output_lines.append(f"    Status: ✗ Failed ({e})")
+
+                    output_lines.append("")
+
+                # Clean up tracking file after killing
+                _cleanup_dead_tracked_processes()
+
+                output_lines.append("=" * 60)
+                if killed_count > 0:
+                    output_lines.append(f"✓ Successfully killed {killed_count} process(es)")
+                else:
+                    output_lines.append("✗ Failed to kill any processes")
+
+                if errors:
+                    output_lines.append("")
+                    output_lines.append("Errors:")
+                    for error in errors:
+                        output_lines.append(f"  • {error}")
+
+            # Check for orphaned loop devices
+            output_lines.append("")
+            output_lines.append("Checking for orphaned loop devices...")
+            try:
+                result = subprocess.run(
+                    ["losetup", "-a"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    loop_devices = []
+                    for line in result.stdout.strip().splitlines():
+                        # Look for our loop devices (created in /var/tmp/kerneldev-loop-devices)
+                        if "kerneldev-loop-devices" in line or "test.img" in line or "pool" in line:
+                            # Extract loop device name (e.g., /dev/loop0)
+                            parts = line.split(":", 1)
+                            if parts:
+                                loop_devices.append(parts[0].strip())
+
+                    if loop_devices:
+                        output_lines.append(f"Found {len(loop_devices)} orphaned loop device(s):")
+                        for dev in loop_devices:
+                            output_lines.append(f"  • {dev}")
+                        output_lines.append("")
+                        output_lines.append("To clean up loop devices, run:")
+                        for dev in loop_devices:
+                            output_lines.append(f"  sudo losetup -d {dev}")
+                    else:
+                        output_lines.append("✓ No orphaned loop devices found")
+                else:
+                    output_lines.append("✓ No loop devices active")
+            except Exception as e:
+                output_lines.append(f"⚠ Error checking loop devices: {e}")
 
             return [TextContent(type="text", text="\n".join(output_lines))]
 
