@@ -1426,7 +1426,7 @@ export SCRATCH_MNT=/tmp/scratch
 export SCRATCH_DEV_POOL="$POOL1 $POOL2 $POOL3 $POOL4 $POOL5"
 export LOGWRITES_DEV=$LOGWRITES_DEV
 export FSTYP={fstype}
-export RESULT_BASE=/mnt/results
+export RESULT_BASE=/tmp/results
 EOF
 
 echo "Configuration written to local.config"
@@ -1502,7 +1502,7 @@ exit $exit_code
 
         # Mount results directory as read-write to persist test results
         # This allows results to survive VM crashes and be accessible on host
-        cmd.extend(["--rwdir", f"{results_dir}:/mnt/results"])
+        cmd.extend([f"--rwdir=/tmp/results={results_dir}"])
 
         # Execute the test script
         cmd.extend(["--", "bash", str(script_file)])
