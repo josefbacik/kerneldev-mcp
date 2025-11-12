@@ -1626,26 +1626,61 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     output_lines.append(f"    Description: {description}")
                     output_lines.append(f"    Running for: {running_str}")
 
-                    # Kill the process group (includes QEMU child processes)
+                    # Kill the process tree (vng parent + QEMU children)
                     # Use subprocess with timeout to prevent hanging
                     try:
                         sig_num = "9" if force else "15"
-                        # Use kill command with timeout to prevent hanging
-                        result = subprocess.run(
+
+                        # Step 1: Find all child processes (including QEMU)
+                        # pgrep -P <pid> finds children of the parent
+                        try:
+                            child_result = subprocess.run(
+                                ["pgrep", "-P", str(pid)],
+                                capture_output=True,
+                                timeout=1,
+                                text=True
+                            )
+                            child_pids = []
+                            if child_result.returncode == 0 and child_result.stdout.strip():
+                                child_pids = child_result.stdout.strip().split('\n')
+
+                            # Log what we found
+                            if child_pids:
+                                output_lines.append(f"    Children: {', '.join(child_pids)}")
+                        except subprocess.TimeoutExpired:
+                            child_pids = []
+
+                        # Step 2: Kill all children first (QEMU processes)
+                        for child_pid in child_pids:
+                            try:
+                                subprocess.run(
+                                    ["kill", f"-{sig_num}", child_pid],
+                                    capture_output=True,
+                                    timeout=1,
+                                    text=True
+                                )
+                            except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+                                pass  # Continue even if one child fails
+
+                        # Step 3: Kill the parent (vng) process
+                        subprocess.run(
                             ["kill", f"-{sig_num}", str(pid)],
                             capture_output=True,
-                            timeout=2,
+                            timeout=1,
                             text=True
                         )
-                        # Also try to kill the process group
+
+                        # Step 4: Also try to kill the entire process group as backup
+                        # Syntax: kill -15 -- -<pgid> to kill process group
                         subprocess.run(
-                            ["kill", f"-{sig_num}", f"-{pgid}"],
+                            ["kill", f"-{sig_num}", "--", f"-{pgid}"],
                             capture_output=True,
-                            timeout=2,
+                            timeout=1,
                             text=True
                         )
+
                         killed_count += 1
-                        output_lines.append(f"    Status: ✓ Killed")
+                        output_lines.append(f"    Status: ✓ Killed (parent + {len(child_pids)} child processes)")
                     except subprocess.TimeoutExpired:
                         errors.append(f"Timeout killing PID {pid} (process may be stuck)")
                         output_lines.append(f"    Status: ✗ Timeout (stuck)")
