@@ -794,15 +794,6 @@ Use this instead of the manual fstests_setup_* workflow when testing in a VM."""
                         "description": "IO scheduler to use for block devices (default: mq-deadline). Valid values: mq-deadline, none, bfq, kyber",
                         "default": "mq-deadline",
                         "enum": ["mq-deadline", "none", "bfq", "kyber"]
-                    },
-                    "use_custom_rootfs": {
-                        "type": "boolean",
-                        "description": "Use custom test rootfs instead of host filesystem (isolates VM from host, provides fsqa user)",
-                        "default": False
-                    },
-                    "custom_rootfs_path": {
-                        "type": "string",
-                        "description": "Path to custom rootfs (default: ~/.kerneldev-mcp/test-rootfs)"
                     }
                 },
                 "required": ["kernel_path", "fstests_path"]
@@ -934,70 +925,6 @@ Current results can be loaded from git notes or a JSON file.""",
                     }
                 },
                 "required": ["kernel_path"]
-            }
-        ),
-        Tool(
-            name="create_test_rootfs",
-            description="""Create a custom test rootfs with pre-configured test users (fsqa, fsgqa).
-
-This creates an isolated Ubuntu-based rootfs for running kernel tests without
-interfering with the host system. The rootfs includes all necessary users and
-groups required by fstests.
-
-Use this before enabling use_custom_rootfs in fstests_vm_boot_and_run.""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "rootfs_path": {
-                        "type": "string",
-                        "description": "Path for rootfs directory (default: ~/.kerneldev-mcp/test-rootfs)"
-                    },
-                    "ubuntu_release": {
-                        "type": "string",
-                        "description": "Ubuntu release name (default: jammy for 22.04 LTS)",
-                        "default": "jammy"
-                    },
-                    "force": {
-                        "type": "boolean",
-                        "description": "Force recreation if rootfs already exists",
-                        "default": False
-                    }
-                },
-                "properties": {}
-            }
-        ),
-        Tool(
-            name="check_test_rootfs",
-            description="""Check if custom test rootfs exists and is properly configured.
-
-Returns information about the rootfs including size, Ubuntu version, and
-configured test users.""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "rootfs_path": {
-                        "type": "string",
-                        "description": "Path to rootfs directory (default: ~/.kerneldev-mcp/test-rootfs)"
-                    }
-                },
-                "properties": {}
-            }
-        ),
-        Tool(
-            name="delete_test_rootfs",
-            description="""Delete the custom test rootfs.
-
-WARNING: This permanently deletes the rootfs directory. You will need to
-recreate it with create_test_rootfs before using use_custom_rootfs again.""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "rootfs_path": {
-                        "type": "string",
-                        "description": "Path to rootfs directory (default: ~/.kerneldev-mcp/test-rootfs)"
-                    }
-                },
-                "properties": {}
             }
         ),
     ]
@@ -1921,8 +1848,6 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             cpus = arguments.get("cpus", 4)
             force_9p = arguments.get("force_9p", False)
             io_scheduler = arguments.get("io_scheduler", "mq-deadline")
-            use_custom_rootfs = arguments.get("use_custom_rootfs", False)
-            custom_rootfs_path = Path(arguments["custom_rootfs_path"]) if arguments.get("custom_rootfs_path") else None
 
             # Check kernel path exists
             if not kernel_path.exists():
@@ -1956,9 +1881,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 memory=memory,
                 cpus=cpus,
                 force_9p=force_9p,
-                io_scheduler=io_scheduler,
-                use_custom_rootfs=use_custom_rootfs,
-                custom_rootfs_path=custom_rootfs_path
+                io_scheduler=io_scheduler
             )
 
             # Format output
@@ -2108,87 +2031,6 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             else:
                 location = commit_sha or branch_name or "current commit"
                 output = f"✗ Failed to delete results for {location}"
-
-            return [TextContent(type="text", text=output)]
-
-        elif name == "create_test_rootfs":
-            from .rootfs_manager import RootfsManager
-
-            rootfs_path = Path(arguments["rootfs_path"]) if arguments.get("rootfs_path") else None
-            ubuntu_release = arguments.get("ubuntu_release", "jammy")
-            force = arguments.get("force", False)
-
-            rootfs_mgr = RootfsManager(rootfs_path)
-
-            # Check if rootfs already exists
-            if rootfs_mgr.check_exists() and not force:
-                output = f"✗ Rootfs already exists at {rootfs_mgr.rootfs_path}\n\n"
-                output += "Use force=true to recreate, or delete it first with delete_test_rootfs"
-                return [TextContent(type="text", text=output)]
-
-            # Create rootfs
-            success, message = rootfs_mgr.create_rootfs(
-                ubuntu_release=ubuntu_release,
-                force=force
-            )
-
-            if success:
-                output = f"✓ {message}\n\n"
-                info = rootfs_mgr.get_info()
-                output += f"Path: {info['path']}\n"
-                if info.get("size"):
-                    output += f"Size: {info['size']}\n"
-                if info.get("ubuntu_release"):
-                    output += f"Ubuntu: {info['ubuntu_release']}\n"
-                if info.get("users"):
-                    output += f"Test users: {', '.join(info['users'])}\n"
-                output += "\nYou can now use use_custom_rootfs=true in fstests_vm_boot_and_run"
-            else:
-                output = f"✗ {message}"
-
-            return [TextContent(type="text", text=output)]
-
-        elif name == "check_test_rootfs":
-            from .rootfs_manager import RootfsManager
-
-            rootfs_path = Path(arguments["rootfs_path"]) if arguments.get("rootfs_path") else None
-            rootfs_mgr = RootfsManager(rootfs_path)
-
-            info = rootfs_mgr.get_info()
-
-            if not info["exists"]:
-                output = f"✗ Rootfs does not exist at {info['path']}\n\n"
-                output += "Create it with: create_test_rootfs"
-            elif not info["configured"]:
-                output = f"⚠ Rootfs exists but is not properly configured at {info['path']}\n\n"
-                output += "Recreate it with: create_test_rootfs (force=true)"
-            else:
-                output = f"✓ Rootfs is configured and ready at {info['path']}\n\n"
-                if info.get("size"):
-                    output += f"Size: {info['size']}\n"
-                if info.get("ubuntu_release"):
-                    output += f"Ubuntu: {info['ubuntu_release']}\n"
-                if info.get("users"):
-                    output += f"Test users: {', '.join(info['users'])}\n"
-
-            return [TextContent(type="text", text=output)]
-
-        elif name == "delete_test_rootfs":
-            from .rootfs_manager import RootfsManager
-
-            rootfs_path = Path(arguments["rootfs_path"]) if arguments.get("rootfs_path") else None
-            rootfs_mgr = RootfsManager(rootfs_path)
-
-            if not rootfs_mgr.check_exists():
-                output = f"Rootfs does not exist at {rootfs_mgr.rootfs_path}"
-                return [TextContent(type="text", text=output)]
-
-            success, message = rootfs_mgr.delete_rootfs()
-
-            if success:
-                output = f"✓ {message}"
-            else:
-                output = f"✗ {message}"
 
             return [TextContent(type="text", text=output)]
 

@@ -2,6 +2,17 @@
 
 ## [Unreleased] - 2025-01-XX
 
+### Removed
+
+#### Custom Rootfs Feature
+Removed the custom rootfs feature as it was not working properly and is not needed at this time:
+- Removed `rootfs_manager.py` module
+- Removed MCP tools: `create_test_rootfs`, `check_test_rootfs`, `delete_test_rootfs`
+- Removed `use_custom_rootfs` and `custom_rootfs_path` parameters from `fstests_vm_boot_and_run`
+- Removed documentation: `docs/CUSTOM_ROOTFS.md`, `docs/implementation/CUSTOM_ROOTFS_IMPLEMENTATION.md`, `examples/custom_rootfs_usage.md`
+
+**Migration:** Remove any usage of the `use_custom_rootfs` parameter from `fstests_vm_boot_and_run` calls. The tool now uses the host filesystem directly via virtme-ng's default behavior.
+
 ### BREAKING CHANGES
 
 #### fstests Tool Reorganization
