@@ -742,10 +742,16 @@ This is the EASIEST way to run fstests. It automatically:
   - Boots your kernel in a VM
   - Creates loop devices inside the VM
   - Sets up fstests configuration
-  - Runs the specified tests
+  - Runs the specified tests (defaults to "-g quick" if not specified)
   - Reports results
 
-Use this instead of the manual fstests_setup_* workflow when testing in a VM.""",
+Use this instead of the manual fstests_setup_* workflow when testing in a VM.
+
+Quick examples:
+  • Default (quick tests): tests parameter omitted or []
+  • Auto group: tests=["-g", "auto"]
+  • Specific test: tests=["generic/001"]
+  • Multiple groups: tests=["-g", "quick", "-g", "auto"]""",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -759,7 +765,22 @@ Use this instead of the manual fstests_setup_* workflow when testing in a VM."""
                     },
                     "tests": {
                         "type": "array",
-                        "description": "Tests to run",
+                        "description": """Tests to run (optional, defaults to ["-g", "quick"]).
+
+IMPORTANT: Each argument must be a separate array element.
+
+Valid patterns:
+  • Test groups: ["-g", "quick"] or ["-g", "auto"]
+  • Multiple groups: ["-g", "quick", "-g", "auto"]
+  • Individual tests: ["generic/001"] or ["btrfs/010", "xfs/100"]
+  • Exclude tests: ["-g", "quick", "-x", "generic/475"]
+  • Mixed: ["-g", "auto", "btrfs/010", "-x", "generic/500"]
+
+Common mistake to avoid:
+  ✗ WRONG: ["-g quick"] (single string - won't work)
+  ✓ RIGHT: ["-g", "quick"] (two separate elements)
+
+Use fstests_groups_list tool to see available test groups.""",
                         "items": {"type": "string"}
                     },
                     "fstype": {
@@ -801,7 +822,17 @@ Use this instead of the manual fstests_setup_* workflow when testing in a VM."""
         ),
         Tool(
             name="fstests_groups_list",
-            description="List available fstests test groups (e.g., quick, auto, dangerous, etc.)",
+            description="""List available fstests test groups with descriptions.
+
+Groups are predefined sets of tests. Common groups:
+  • quick - Fast tests for basic validation
+  • auto - Automated tests suitable for CI
+  • dangerous - Tests that may cause system issues
+  • log - Tests for filesystem logging
+  • metadata - Tests for metadata operations
+
+Use group names with the "-g" flag in test specifications:
+  Example: tests=["-g", "quick"] to run all quick tests""",
             inputSchema={
                 "type": "object",
                 "properties": {}
