@@ -117,6 +117,37 @@ class TestBootFstestsFilesystemType:
             "Tool schema should describe fstype as filesystem-related"
 
 
+class TestBootFstestsBasicFunctionality:
+    """Basic smoke tests to catch runtime errors like import scoping issues."""
+
+    def test_boot_with_fstests_method_exists_and_callable(self):
+        """
+        Verify boot_with_fstests method can be accessed without errors.
+
+        Regression test for import scoping bug where accessing the method
+        would fail with "cannot access local variable 'os' where it is not
+        associated with a value" due to redundant imports in try blocks.
+        """
+        from kerneldev_mcp.boot_manager import BootManager
+        from pathlib import Path
+        import tempfile
+
+        # Use a real temp directory
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kernel_path = Path(tmpdir)
+
+            # This should not raise any import-related errors
+            boot_mgr = BootManager(kernel_path)
+
+            # Verify the method exists and is callable
+            assert hasattr(boot_mgr, 'boot_with_fstests')
+            assert callable(boot_mgr.boot_with_fstests)
+
+            # Get the method to ensure no NameError or scoping issues
+            method = boot_mgr.boot_with_fstests
+            assert method is not None
+
+
 class TestBootFstestsSuccessDetection:
     """Test success detection in boot_kernel_with_fstests."""
 

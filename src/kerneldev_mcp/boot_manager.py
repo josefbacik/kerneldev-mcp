@@ -1292,6 +1292,15 @@ class BootManager:
                 exit_code=-1
             ), None)
 
+        # Create timestamped results directory on host
+        # Using timestamp ensures each run has isolated results
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        results_base_dir = Path.home() / ".kerneldev-mcp" / "fstests-results"
+        results_dir = results_base_dir / f"run-{timestamp}"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"✓ Created results directory: {results_dir}")
+
         # Build test command to run inside VM
         test_args = " ".join(tests) if tests else "-g quick"
 
@@ -1417,6 +1426,7 @@ export SCRATCH_MNT=/tmp/scratch
 export SCRATCH_DEV_POOL="$POOL1 $POOL2 $POOL3 $POOL4 $POOL5"
 export LOGWRITES_DEV=$LOGWRITES_DEV
 export FSTYP={fstype}
+export RESULT_BASE=/mnt/results
 EOF
 
 echo "Configuration written to local.config"
@@ -1486,8 +1496,13 @@ exit $exit_code
         for loop_dev, _ in created_loop_devices:
             cmd.extend(["--disk", loop_dev])
 
-        # Make fstests directory available in VM (read-write)
-        cmd.extend(["--rwdir", str(fstests_path)])
+        # Make fstests directory available in VM with read-write overlay
+        # Using --overlay-rwdir creates a writable overlay in the VM without modifying the host
+        cmd.extend(["--overlay-rwdir", str(fstests_path)])
+
+        # Mount results directory as read-write to persist test results
+        # This allows results to survive VM crashes and be accessible on host
+        cmd.extend(["--rwdir", f"{results_dir}:/mnt/results"])
 
         # Execute the test script
         cmd.extend(["--", "bash", str(script_file)])
@@ -1505,10 +1520,23 @@ exit $exit_code
 
             duration = time.time() - start_time
 
+            # Fix permissions on results directory (files may be owned by root from VM)
+            # This ensures host user can read/modify results
+            try:
+                uid = os.getuid()
+                gid = os.getgid()
+                subprocess.run(
+                    ["sudo", "chown", "-R", f"{uid}:{gid}", str(results_dir)],
+                    check=False,  # Don't fail if sudo not available
+                    capture_output=True
+                )
+            except Exception as e:
+                logger.warning(f"Could not fix permissions on results: {e}")
+
             # Parse the fstests output to extract results
             # Prefer reading from check.log file if it exists (cleaner than console output)
             fstests_manager = FstestsManager(fstests_path)
-            check_log = fstests_path / "results" / "check.log"
+            check_log = results_dir / "check.log"
             fstests_result = fstests_manager.parse_check_output(output, check_log=check_log)
 
             # Also analyze dmesg for kernel issues
@@ -1535,6 +1563,7 @@ exit $exit_code
                 logger.error(f"✗ Kernel boot or fstests failed after {duration:.1f}s")
                 logger.error(f"  Panics: {len(panics)}, Oops: {len(oops)}, Errors: {len(errors)}")
             logger.info(f"Boot log saved: {log_file}")
+            logger.info(f"Test results directory: {results_dir}")
             logger.info("=" * 60)
             # Flush logs
             for handler in logger.handlers:

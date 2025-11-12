@@ -735,65 +735,6 @@ Next step: fstests_run to actually run tests""",
             }
         ),
         Tool(
-            name="fstests_run",
-            description="""Run fstests and capture results.
-
-PREREQUISITES: All setup steps must be complete first:
-  1. fstests_setup_check
-  2. fstests_setup_install
-  3. fstests_setup_devices
-  4. fstests_setup_configure
-
-For automatic setup in a VM, use fstests_vm_boot_and_run instead.""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "fstests_path": {
-                        "type": "string",
-                        "description": "Path to fstests installation (optional)"
-                    },
-                    "tests": {
-                        "type": "array",
-                        "description": "Tests to run (e.g., ['generic/001'] or ['-g', 'quick'])",
-                        "items": {"type": "string"}
-                    },
-                    "exclude_file": {
-                        "type": "string",
-                        "description": "Path to exclude file"
-                    },
-                    "randomize": {
-                        "type": "boolean",
-                        "description": "Randomize test order",
-                        "default": False
-                    },
-                    "iterations": {
-                        "type": "integer",
-                        "description": "Number of times to run tests",
-                        "default": 1,
-                        "minimum": 1
-                    },
-                    "timeout": {
-                        "type": "integer",
-                        "description": "Timeout in seconds",
-                        "minimum": 60
-                    },
-                    "save_baseline": {
-                        "type": "boolean",
-                        "description": "Save results as baseline",
-                        "default": False
-                    },
-                    "baseline_name": {
-                        "type": "string",
-                        "description": "Name for saved baseline"
-                    },
-                    "kernel_version": {
-                        "type": "string",
-                        "description": "Kernel version for baseline metadata"
-                    }
-                }
-            }
-        ),
-        Tool(
             name="fstests_vm_boot_and_run",
             description="""Boot kernel in VM with fstests and run tests - ALL-IN-ONE tool with automatic setup.
 
@@ -931,67 +872,8 @@ Current results can be loaded from git notes or a JSON file.""",
             }
         ),
         Tool(
-            name="fstests_run_and_save",
-            description="""Run fstests and save results to git notes for future comparison.
-
-Results are stored as git notes attached to the current commit or branch.
-PREREQUISITES: Same as fstests_run - all setup steps must be complete.""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "kernel_path": {
-                        "type": "string",
-                        "description": "Path to kernel source directory (must be a git repository)"
-                    },
-                    "fstests_path": {
-                        "type": "string",
-                        "description": "Path to fstests installation (optional)"
-                    },
-                    "tests": {
-                        "type": "array",
-                        "description": "Tests to run (e.g., ['generic/001'] or ['-g', 'quick'])",
-                        "items": {"type": "string"}
-                    },
-                    "exclude_file": {
-                        "type": "string",
-                        "description": "Path to exclude file"
-                    },
-                    "randomize": {
-                        "type": "boolean",
-                        "description": "Randomize test order",
-                        "default": False
-                    },
-                    "timeout": {
-                        "type": "integer",
-                        "description": "Timeout in seconds",
-                        "minimum": 60
-                    },
-                    "fstype": {
-                        "type": "string",
-                        "description": "Filesystem type being tested",
-                        "default": "ext4"
-                    },
-                    "target": {
-                        "type": "string",
-                        "description": "Where to attach git note",
-                        "enum": ["branch", "commit"],
-                        "default": "branch"
-                    },
-                    "branch_name": {
-                        "type": "string",
-                        "description": "Branch name (for 'branch' target, defaults to current branch)"
-                    },
-                    "kernel_version": {
-                        "type": "string",
-                        "description": "Kernel version for metadata (auto-detected if not provided)"
-                    }
-                },
-                "required": ["kernel_path"]
-            }
-        ),
-        Tool(
             name="fstests_git_load",
-            description="Load fstests results from git notes (previously saved with fstests_run_and_save)",
+            description="Load fstests results from git notes",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1896,54 +1778,6 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
             return [TextContent(type="text", text=output)]
 
-        elif name == "fstests_run":
-            fstests_path = arguments.get("fstests_path")
-            tests = arguments.get("tests")
-            exclude_file = arguments.get("exclude_file")
-            randomize = arguments.get("randomize", False)
-            iterations = arguments.get("iterations", 1)
-            timeout = arguments.get("timeout")
-            save_baseline = arguments.get("save_baseline", False)
-            baseline_name = arguments.get("baseline_name")
-            kernel_version = arguments.get("kernel_version")
-
-            if fstests_path:
-                manager = FstestsManager(Path(fstests_path))
-            else:
-                manager = fstests_manager
-
-            if not manager.check_installed():
-                return [TextContent(
-                    type="text",
-                    text=f"Error: fstests not installed at {manager.fstests_path}"
-                )]
-
-            # Run tests
-            result = manager.run_tests(
-                tests=tests,
-                exclude_file=Path(exclude_file) if exclude_file else None,
-                randomize=randomize,
-                iterations=iterations,
-                timeout=timeout
-            )
-
-            # Save baseline if requested
-            if save_baseline and baseline_name:
-                baseline_manager.save_baseline(
-                    baseline_name=baseline_name,
-                    results=result,
-                    kernel_version=kernel_version,
-                    test_selection=" ".join(tests) if tests else "-g quick"
-                )
-
-            # Format output
-            output = format_fstests_result(result)
-
-            if save_baseline and baseline_name:
-                output += f"\n\n✓ Baseline saved as '{baseline_name}'"
-
-            return [TextContent(type="text", text=output)]
-
         elif name == "fstests_groups_list":
             groups = fstests_manager.list_groups()
 
@@ -2168,87 +2002,6 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
                 if total_lines > 300:
                     output += f"\n... showing last 300 of {total_lines} total lines\n"
-
-            return [TextContent(type="text", text=output)]
-
-        elif name == "fstests_run_and_save":
-            kernel_path = Path(arguments["kernel_path"])
-            fstests_path = arguments.get("fstests_path")
-            tests = arguments.get("tests")
-            exclude_file = arguments.get("exclude_file")
-            randomize = arguments.get("randomize", False)
-            timeout = arguments.get("timeout")
-            fstype = arguments.get("fstype", "ext4")
-            target = arguments.get("target", "branch")
-            branch_name = arguments.get("branch_name")
-            kernel_version = arguments.get("kernel_version")
-
-            # Verify kernel path is a git repo
-            try:
-                git_mgr = GitManager(kernel_path)
-            except ValueError as e:
-                return [TextContent(
-                    type="text",
-                    text=f"Error: {str(e)}"
-                )]
-
-            # Auto-detect kernel version if not provided
-            if not kernel_version:
-                try:
-                    builder = KernelBuilder(kernel_path)
-                    kernel_version = builder.get_kernel_version()
-                except Exception:
-                    kernel_version = None
-
-            # Run fstests
-            if fstests_path:
-                manager = FstestsManager(Path(fstests_path))
-            else:
-                manager = fstests_manager
-
-            if not manager.check_installed():
-                return [TextContent(
-                    type="text",
-                    text=f"Error: fstests not installed at {manager.fstests_path}"
-                )]
-
-            logger.info("Running fstests...")
-            result = manager.run_tests(
-                tests=tests,
-                exclude_file=Path(exclude_file) if exclude_file else None,
-                randomize=randomize,
-                iterations=1,
-                timeout=timeout
-            )
-
-            # Save to git notes
-            test_selection = " ".join(tests) if tests else "-g quick"
-            success = git_mgr.save_fstests_results(
-                results=result,
-                target=target,
-                branch_name=branch_name,
-                kernel_version=kernel_version,
-                fstype=fstype,
-                test_selection=test_selection
-            )
-
-            # Format output
-            output = format_fstests_result(result)
-            output += "\n\n"
-
-            if success:
-                output += "✓ Results saved to git notes\n"
-                if target == "branch":
-                    branch = branch_name or git_mgr.get_current_branch()
-                    output += f"  Location: {target} '{branch}'\n"
-                else:
-                    commit = git_mgr.get_current_commit()
-                    output += f"  Location: commit {commit[:8] if commit else 'HEAD'}\n"
-                output += f"  Filesystem: {fstype}\n"
-                output += f"  Tests: {test_selection}\n"
-                output += "\nUse compare_fstests_results to compare against a baseline."
-            else:
-                output += "⚠ Failed to save results to git notes"
 
             return [TextContent(type="text", text=output)]
 
