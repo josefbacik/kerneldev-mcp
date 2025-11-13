@@ -1480,7 +1480,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 logger.info("Using host kernel instead of building")
 
             # Run boot test
-            result = boot_manager.boot_test(
+            result = await boot_manager.boot_test(
                 timeout=timeout,
                 memory=memory,
                 cpus=cpus,
@@ -2169,7 +2169,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 )]
 
             # Boot with fstests
-            boot_result, fstests_result = boot_mgr.boot_with_fstests(
+            boot_result, fstests_result = await boot_mgr.boot_with_fstests(
                 fstests_path=fstests_path,
                 tests=tests,
                 fstype=fstype,

@@ -1,6 +1,7 @@
 """
 Kernel boot testing and validation using virtme-ng.
 """
+import asyncio
 import logging
 import os
 import pty
@@ -829,6 +830,203 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = F
             pass
 
 
+async def _run_with_pty_async(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = False, description: str = "") -> Tuple[int, str, List[str]]:
+    """Async version: Run a command with a pseudo-terminal without blocking the event loop.
+
+    This is needed for virtme-ng which requires a valid PTS, and to allow other
+    async operations (like tool calls) to run concurrently.
+
+    Args:
+        cmd: Command and arguments to run
+        cwd: Working directory
+        timeout: Timeout in seconds
+        emit_output: If True, emit output in real-time to logger (for long operations)
+        description: Description of what's running (for tracking)
+
+    Returns:
+        Tuple of (exit_code, output, progress_messages)
+    """
+    # Create a pseudo-terminal
+    master_fd, slave_fd = pty.openpty()
+
+    # Set non-blocking mode on master_fd so we can use it with asyncio
+    os.set_blocking(master_fd, False)
+
+    process = None
+    output = []
+    progress_messages = []
+
+    try:
+        # Start the process with the slave PTY
+        # Note: asyncio.create_subprocess_exec doesn't support passing fd directly,
+        # so we use the low-level subprocess with asyncio monitoring
+        process = subprocess.Popen(
+            cmd,
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            cwd=cwd,
+            close_fds=True,
+            start_new_session=True  # Create new process group
+        )
+
+        # Track this VM process so we can kill it later if needed
+        pgid = os.getpgid(process.pid)
+        _track_vm_process(process.pid, pgid, description)
+
+        # Close the slave FD in the parent process
+        os.close(slave_fd)
+
+        # Read output with timeout (async)
+        start_time = time.time()
+        last_progress_log = start_time
+
+        # Line buffering
+        line_buffer = ""
+        complete_lines_since_last_log = []
+        complete_lines_for_verbose = []
+
+        # Get the event loop
+        loop = asyncio.get_event_loop()
+
+        # Create a future for reading data
+        read_queue = asyncio.Queue()
+
+        def read_ready():
+            """Callback when data is available to read (registered with event loop)."""
+            try:
+                data = os.read(master_fd, 4096)
+                if data:
+                    # Schedule putting data in queue (thread-safe)
+                    asyncio.create_task(read_queue.put(data))
+            except (OSError, BlockingIOError):
+                pass  # No data available or error
+
+        # Register the master_fd for reading
+        loop.add_reader(master_fd, read_ready)
+
+        try:
+            while True:
+                # Check if process is still running
+                if process.poll() is not None:
+                    break
+
+                # Check timeout
+                elapsed = time.time() - start_time
+                if elapsed > timeout:
+                    # Kill the entire process group
+                    try:
+                        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    await asyncio.sleep(0.1)  # Give it a moment
+                    raise subprocess.TimeoutExpired(cmd, timeout, b''.join(output))
+
+                # Emit progress log every 10 seconds if emit_output is enabled
+                if emit_output and (time.time() - last_progress_log) > 10:
+                    progress_msg = f"[{elapsed:.0f}s] Still running ({timeout - elapsed:.0f}s remaining)"
+                    logger.info(f"  {progress_msg}")
+                    progress_messages.append(progress_msg)
+
+                    # Log recent output lines
+                    if complete_lines_for_verbose:
+                        for line in complete_lines_for_verbose[-20:]:
+                            if line.strip():
+                                logger.info(f"    OUT: {line[:200]}")
+                        complete_lines_for_verbose.clear()
+
+                    # Log interesting lines
+                    if complete_lines_since_last_log:
+                        interesting_lines = []
+                        for line in complete_lines_since_last_log[-10:]:
+                            if any(marker in line for marker in ["===", "ERROR", "FAIL", "btrfs/", "generic/", "xfs/", "ext4/", "FSTYP", "Passed", "Failed"]):
+                                interesting_lines.append(line[:150])
+
+                        if interesting_lines:
+                            for line in interesting_lines:
+                                logger.info(f"    {line}")
+                                progress_messages.append(f"  {line}")
+
+                        complete_lines_since_last_log.clear()
+                    last_progress_log = time.time()
+
+                    # Flush logs
+                    for handler in logger.handlers:
+                        handler.flush()
+
+                # Try to read data from queue (non-blocking with short timeout)
+                try:
+                    data = await asyncio.wait_for(read_queue.get(), timeout=0.1)
+                    output.append(data)
+
+                    # Track lines for progress logging
+                    if emit_output:
+                        try:
+                            text = data.decode('utf-8', errors='replace')
+                            line_buffer += text
+
+                            if '\n' in line_buffer:
+                                parts = line_buffer.split('\n')
+                                complete_lines = parts[:-1]
+                                line_buffer = parts[-1]
+
+                                complete_lines_since_last_log.extend(complete_lines)
+                                complete_lines_for_verbose.extend(complete_lines)
+                        except Exception:
+                            pass
+                except asyncio.TimeoutError:
+                    # No data available, continue loop
+                    await asyncio.sleep(0.01)  # Small yield to event loop
+
+        finally:
+            # Unregister the reader
+            loop.remove_reader(master_fd)
+
+        # Get any remaining output (with small timeout)
+        for _ in range(10):  # Try a few times
+            try:
+                data = os.read(master_fd, 4096)
+                if data:
+                    output.append(data)
+                else:
+                    break
+            except (OSError, BlockingIOError):
+                break
+            await asyncio.sleep(0.01)
+
+        # Wait for process to finish
+        exit_code = process.wait()
+
+        # Untrack the process since it's finished
+        _untrack_vm_process(process.pid)
+
+        # Decode output
+        output_str = b''.join(output).decode('utf-8', errors='replace')
+
+        return exit_code, output_str, progress_messages
+
+    finally:
+        # Ensure cleanup of process group if process is still alive
+        if process and process.poll() is None:
+            try:
+                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+
+        # Untrack the process if it exists (in case of exception path)
+        if process:
+            _untrack_vm_process(process.pid)
+
+        try:
+            os.close(master_fd)
+        except OSError:
+            pass
+
+
 class BootManager:
     """Manages kernel boot testing with virtme-ng."""
 
@@ -965,7 +1163,7 @@ class BootManager:
             logger.warning(f"Error detecting kernel architecture: {e}")
             return None
 
-    def boot_test(
+    async def boot_test(
         self,
         timeout: int = 60,
         memory: str = "2G",
@@ -1100,7 +1298,7 @@ class BootManager:
         # Run boot test with PTY (virtme-ng requires a valid PTS)
         try:
             description = f"boot_kernel_test: {self.kernel_path.name}"
-            exit_code, dmesg_output, _ = _run_with_pty(cmd, self.kernel_path, timeout, description=description)
+            exit_code, dmesg_output, _ = await _run_with_pty_async(cmd, self.kernel_path, timeout, description=description)
 
             duration = time.time() - start_time
 
@@ -1188,7 +1386,7 @@ class BootManager:
                 log_file_path=log_file
             )
 
-    def boot_with_fstests(
+    async def boot_with_fstests(
         self,
         fstests_path: Path,
         tests: List[str],
@@ -1608,7 +1806,7 @@ exit $exit_code
 
         try:
             description = f"fstests {fstype} on {self.kernel_path.name}"
-            exit_code, output, progress_messages = _run_with_pty(cmd, self.kernel_path, timeout, emit_output=True, description=description)
+            exit_code, output, progress_messages = await _run_with_pty_async(cmd, self.kernel_path, timeout, emit_output=True, description=description)
 
             duration = time.time() - start_time
 
