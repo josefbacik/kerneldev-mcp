@@ -2,6 +2,26 @@
 
 ## [Unreleased] - 2025-01-XX
 
+### Fixed
+
+#### Async VM Execution to Fix Event Loop Blocking
+**Critical Fix:** Converted VM execution from synchronous to asynchronous to prevent MCP server from becoming unresponsive.
+
+**Problem:** The synchronous `_run_with_pty()` function blocked the entire Python asyncio event loop while VMs were running. This prevented the MCP framework from dispatching ANY tool calls, including `kill_hanging_vms`. The server was completely frozen during VM execution.
+
+**Solution:**
+- Created `_run_with_pty_async()` using asyncio event loop integration
+- Set PTY file descriptor to non-blocking mode
+- Registered fd with `loop.add_reader()` for async I/O
+- Used `asyncio.Queue` and `await asyncio.sleep()` to yield control
+- Made `boot_test()` and `boot_with_fstests()` async methods
+
+**Result:** The MCP server now remains responsive while VMs are running:
+- ✓ `kill_hanging_vms` works during VM execution
+- ✓ Other tool calls can be processed concurrently
+- ✓ Claude doesn't freeze waiting for VMs to complete
+- ✓ All existing functionality preserved (progress logging, timeouts, etc.)
+
 ### Added
 
 #### kill_hanging_vms Tool
