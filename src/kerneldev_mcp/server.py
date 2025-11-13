@@ -1587,7 +1587,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             return [TextContent(type="text", text="\n".join(output_lines))]
 
         elif name == "kill_hanging_vms":
-            from .boot_manager import _get_tracked_vm_processes, _cleanup_dead_tracked_processes
+            from .boot_manager import _get_tracked_vm_processes, _cleanup_dead_tracked_processes, VM_PID_TRACKING_FILE
             import datetime
 
             force = arguments.get("force", False)
@@ -1615,11 +1615,39 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             logger.info(f"Found {len(tracked)} tracked processes: {list(tracked.keys())}")
 
             if not tracked:
+                # Check if there are any QEMU processes running at all to give better feedback
+                try:
+                    qemu_check = subprocess.run(
+                        ["pgrep", "-a", "qemu"],
+                        capture_output=True,
+                        timeout=1,
+                        text=True
+                    )
+                    qemu_running = qemu_check.returncode == 0 and qemu_check.stdout.strip()
+                except Exception:
+                    qemu_running = False
+
                 output_lines.append("✓ No tracked VM processes found in this session")
                 output_lines.append("")
-                output_lines.append("Note: This tool only kills VMs launched by THIS MCP session.")
-                output_lines.append("Each Claude session has independent VM tracking.")
-                output_lines.append("Use 'ps aux | grep qemu' to see all QEMU processes on the system.")
+
+                if qemu_running:
+                    output_lines.append("However, there ARE QEMU processes running on the system.")
+                    output_lines.append("These might be from:")
+                    output_lines.append("  • A different Claude/MCP session")
+                    output_lines.append("  • VMs that finished but children didn't exit")
+                    output_lines.append("  • Manually launched VMs")
+                    output_lines.append("")
+                    output_lines.append("To see all QEMU processes: ps aux | grep qemu")
+                    output_lines.append("To kill all QEMU on system: pkill -9 qemu-system")
+                else:
+                    output_lines.append("Great news: No QEMU processes are running on the system either.")
+                    output_lines.append("This means:")
+                    output_lines.append("  ✓ All VMs have exited successfully")
+                    output_lines.append("  ✓ No cleanup needed")
+
+                output_lines.append("")
+                output_lines.append("Note: This tool only tracks VMs launched by THIS MCP session.")
+                output_lines.append("Tracking file: " + str(VM_PID_TRACKING_FILE))
             else:
                 output_lines.append(f"Found {len(tracked)} tracked VM process(es):")
                 output_lines.append("")
