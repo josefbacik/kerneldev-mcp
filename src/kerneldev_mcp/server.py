@@ -1028,6 +1028,15 @@ def _parse_cross_compile_args(arguments: Dict[str, Any]) -> Optional[CrossCompil
 @app.call_tool()
 async def call_tool(name: str, arguments: Any) -> list[TextContent]:
     """Handle tool calls."""
+    # Log IMMEDIATELY at entry to catch any hangs before tool logic
+    logger.info(f"=" * 80)
+    logger.info(f"TOOL CALL: {name}")
+    logger.info(f"Arguments: {arguments}")
+    logger.info(f"=" * 80)
+    # Force flush immediately
+    for handler in logger.handlers:
+        handler.flush()
+
     try:
         if name == "list_config_presets":
             category = arguments.get("category")
