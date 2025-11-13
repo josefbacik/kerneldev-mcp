@@ -24,6 +24,34 @@
 
 ### Added
 
+#### fstests_vm_boot_custom Tool
+New MCP tool to boot a kernel in a VM with all fstests devices configured, but run custom commands or scripts instead of fstests:
+- **Same device environment as fstests**: Sets up 7 loop devices (test, pool1-5, logwrites) with proper IO scheduler
+- **Three operation modes**:
+  1. Run a shell command: Pass `command` parameter with arbitrary shell command
+  2. Run a local script: Pass `script_file` parameter with path to script to upload and execute
+  3. Interactive shell: Omit both `command` and `script_file` for interactive debugging
+- **Full environment setup**:
+  - Pre-configured block devices: `/dev/vda` (test), `/dev/vdb-vdf` (pool1-5), `/dev/vdg` (logwrites)
+  - Environment variables: `TEST_DEV`, `SCRATCH_DEV_POOL`, `LOGWRITES_DEV`, `FSTYP`, etc.
+  - fstests directory mounted and available
+  - Results directory (`/tmp/results`) for persisting output
+  - Pre-formatted test device with specified filesystem type
+  - Configured IO scheduler on all devices
+- **Use cases**:
+  - Custom filesystem testing scripts
+  - Manual debugging with fstests device environment
+  - Interactive exploration of filesystem behavior
+  - Running specific filesystem utilities in controlled environment
+
+Technical implementation:
+- New `boot_with_custom_command()` method in `BootManager` class
+- Reuses all device setup logic from `boot_with_fstests()`
+- Generates dynamic bash scripts for setup and command execution
+- Supports all standard boot options: memory, CPUs, timeout, fstype, io_scheduler, force_9p, use_tmpfs
+- Results saved to `~/.kerneldev-mcp/fstests-results/custom-<timestamp>/`
+- Comprehensive unit tests in `tests/test_boot_custom_command.py` (17 tests covering signature, schema, handler, and functionality)
+
 #### kill_hanging_vms Tool
 New MCP tool to manually kill stuck VM processes launched by kerneldev-mcp:
 - **Per-session isolation**: Only kills VMs from the current MCP session

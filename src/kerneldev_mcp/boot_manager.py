@@ -285,6 +285,9 @@ BOOT_LOG_DIR = Path("/tmp/kerneldev-boot-logs")
 
 # Host loop device management for fstests
 HOST_LOOP_WORK_DIR = Path("/var/tmp/kerneldev-loop-devices")
+HOST_LOOP_TMPFS_DIR = Path("/var/tmp/kerneldev-loop-tmpfs")
+# tmpfs size: 7 devices x 10G each + overhead
+TMPFS_SIZE_GB = 80
 
 # PID tracking for launched VMs (so we can kill only our VMs)
 # Use server PID in filename so each MCP server instance has its own tracking file
@@ -293,13 +296,14 @@ _MCP_SERVER_PID = os.getpid()
 VM_PID_TRACKING_FILE = Path(f"/tmp/kerneldev-mcp-vm-pids-{_MCP_SERVER_PID}.json")
 
 
-def _track_vm_process(pid: int, pgid: int, description: str = ""):
+def _track_vm_process(pid: int, pgid: int, description: str = "", log_file_path: Optional[Path] = None):
     """Track a VM process so it can be killed later if needed.
 
     Args:
         pid: Process ID
         pgid: Process group ID
         description: Human-readable description (e.g., "fstests on kernel X.Y.Z")
+        log_file_path: Path to the log file where VM output is being written
     """
     import json
     import time
@@ -320,6 +324,7 @@ def _track_vm_process(pid: int, pgid: int, description: str = ""):
         "pgid": pgid,
         "description": description,
         "started_at": time.time(),
+        "log_file_path": str(log_file_path) if log_file_path else None,
     }
 
     # Write back
@@ -422,21 +427,90 @@ def _cleanup_dead_tracked_processes():
         pass
 
 
-def _create_host_loop_device(size: str, name: str) -> Tuple[Optional[str], Optional[Path]]:
+def _setup_tmpfs_for_loop_devices() -> bool:
+    """Setup tmpfs mount for loop device backing files.
+
+    Returns:
+        True if tmpfs was successfully mounted, False otherwise
+    """
+    # Create mount point if it doesn't exist
+    HOST_LOOP_TMPFS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Check if already mounted
+    result = subprocess.run(
+        ["mountpoint", "-q", str(HOST_LOOP_TMPFS_DIR)],
+        capture_output=True
+    )
+    if result.returncode == 0:
+        logger.info(f"✓ tmpfs already mounted at {HOST_LOOP_TMPFS_DIR}")
+        return True
+
+    # Mount tmpfs with size limit for 7 devices (sparse files)
+    try:
+        subprocess.run(
+            ["sudo", "mount", "-t", "tmpfs", "-o", f"size={TMPFS_SIZE_GB}G", "tmpfs", str(HOST_LOOP_TMPFS_DIR)],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        logger.info(f"✓ Mounted tmpfs at {HOST_LOOP_TMPFS_DIR} (size={TMPFS_SIZE_GB}G)")
+        return True
+    except subprocess.CalledProcessError as e:
+        logger.error(f"✗ Failed to mount tmpfs: {e.stderr}")
+        return False
+
+
+def _cleanup_tmpfs_for_loop_devices() -> bool:
+    """Cleanup tmpfs mount for loop device backing files.
+
+    Returns:
+        True if tmpfs was successfully unmounted, False otherwise
+    """
+    # Check if mounted
+    result = subprocess.run(
+        ["mountpoint", "-q", str(HOST_LOOP_TMPFS_DIR)],
+        capture_output=True
+    )
+    if result.returncode != 0:
+        logger.info(f"tmpfs not mounted at {HOST_LOOP_TMPFS_DIR}, nothing to cleanup")
+        return True
+
+    # Unmount tmpfs
+    try:
+        subprocess.run(
+            ["sudo", "umount", str(HOST_LOOP_TMPFS_DIR)],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        logger.info(f"✓ Unmounted tmpfs from {HOST_LOOP_TMPFS_DIR}")
+
+        # Remove directory if empty
+        try:
+            HOST_LOOP_TMPFS_DIR.rmdir()
+        except OSError as e:
+            logger.debug(f"Could not remove tmpfs directory: {e}")
+
+        return True
+    except subprocess.CalledProcessError as e:
+        logger.error(f"✗ Failed to unmount tmpfs: {e.stderr}")
+        return False
+
+
+def _create_host_loop_device(size: str, name: str, backing_dir: Optional[Path] = None) -> Tuple[Optional[str], Optional[Path]]:
     """Create a loop device on the host for passing to VM.
 
     Args:
         size: Size of device (e.g., "10G")
         name: Name for the backing file
+        backing_dir: Optional directory for backing files (defaults to HOST_LOOP_WORK_DIR)
 
     Returns:
         Tuple of (loop_device_path, backing_file_path) or (None, None) on failure
     """
-    # Ensure work directory exists
-    HOST_LOOP_WORK_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Create backing file
-    backing_file = HOST_LOOP_WORK_DIR / f"{name}.img"
+    work_dir = backing_dir if backing_dir else HOST_LOOP_WORK_DIR
+    work_dir.mkdir(parents=True, exist_ok=True)
+    backing_file = work_dir / f"{name}.img"
 
     try:
         # Create sparse file
@@ -476,6 +550,7 @@ def _create_host_loop_device(size: str, name: str) -> Tuple[Optional[str], Optio
         return loop_dev, backing_file
 
     except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to create loop device for {name}: {e.stderr if e.stderr else str(e)}")
         # Cleanup backing file if loop setup failed
         if backing_file.exists():
             try:
@@ -655,7 +730,7 @@ def _save_boot_log(output: str, success: bool) -> Path:
     return log_file
 
 
-def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = False, description: str = "") -> Tuple[int, str, List[str]]:
+def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = False, description: str = "") -> Tuple[int, str, List[str], Path]:
     """Run a command with a pseudo-terminal.
 
     This is needed for virtme-ng which requires a valid PTS.
@@ -668,8 +743,32 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = F
         description: Description of what's running (for tracking)
 
     Returns:
-        Tuple of (exit_code, output, progress_messages)
+        Tuple of (exit_code, output, progress_messages, log_file_path)
     """
+    # Create log file for this run (before starting the process)
+    _ensure_log_directory()
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    log_file_path = BOOT_LOG_DIR / f"boot-{timestamp}-running.log"
+    log_file_handle = None
+
+    try:
+        # Open log file for writing
+        log_file_handle = open(log_file_path, 'w', encoding='utf-8', buffering=1)  # Line buffered
+        log_file_handle.write(f"=== VM Boot Log ===\n")
+        log_file_handle.write(f"Description: {description}\n")
+        log_file_handle.write(f"Started: {datetime.now().isoformat()}\n")
+        log_file_handle.write(f"Command: {' '.join(cmd)}\n")
+        log_file_handle.write("=" * 80 + "\n\n")
+        log_file_handle.flush()
+    except Exception as e:
+        logger.warning(f"Failed to create log file {log_file_path}: {e}")
+        if log_file_handle:
+            try:
+                log_file_handle.close()
+            except Exception:
+                pass
+            log_file_handle = None
+
     # Create a pseudo-terminal
     master_fd, slave_fd = pty.openpty()
     process = None
@@ -690,7 +789,7 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = F
 
         # Track this VM process so we can kill it later if needed
         pgid = os.getpgid(process.pid)
-        _track_vm_process(process.pid, pgid, description)
+        _track_vm_process(process.pid, pgid, description, log_file_path=log_file_path)
 
         # Close the slave FD in the parent process
         os.close(slave_fd)
@@ -763,6 +862,15 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = F
                     data = os.read(master_fd, 4096)
                     if data:
                         output.append(data)
+
+                        # Write to log file in real-time
+                        if log_file_handle:
+                            try:
+                                log_file_handle.write(data.decode('utf-8', errors='replace'))
+                                log_file_handle.flush()
+                            except Exception:
+                                pass  # Don't fail if log writing fails
+
                         # Track lines for progress logging
                         if emit_output:
                             try:
@@ -793,6 +901,13 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = F
                 if not data:
                     break
                 output.append(data)
+                # Write remaining data to log file
+                if log_file_handle:
+                    try:
+                        log_file_handle.write(data.decode('utf-8', errors='replace'))
+                        log_file_handle.flush()
+                    except Exception:
+                        pass
             except OSError:
                 break
 
@@ -805,9 +920,29 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = F
         # Decode output
         output_str = b''.join(output).decode('utf-8', errors='replace')
 
-        return exit_code, output_str, progress_messages
+        # Rename log file to indicate success/failure
+        final_log_path = log_file_path
+        if log_file_path.exists():
+            try:
+                status = "success" if exit_code == 0 else "failure"
+                final_log_path = log_file_path.parent / log_file_path.name.replace("-running.log", f"-{status}.log")
+                log_file_path.rename(final_log_path)
+            except Exception as e:
+                logger.warning(f"Failed to rename log file: {e}")
+                final_log_path = log_file_path
+
+        return exit_code, output_str, progress_messages, final_log_path
 
     finally:
+        # Close log file if it's open
+        if log_file_handle:
+            try:
+                log_file_handle.write(f"\n\n=== VM Process Terminated ===\n")
+                log_file_handle.write(f"Ended: {datetime.now().isoformat()}\n")
+                log_file_handle.close()
+            except Exception:
+                pass
+
         # Ensure cleanup of process group if process is still alive
         if process and process.poll() is None:
             try:
@@ -830,7 +965,7 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = F
             pass
 
 
-async def _run_with_pty_async(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = False, description: str = "") -> Tuple[int, str, List[str]]:
+async def _run_with_pty_async(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = False, description: str = "") -> Tuple[int, str, List[str], Path]:
     """Async version: Run a command with a pseudo-terminal without blocking the event loop.
 
     This is needed for virtme-ng which requires a valid PTS, and to allow other
@@ -844,8 +979,33 @@ async def _run_with_pty_async(cmd: List[str], cwd: Path, timeout: int, emit_outp
         description: Description of what's running (for tracking)
 
     Returns:
-        Tuple of (exit_code, output, progress_messages)
+        Tuple of (exit_code, output, progress_messages, log_file_path)
     """
+    # Create log file for this run (before starting the process)
+    _ensure_log_directory()
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    log_file_path = BOOT_LOG_DIR / f"boot-{timestamp}-running.log"
+    log_file_handle = None
+
+    try:
+        # Open log file for writing (append mode in case we want to write header)
+        log_file_handle = open(log_file_path, 'w', encoding='utf-8', buffering=1)  # Line buffered
+        log_file_handle.write(f"=== VM Boot Log ===\n")
+        log_file_handle.write(f"Description: {description}\n")
+        log_file_handle.write(f"Started: {datetime.now().isoformat()}\n")
+        log_file_handle.write(f"Command: {' '.join(cmd)}\n")
+        log_file_handle.write("=" * 80 + "\n\n")
+        log_file_handle.flush()
+    except Exception as e:
+        logger.warning(f"Failed to create log file {log_file_path}: {e}")
+        # Continue without log file if it fails
+        if log_file_handle:
+            try:
+                log_file_handle.close()
+            except Exception:
+                pass
+            log_file_handle = None
+
     # Create a pseudo-terminal
     master_fd, slave_fd = pty.openpty()
 
@@ -872,7 +1032,7 @@ async def _run_with_pty_async(cmd: List[str], cwd: Path, timeout: int, emit_outp
 
         # Track this VM process so we can kill it later if needed
         pgid = os.getpgid(process.pid)
-        _track_vm_process(process.pid, pgid, description)
+        _track_vm_process(process.pid, pgid, description, log_file_path=log_file_path)
 
         # Close the slave FD in the parent process
         os.close(slave_fd)
@@ -920,7 +1080,34 @@ async def _run_with_pty_async(cmd: List[str], cwd: Path, timeout: int, emit_outp
                     except ProcessLookupError:
                         pass
                     await asyncio.sleep(0.1)  # Give it a moment
-                    raise subprocess.TimeoutExpired(cmd, timeout, b''.join(output))
+
+                    # Write timeout message to log
+                    timeout_msg = f"\n\nERROR: Process timed out after {timeout}s\n"
+                    if log_file_handle:
+                        try:
+                            log_file_handle.write(timeout_msg)
+                            log_file_handle.flush()
+                        except Exception:
+                            pass
+
+                    # Untrack the process since we're killing it
+                    _untrack_vm_process(process.pid)
+
+                    # Decode output
+                    output_str = b''.join(output).decode('utf-8', errors='replace')
+                    output_str += timeout_msg
+
+                    # Return with timeout error code
+                    # Log file will be renamed to "failure" since exit_code != 0
+                    final_log_path = log_file_path
+                    if log_file_path.exists():
+                        try:
+                            final_log_path = log_file_path.parent / log_file_path.name.replace("-running.log", "-timeout.log")
+                            log_file_path.rename(final_log_path)
+                        except Exception:
+                            pass
+
+                    return -1, output_str, progress_messages, final_log_path
 
                 # Emit progress log every 10 seconds if emit_output is enabled
                 if emit_output and (time.time() - last_progress_log) > 10:
@@ -959,6 +1146,14 @@ async def _run_with_pty_async(cmd: List[str], cwd: Path, timeout: int, emit_outp
                     data = await asyncio.wait_for(read_queue.get(), timeout=0.1)
                     output.append(data)
 
+                    # Write to log file in real-time
+                    if log_file_handle:
+                        try:
+                            log_file_handle.write(data.decode('utf-8', errors='replace'))
+                            log_file_handle.flush()
+                        except Exception:
+                            pass  # Don't fail if log writing fails
+
                     # Track lines for progress logging
                     if emit_output:
                         try:
@@ -988,6 +1183,13 @@ async def _run_with_pty_async(cmd: List[str], cwd: Path, timeout: int, emit_outp
                 data = os.read(master_fd, 4096)
                 if data:
                     output.append(data)
+                    # Write remaining data to log file
+                    if log_file_handle:
+                        try:
+                            log_file_handle.write(data.decode('utf-8', errors='replace'))
+                            log_file_handle.flush()
+                        except Exception:
+                            pass
                 else:
                     break
             except (OSError, BlockingIOError):
@@ -1003,9 +1205,29 @@ async def _run_with_pty_async(cmd: List[str], cwd: Path, timeout: int, emit_outp
         # Decode output
         output_str = b''.join(output).decode('utf-8', errors='replace')
 
-        return exit_code, output_str, progress_messages
+        # Rename log file to indicate success/failure
+        final_log_path = log_file_path
+        if log_file_path.exists():
+            try:
+                status = "success" if exit_code == 0 else "failure"
+                final_log_path = log_file_path.parent / log_file_path.name.replace("-running.log", f"-{status}.log")
+                log_file_path.rename(final_log_path)
+            except Exception as e:
+                logger.warning(f"Failed to rename log file: {e}")
+                final_log_path = log_file_path
+
+        return exit_code, output_str, progress_messages, final_log_path
 
     finally:
+        # Close log file if it's open
+        if log_file_handle:
+            try:
+                log_file_handle.write(f"\n\n=== VM Process Terminated ===\n")
+                log_file_handle.write(f"Ended: {datetime.now().isoformat()}\n")
+                log_file_handle.close()
+            except Exception:
+                pass
+
         # Ensure cleanup of process group if process is still alive
         if process and process.poll() is None:
             try:
@@ -1163,6 +1385,49 @@ class BootManager:
             logger.warning(f"Error detecting kernel architecture: {e}")
             return None
 
+    def _resolve_target_architecture(
+        self,
+        cross_compile: Optional["CrossCompileConfig"],
+        use_host_kernel: bool = False
+    ) -> Optional[str]:
+        """Resolve target architecture from cross_compile config or auto-detection.
+
+        Args:
+            cross_compile: Cross-compilation configuration
+            use_host_kernel: Whether using host kernel (skips detection if True)
+
+        Returns:
+            Target architecture string if different from host, None if same as host
+            or if detection fails.
+        """
+        if cross_compile:
+            return cross_compile.arch
+
+        if use_host_kernel:
+            return None
+
+        # Try to detect architecture from vmlinux
+        detected_arch = self.detect_kernel_architecture()
+        if not detected_arch:
+            logger.warning("Could not auto-detect kernel architecture, assuming host architecture")
+            return None
+
+        import platform
+        host_arch = platform.machine()
+        # Normalize host arch names
+        if host_arch == "amd64":
+            host_arch = "x86_64"
+        elif host_arch == "aarch64":
+            host_arch = "arm64"
+
+        if detected_arch != host_arch:
+            logger.info(f"✓ Auto-detected kernel architecture: {detected_arch}")
+            logger.info(f"  (different from host: {host_arch})")
+            return detected_arch
+        else:
+            logger.info(f"✓ Kernel architecture matches host: {detected_arch}")
+            return None
+
     async def boot_test(
         self,
         timeout: int = 60,
@@ -1211,29 +1476,7 @@ class BootManager:
             )
 
         # Auto-detect kernel architecture if not explicitly specified and not using host kernel
-        target_arch = None
-        if cross_compile:
-            target_arch = cross_compile.arch
-        elif not use_host_kernel:
-            # Try to detect architecture from vmlinux
-            detected_arch = self.detect_kernel_architecture()
-            if detected_arch:
-                import platform
-                host_arch = platform.machine()
-                # Normalize host arch names
-                if host_arch == "amd64":
-                    host_arch = "x86_64"
-                elif host_arch == "aarch64":
-                    host_arch = "arm64"
-
-                if detected_arch != host_arch:
-                    target_arch = detected_arch
-                    logger.info(f"✓ Auto-detected kernel architecture: {detected_arch}")
-                    logger.info(f"  (different from host: {host_arch})")
-                else:
-                    logger.info(f"✓ Kernel architecture matches host: {detected_arch}")
-            else:
-                logger.warning("Could not auto-detect kernel architecture, assuming host architecture")
+        target_arch = self._resolve_target_architecture(cross_compile, use_host_kernel)
 
         # Check QEMU is available for target architecture
         qemu_available, qemu_info = self.check_qemu(target_arch)
@@ -1298,7 +1541,7 @@ class BootManager:
         # Run boot test with PTY (virtme-ng requires a valid PTS)
         try:
             description = f"boot_kernel_test: {self.kernel_path.name}"
-            exit_code, dmesg_output, _ = await _run_with_pty_async(cmd, self.kernel_path, timeout, description=description)
+            exit_code, dmesg_output, _, log_file = await _run_with_pty_async(cmd, self.kernel_path, timeout, description=description)
 
             duration = time.time() - start_time
 
@@ -1316,9 +1559,8 @@ class BootManager:
                         logger.info(f"Booted kernel version: {kernel_version}")
                     break
 
-            # Save boot log to file
+            # Log file was already written during execution by _run_with_pty_async
             boot_success = (exit_code == 0 and len(panics) == 0)
-            log_file = _save_boot_log(dmesg_output, boot_success)
 
             # Log result
             if boot_success:
@@ -1332,6 +1574,9 @@ class BootManager:
             logger.info(f"Boot log saved: {log_file}")
             logger.info("=" * 60)
 
+            # Check if this was a timeout (exit_code == -1 from _run_with_pty_async timeout handling)
+            timeout_occurred = (exit_code == -1 and "timed out" in dmesg_output.lower())
+
             return BootResult(
                 success=boot_success,
                 duration=duration,
@@ -1343,29 +1588,7 @@ class BootManager:
                 oops=oops,
                 dmesg_output=dmesg_output,
                 exit_code=exit_code,
-                timeout_occurred=False,
-                log_file_path=log_file
-            )
-
-        except subprocess.TimeoutExpired as e:
-            duration = time.time() - start_time
-            logger.error(f"✗ Boot timeout after {timeout}s (ran for {duration:.1f}s)")
-            logger.info("=" * 60)
-
-            output = ""
-            if e.output:
-                output = e.output.decode() if isinstance(e.output, bytes) else e.output
-
-            full_output = output + f"\n\nERROR: Boot test timed out after {timeout}s"
-            log_file = _save_boot_log(full_output, success=False)
-
-            return BootResult(
-                success=False,
-                duration=duration,
-                boot_completed=False,
-                dmesg_output=full_output,
-                exit_code=-1,
-                timeout_occurred=True,
+                timeout_occurred=timeout_occurred,
                 log_file_path=log_file
             )
 
@@ -1374,14 +1597,39 @@ class BootManager:
             logger.error(f"✗ Boot failed with exception: {e}")
             logger.info("=" * 60)
 
-            error_output = f"ERROR: {str(e)}"
-            log_file = _save_boot_log(error_output, success=False)
+            # Try to find the most recent log file (might have been created before exception)
+            # Otherwise create a new error log
+            log_file = None
+            try:
+                if BOOT_LOG_DIR.exists():
+                    recent_logs = sorted(
+                        BOOT_LOG_DIR.glob("boot-*-running.log"),
+                        key=lambda p: p.stat().st_mtime,
+                        reverse=True
+                    )
+                    if recent_logs and (time.time() - recent_logs[0].stat().st_mtime) < 60:
+                        # If there's a running log from the last minute, use it
+                        log_file = recent_logs[0]
+                        # Rename it to error
+                        try:
+                            error_log = log_file.parent / log_file.name.replace("-running.log", "-error.log")
+                            log_file.rename(error_log)
+                            log_file = error_log
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+            # Create error log if we couldn't find one
+            if not log_file:
+                error_output = f"ERROR: {str(e)}"
+                log_file = _save_boot_log(error_output, success=False)
 
             return BootResult(
                 success=False,
                 duration=duration,
                 boot_completed=False,
-                dmesg_output=error_output,
+                dmesg_output=f"ERROR: {str(e)}",
                 exit_code=-1,
                 log_file_path=log_file
             )
@@ -1396,7 +1644,8 @@ class BootManager:
         cpus: int = 4,
         cross_compile: Optional["CrossCompileConfig"] = None,
         force_9p: bool = False,
-        io_scheduler: str = "mq-deadline"
+        io_scheduler: str = "mq-deadline",
+        use_tmpfs: bool = False
     ) -> Tuple[BootResult, Optional[object]]:
         """Boot kernel and run fstests inside VM.
 
@@ -1411,6 +1660,7 @@ class BootManager:
             force_9p: Force use of 9p filesystem instead of virtio-fs
             io_scheduler: IO scheduler to use for block devices (default: "mq-deadline")
                          Valid values: "mq-deadline", "none", "bfq", "kyber"
+            use_tmpfs: Use tmpfs for loop device backing files (faster but uses more RAM)
 
         Returns:
             Tuple of (BootResult, FstestsRunResult or None)
@@ -1424,6 +1674,8 @@ class BootManager:
         test_args = " ".join(tests) if tests else "-g quick"
         logger.info(f"Tests: {test_args}")
         logger.info(f"IO scheduler: {io_scheduler}")
+        if use_tmpfs:
+            logger.info("Using tmpfs for loop device backing files (faster but uses more RAM)")
         if cross_compile:
             logger.info(f"Cross-compile arch: {cross_compile.arch}")
         if force_9p:
@@ -1461,29 +1713,7 @@ class BootManager:
             ), None)
 
         # Auto-detect kernel architecture if not explicitly specified
-        target_arch = None
-        if cross_compile:
-            target_arch = cross_compile.arch
-        else:
-            # Try to detect architecture from vmlinux
-            detected_arch = self.detect_kernel_architecture()
-            if detected_arch:
-                import platform
-                host_arch = platform.machine()
-                # Normalize host arch names
-                if host_arch == "amd64":
-                    host_arch = "x86_64"
-                elif host_arch == "aarch64":
-                    host_arch = "arm64"
-
-                if detected_arch != host_arch:
-                    target_arch = detected_arch
-                    logger.info(f"✓ Auto-detected kernel architecture: {detected_arch}")
-                    logger.info(f"  (different from host: {host_arch})")
-                else:
-                    logger.info(f"✓ Kernel architecture matches host: {detected_arch}")
-            else:
-                logger.warning("Could not auto-detect kernel architecture, assuming host architecture")
+        target_arch = self._resolve_target_architecture(cross_compile)
 
         # Check QEMU is available for target architecture
         qemu_available, qemu_info = self.check_qemu(target_arch)
@@ -1551,6 +1781,19 @@ class BootManager:
                 exit_code=-1
             ), None)
 
+        # Setup tmpfs if requested
+        tmpfs_mounted = False
+        backing_directory = None
+        if use_tmpfs:
+            logger.info("Setting up tmpfs for loop device backing files...")
+            if _setup_tmpfs_for_loop_devices():
+                tmpfs_mounted = True
+                backing_directory = HOST_LOOP_TMPFS_DIR
+                logger.info(f"✓ tmpfs ready at {HOST_LOOP_TMPFS_DIR}")
+            else:
+                logger.error("✗ Failed to setup tmpfs, falling back to regular disk-backed loop devices")
+                backing_directory = None
+
         # Create loop devices on host for passing to VM
         # We need: 1 test device + 5 scratch pool devices + 1 log-writes device = 7 total
         logger.info("Creating loop devices on host (7 x 10G)...")
@@ -1559,11 +1802,14 @@ class BootManager:
 
         try:
             for name in device_names:
-                loop_dev, backing_file = _create_host_loop_device(device_size, name)
+                loop_dev, backing_file = _create_host_loop_device(device_size, name, backing_directory)
                 if not loop_dev:
                     # Cleanup any already created devices
                     for dev, backing in created_loop_devices:
                         _cleanup_host_loop_device(dev, backing)
+                    # Cleanup tmpfs if it was mounted
+                    if tmpfs_mounted:
+                        _cleanup_tmpfs_for_loop_devices()
                     return (BootResult(
                         success=False,
                         duration=time.time() - start_time,
@@ -1578,6 +1824,9 @@ class BootManager:
             # Cleanup on any error
             for dev, backing in created_loop_devices:
                 _cleanup_host_loop_device(dev, backing)
+            # Cleanup tmpfs if it was mounted
+            if tmpfs_mounted:
+                _cleanup_tmpfs_for_loop_devices()
             return (BootResult(
                 success=False,
                 duration=time.time() - start_time,
@@ -1652,7 +1901,6 @@ echo "TEST_DEV=$TEST_DEV"
 echo "SCRATCH_DEV_POOL=$POOL1 $POOL2 $POOL3 $POOL4 $POOL5"
 echo "LOGWRITES_DEV=$LOGWRITES_DEV"
 
-# Set IO scheduler on all devices
 echo "Setting IO scheduler to '{io_scheduler}' on all devices..."
 for dev in $TEST_DEV $POOL1 $POOL2 $POOL3 $POOL4 $POOL5 $LOGWRITES_DEV; do
     # Extract device name (e.g., "vda" from "/dev/vda")
@@ -1806,7 +2054,7 @@ exit $exit_code
 
         try:
             description = f"fstests {fstype} on {self.kernel_path.name}"
-            exit_code, output, progress_messages = await _run_with_pty_async(cmd, self.kernel_path, timeout, emit_output=True, description=description)
+            exit_code, output, progress_messages, log_file = await _run_with_pty_async(cmd, self.kernel_path, timeout, emit_output=True, description=description)
 
             duration = time.time() - start_time
 
@@ -1837,12 +2085,11 @@ exit $exit_code
 
             # Determine if boot actually completed
             # Boot is considered "completed" if vng ran successfully enough to actually boot the kernel
-            # Exit codes: 0 = success, 1 = tests failed (but kernel booted), 2+ = vng failed to start
+            # Exit codes: 0 = success, 1 = tests failed (but kernel booted), 2+ = vng failed to start, -1 = timeout
             boot_completed = (exit_code == 0 or exit_code == 1)
 
-            # Save boot log
+            # Log file was already written during execution by _run_with_pty_async
             boot_success = boot_completed and len(panics) == 0  # Boot succeeded if completed without panics
-            log_file = _save_boot_log(output, boot_success)
 
             # Log completion
             if boot_success:
@@ -1859,6 +2106,9 @@ exit $exit_code
             for handler in logger.handlers:
                 handler.flush()
 
+            # Check if this was a timeout
+            timeout_occurred = (exit_code == -1 and "timed out" in output.lower())
+
             boot_result = BootResult(
                 success=boot_success,
                 duration=duration,
@@ -1869,43 +2119,42 @@ exit $exit_code
                 oops=oops,
                 dmesg_output=output,
                 exit_code=exit_code,
-                timeout_occurred=False,
+                timeout_occurred=timeout_occurred,
                 log_file_path=log_file,
                 progress_log=progress_messages
             )
 
             return (boot_result, fstests_result)
 
-        except subprocess.TimeoutExpired as e:
-            duration = time.time() - start_time
-            logger.error(f"✗ Boot test timed out after {timeout}s (ran for {duration:.1f}s)")
-            output = ""
-            if e.output:
-                output = e.output.decode() if isinstance(e.output, bytes) else e.output
-
-            full_output = output + f"\n\nERROR: Test timed out after {timeout}s"
-            log_file = _save_boot_log(full_output, success=False)
-            logger.info(f"Boot log saved: {log_file}")
-            logger.info("=" * 60)
-            # Flush logs
-            for handler in logger.handlers:
-                handler.flush()
-
-            return (BootResult(
-                success=False,
-                duration=duration,
-                boot_completed=False,
-                dmesg_output=full_output,
-                exit_code=-1,
-                timeout_occurred=True,
-                log_file_path=log_file
-            ), None)
-
         except Exception as e:
             duration = time.time() - start_time
             logger.error(f"✗ Boot test failed with exception: {e}")
-            error_output = f"ERROR: {str(e)}"
-            log_file = _save_boot_log(error_output, success=False)
+
+            # Try to find the most recent log file (might have been created before exception)
+            log_file = None
+            try:
+                if BOOT_LOG_DIR.exists():
+                    recent_logs = sorted(
+                        BOOT_LOG_DIR.glob("boot-*-running.log"),
+                        key=lambda p: p.stat().st_mtime,
+                        reverse=True
+                    )
+                    if recent_logs and (time.time() - recent_logs[0].stat().st_mtime) < 60:
+                        log_file = recent_logs[0]
+                        try:
+                            error_log = log_file.parent / log_file.name.replace("-running.log", "-error.log")
+                            log_file.rename(error_log)
+                            log_file = error_log
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+            # Create error log if we couldn't find one
+            if not log_file:
+                error_output = f"ERROR: {str(e)}"
+                log_file = _save_boot_log(error_output, success=False)
+
             logger.info(f"Boot log saved: {log_file}")
             logger.info("=" * 60)
             # Flush logs
@@ -1916,7 +2165,7 @@ exit $exit_code
                 success=False,
                 duration=duration,
                 boot_completed=False,
-                dmesg_output=error_output,
+                dmesg_output=f"ERROR: {str(e)}",
                 exit_code=-1,
                 log_file_path=log_file
             ), None)
@@ -1932,6 +2181,528 @@ exit $exit_code
             # Cleanup host loop devices
             for loop_dev, backing_file in created_loop_devices:
                 _cleanup_host_loop_device(loop_dev, backing_file)
+
+            # Cleanup tmpfs if it was mounted
+            if tmpfs_mounted:
+                logger.info("Cleaning up tmpfs...")
+                _cleanup_tmpfs_for_loop_devices()
+
+    async def boot_with_custom_command(
+        self,
+        fstests_path: Path,
+        command: Optional[str] = None,
+        script_file: Optional[Path] = None,
+        fstype: str = "ext4",
+        timeout: int = 300,
+        memory: str = "4G",
+        cpus: int = 4,
+        cross_compile: Optional["CrossCompileConfig"] = None,
+        force_9p: bool = False,
+        io_scheduler: str = "mq-deadline",
+        use_tmpfs: bool = False
+    ) -> BootResult:
+        """Boot kernel and run custom command/script with fstests device environment.
+
+        This tool sets up the same device environment as fstests_vm_boot_and_run but
+        allows you to run arbitrary commands or scripts instead of fstests.
+
+        Args:
+            fstests_path: Path to fstests installation (for environment setup)
+            command: Shell command to run, or None for interactive shell
+            script_file: Path to local script file to upload and execute
+            fstype: Filesystem type to format devices with (e.g., "ext4", "btrfs", "xfs")
+            timeout: Total timeout in seconds
+            memory: Memory size for VM
+            cpus: Number of CPUs
+            cross_compile: Cross-compilation configuration
+            force_9p: Force use of 9p filesystem instead of virtio-fs
+            io_scheduler: IO scheduler to use for block devices (default: "mq-deadline")
+                         Valid values: "mq-deadline", "none", "bfq", "kyber"
+            use_tmpfs: Use tmpfs for loop device backing files (faster but uses more RAM)
+
+        Security Note:
+            The command and script_file parameters are executed without sanitization.
+            This is intentional for flexibility in kernel development and testing.
+            Only use with trusted inputs. Commands run in an isolated VM environment.
+
+        Returns:
+            BootResult with command execution output
+        """
+        logger.info("=" * 60)
+        logger.info(f"Starting kernel boot with custom command: {self.kernel_path}")
+        logger.info(f"Config: fstype={fstype}, memory={memory}, cpus={cpus}, timeout={timeout}s")
+        if command:
+            logger.info(f"Command: {command}")
+        elif script_file:
+            logger.info(f"Script: {script_file}")
+        else:
+            logger.info("Mode: Interactive shell")
+        logger.info(f"IO scheduler: {io_scheduler}")
+        if use_tmpfs:
+            logger.info("Using tmpfs for loop device backing files (faster but uses more RAM)")
+        if cross_compile:
+            logger.info(f"Cross-compile arch: {cross_compile.arch}")
+        if force_9p:
+            logger.info("Using 9p filesystem (virtio-fs disabled)")
+
+        start_time = time.time()
+
+        # Track created loop devices for cleanup
+        created_loop_devices: List[Tuple[str, Path]] = []
+        tmpfs_mounted = False
+
+        # Check virtme-ng is available
+        if not self.check_virtme_ng():
+            logger.error("✗ virtme-ng not found")
+            logger.info("=" * 60)
+            return BootResult(
+                success=False,
+                duration=time.time() - start_time,
+                boot_completed=False,
+                dmesg_output="ERROR: virtme-ng (vng) not found. Install with: pip install virtme-ng",
+                exit_code=-1
+            )
+
+        # Auto-detect kernel architecture if not explicitly specified
+        target_arch = self._resolve_target_architecture(cross_compile)
+
+        # Check QEMU is available for target architecture
+        qemu_available, qemu_info = self.check_qemu(target_arch)
+        if not qemu_available:
+            logger.error(f"✗ QEMU not found: {qemu_info}")
+            logger.info("=" * 60)
+            install_instructions = (
+                "Install QEMU for your distribution:\n"
+                "  Fedora/RHEL: sudo dnf install qemu-system-x86\n"
+                "  Ubuntu/Debian: sudo apt-get install qemu-system-x86\n"
+                "  Arch: sudo pacman -S qemu-system-x86"
+            )
+            return BootResult(
+                success=False,
+                duration=time.time() - start_time,
+                boot_completed=False,
+                dmesg_output=f"ERROR: {qemu_info}\n\n{install_instructions}",
+                exit_code=-1
+            )
+        else:
+            logger.info(f"✓ QEMU available: {qemu_info}")
+
+        # Check if kernel is built
+        vmlinux = self.kernel_path / "vmlinux"
+        if not vmlinux.exists():
+            return BootResult(
+                success=False,
+                duration=time.time() - start_time,
+                boot_completed=False,
+                dmesg_output=f"ERROR: Kernel not built. vmlinux not found at {vmlinux}",
+                exit_code=-1
+            )
+
+        # Check fstests path exists (for environment setup)
+        fstests_path = Path(fstests_path)
+        if not fstests_path.exists():
+            return BootResult(
+                success=False,
+                duration=time.time() - start_time,
+                boot_completed=False,
+                dmesg_output=f"ERROR: fstests path does not exist: {fstests_path}",
+                exit_code=-1
+            )
+
+        # Check script file exists if provided
+        if script_file:
+            script_file = Path(script_file)
+            if not script_file.exists():
+                return BootResult(
+                    success=False,
+                    duration=time.time() - start_time,
+                    boot_completed=False,
+                    dmesg_output=f"ERROR: Script file does not exist: {script_file}",
+                    exit_code=-1
+                )
+
+        # Setup tmpfs if requested
+        backing_directory = None
+        if use_tmpfs:
+            logger.info("Setting up tmpfs for loop device backing files...")
+            if _setup_tmpfs_for_loop_devices():
+                tmpfs_mounted = True
+                backing_directory = HOST_LOOP_TMPFS_DIR
+                logger.info(f"✓ tmpfs ready at {HOST_LOOP_TMPFS_DIR}")
+            else:
+                logger.error("✗ Failed to setup tmpfs, falling back to regular disk-backed loop devices")
+                backing_directory = None
+
+        # Create loop devices on host for passing to VM
+        # We need: 1 test device + 5 scratch pool devices + 1 log-writes device = 7 total
+        logger.info("Creating loop devices on host (7 x 10G)...")
+        device_size = "10G"
+        device_names = ["test", "pool1", "pool2", "pool3", "pool4", "pool5", "logwrites"]
+
+        try:
+            for name in device_names:
+                loop_dev, backing_file = _create_host_loop_device(device_size, name, backing_directory)
+                if not loop_dev:
+                    # Cleanup any already created devices
+                    for dev, backing in created_loop_devices:
+                        _cleanup_host_loop_device(dev, backing)
+                    # Cleanup tmpfs if it was mounted
+                    if tmpfs_mounted:
+                        _cleanup_tmpfs_for_loop_devices()
+                    return BootResult(
+                        success=False,
+                        duration=time.time() - start_time,
+                        boot_completed=False,
+                        dmesg_output=f"ERROR: Failed to create host loop device '{name}'\n"
+                                     f"Make sure you have sudo access for losetup commands.",
+                        exit_code=-1
+                    )
+                created_loop_devices.append((loop_dev, backing_file))
+
+        except Exception as e:
+            # Cleanup on any error
+            for dev, backing in created_loop_devices:
+                _cleanup_host_loop_device(dev, backing)
+            # Cleanup tmpfs if it was mounted
+            if tmpfs_mounted:
+                _cleanup_tmpfs_for_loop_devices()
+            return BootResult(
+                success=False,
+                duration=time.time() - start_time,
+                boot_completed=False,
+                dmesg_output=f"ERROR: Exception while creating loop devices: {e}",
+                exit_code=-1
+            )
+
+        # Create timestamped results directory on host
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        results_base_dir = Path.home() / ".kerneldev-mcp" / "fstests-results"
+        results_dir = results_base_dir / f"custom-{timestamp}"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"✓ Created results directory: {results_dir}")
+
+        # Build the setup and execution script
+        # This sets up the same environment as fstests but runs custom command
+        setup_script = f"""#!/bin/bash
+# Don't exit on error immediately - we want to capture results
+set +e
+
+# Show environment
+echo "=== Custom Command Setup Start ==="
+echo "Kernel: $(uname -r)"
+echo "User: $(whoami)"
+echo "fstests path: {fstests_path}"
+echo "Filesystem type: {fstype}"
+echo ""
+
+# Use devices passed from host via --disk
+# virtme-ng passes them as virtio block devices: /dev/vda, /dev/vdb, /dev/vdc, etc.
+# We have 7 devices: 1 test + 5 scratch pool + 1 log-writes
+echo "Setting up passed-through block devices..."
+TEST_DEV=/dev/vda
+POOL1=/dev/vdb
+POOL2=/dev/vdc
+POOL3=/dev/vdd
+POOL4=/dev/vde
+POOL5=/dev/vdf
+LOGWRITES_DEV=/dev/vdg
+
+# Verify devices exist
+for dev in $TEST_DEV $POOL1 $POOL2 $POOL3 $POOL4 $POOL5 $LOGWRITES_DEV; do
+    if [ ! -b "$dev" ]; then
+        echo "ERROR: Block device $dev not found"
+        echo "Available block devices:"
+        ls -l /dev/vd* 2>/dev/null || echo "No /dev/vd* devices found"
+        exit 1
+    fi
+done
+
+echo "TEST_DEV=$TEST_DEV"
+echo "SCRATCH_DEV_POOL=$POOL1 $POOL2 $POOL3 $POOL4 $POOL5"
+echo "LOGWRITES_DEV=$LOGWRITES_DEV"
+
+echo "Setting IO scheduler to '{io_scheduler}' on all devices..."
+for dev in $TEST_DEV $POOL1 $POOL2 $POOL3 $POOL4 $POOL5 $LOGWRITES_DEV; do
+    devname=$(basename $dev)
+    scheduler_file="/sys/block/$devname/queue/scheduler"
+
+    if [ ! -f "$scheduler_file" ]; then
+        echo "ERROR: Scheduler file not found: $scheduler_file"
+        exit 1
+    fi
+
+    # Check if scheduler is available
+    available=$(cat "$scheduler_file")
+    if ! echo "$available" | grep -qw "{io_scheduler}"; then
+        echo "ERROR: IO scheduler '{io_scheduler}' is not available for $dev"
+        echo "Available schedulers: $available"
+        exit 1
+    fi
+
+    # Set the scheduler
+    echo "{io_scheduler}" > "$scheduler_file"
+    if [ $? -ne 0 ]; then
+        echo "ERROR: Failed to set scheduler '{io_scheduler}' on $dev"
+        exit 1
+    fi
+
+    # Verify it was set
+    current=$(cat "$scheduler_file" | grep -o '\[.*\]' | tr -d '[]')
+    if [ "$current" != "{io_scheduler}" ]; then
+        echo "ERROR: Failed to verify scheduler on $dev (expected '{io_scheduler}', got '$current')"
+        exit 1
+    fi
+
+    echo "  ✓ $dev: {io_scheduler}"
+done
+echo ""
+
+# Format filesystems
+echo "Formatting filesystems as {fstype}..."
+if [ "{fstype}" = "btrfs" ]; then
+    mkfs.btrfs -f $TEST_DEV > /dev/null 2>&1
+else
+    mkfs.ext4 -F $TEST_DEV > /dev/null 2>&1
+fi
+
+# Create mount points in /tmp
+echo "Creating mount points..."
+mkdir -p /tmp/test /tmp/scratch
+
+# Export environment variables for use by custom command
+export TEST_DEV=$TEST_DEV
+export TEST_DIR=/tmp/test
+export SCRATCH_MNT=/tmp/scratch
+export SCRATCH_DEV_POOL="$POOL1 $POOL2 $POOL3 $POOL4 $POOL5"
+export LOGWRITES_DEV=$LOGWRITES_DEV
+export FSTYP={fstype}
+export RESULT_BASE=/tmp/results
+
+# Create fstests local.config (for compatibility if using fstests utilities)
+if [ -d "{fstests_path}" ]; then
+    cat > {fstests_path}/local.config <<EOF
+export TEST_DEV=$TEST_DEV
+export TEST_DIR=/tmp/test
+export SCRATCH_MNT=/tmp/scratch
+export SCRATCH_DEV_POOL="$POOL1 $POOL2 $POOL3 $POOL4 $POOL5"
+export LOGWRITES_DEV=$LOGWRITES_DEV
+export FSTYP={fstype}
+export RESULT_BASE=/tmp/results
+EOF
+    echo "✓ Created fstests local.config"
+fi
+
+echo "=== Environment Ready ==="
+echo ""
+"""
+
+        # Add the user's command/script or interactive shell
+        if script_file:
+            # Copy script contents into the execution script
+            script_contents = script_file.read_text()
+            setup_script += f"""
+# Execute uploaded script
+echo "=== Executing Custom Script: {script_file.name} ==="
+{script_contents}
+exit_code=$?
+echo "=== Script Execution Complete ==="
+echo "Exit code: $exit_code"
+exit $exit_code
+"""
+        elif command:
+            # Execute the provided command
+            setup_script += f"""
+echo "=== Executing Custom Command ==="
+echo "Command: {command}"
+echo ""
+{command}
+exit_code=$?
+echo ""
+echo "=== Command Execution Complete ==="
+echo "Exit code: $exit_code"
+exit $exit_code
+"""
+        else:
+            # Interactive shell
+            setup_script += """
+echo "=== Launching Interactive Shell ==="
+echo "Environment variables are set:"
+echo "  TEST_DEV=$TEST_DEV"
+echo "  SCRATCH_DEV_POOL=$SCRATCH_DEV_POOL"
+echo "  LOGWRITES_DEV=$LOGWRITES_DEV"
+echo "  FSTYP=$FSTYP"
+echo "  RESULT_BASE=$RESULT_BASE"
+echo ""
+echo "Devices are ready. Run 'exit' when done."
+echo ""
+/bin/bash
+exit_code=$?
+exit $exit_code
+"""
+
+        # Write script to temp file
+        vm_script_file = Path("/tmp/run-custom-command.sh")
+        vm_script_file.write_text(setup_script)
+        vm_script_file.chmod(0o755)
+
+        # Build vng command
+        cmd = ["vng", "--verbose"]
+
+        # Force 9p if requested
+        if force_9p:
+            cmd.append("--force-9p")
+
+        # Add memory and CPU options
+        cmd.extend(["--memory", memory])
+        cmd.extend(["--cpus", str(cpus)])
+
+        # Add architecture if specified or auto-detected
+        if target_arch:
+            cmd.extend(["--arch", target_arch])
+
+        # Pass loop devices to VM via --disk
+        for loop_dev, _ in created_loop_devices:
+            cmd.extend(["--disk", loop_dev])
+
+        # Make fstests directory available in VM with read-write overlay
+        cmd.extend(["--overlay-rwdir", str(fstests_path)])
+
+        # Mount results directory as read-write to persist results
+        cmd.extend([f"--rwdir=/tmp/results={results_dir}"])
+
+        # Execute the script
+        cmd.extend(["--", "bash", str(vm_script_file)])
+
+        # Run with PTY (with real-time progress logging)
+        logger.info(f"✓ Loop devices created: {len(created_loop_devices)}")
+        logger.info(f"Booting kernel and running custom command... (timeout: {timeout}s)")
+        logger.info("  Progress updates will be logged every 10 seconds")
+        # Flush before long operation
+        for handler in logger.handlers:
+            handler.flush()
+
+        try:
+            mode_desc = "interactive shell" if not (command or script_file) else ("script" if script_file else "command")
+            description = f"custom {mode_desc} on {self.kernel_path.name}"
+            exit_code, output, progress_messages, log_file = await _run_with_pty_async(cmd, self.kernel_path, timeout, emit_output=True, description=description)
+
+            duration = time.time() - start_time
+
+            # Fix permissions on results directory
+            try:
+                uid = os.getuid()
+                gid = os.getgid()
+                subprocess.run(
+                    ["sudo", "chown", "-R", f"{uid}:{gid}", str(results_dir)],
+                    check=False,
+                    capture_output=True
+                )
+            except Exception as e:
+                logger.warning(f"Could not fix permissions on results: {e}")
+
+            # Analyze dmesg for kernel issues
+            errors, warnings, panics, oops = DmesgParser.analyze_dmesg(output)
+
+            # Determine if boot actually completed
+            boot_completed = (exit_code >= 0)  # Any non-timeout exit means boot completed
+
+            # Boot succeeded if completed without panics
+            boot_success = boot_completed and len(panics) == 0
+
+            # Log completion
+            if boot_success:
+                logger.info(f"✓ Kernel boot and custom command completed successfully in {duration:.1f}s")
+            else:
+                logger.error(f"✗ Kernel boot or command failed after {duration:.1f}s")
+                logger.error(f"  Panics: {len(panics)}, Oops: {len(oops)}, Errors: {len(errors)}")
+            logger.info(f"Boot log saved: {log_file}")
+            logger.info(f"Results directory: {results_dir}")
+            logger.info("=" * 60)
+            # Flush logs
+            for handler in logger.handlers:
+                handler.flush()
+
+            # Check if this was a timeout
+            timeout_occurred = (exit_code == -1 and "timed out" in output.lower())
+
+            boot_result = BootResult(
+                success=boot_success,
+                duration=duration,
+                boot_completed=boot_completed,
+                errors=errors,
+                warnings=warnings,
+                panics=panics,
+                oops=oops,
+                dmesg_output=output,
+                exit_code=exit_code,
+                timeout_occurred=timeout_occurred,
+                log_file_path=log_file,
+                progress_log=progress_messages
+            )
+
+            return boot_result
+
+        except Exception as e:
+            duration = time.time() - start_time
+            logger.error(f"✗ Boot test failed with exception: {e}")
+
+            # Try to find the most recent log file
+            log_file = None
+            try:
+                if BOOT_LOG_DIR.exists():
+                    recent_logs = sorted(
+                        BOOT_LOG_DIR.glob("boot-*-running.log"),
+                        key=lambda p: p.stat().st_mtime,
+                        reverse=True
+                    )
+                    if recent_logs and (time.time() - recent_logs[0].stat().st_mtime) < 60:
+                        log_file = recent_logs[0]
+                        try:
+                            error_log = log_file.parent / log_file.name.replace("-running.log", "-error.log")
+                            log_file.rename(error_log)
+                            log_file = error_log
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+            # Create error log if we couldn't find one
+            if not log_file:
+                error_output = f"ERROR: {str(e)}"
+                log_file = _save_boot_log(error_output, success=False)
+
+            logger.info(f"Boot log saved: {log_file}")
+            logger.info("=" * 60)
+            # Flush logs
+            for handler in logger.handlers:
+                handler.flush()
+
+            return BootResult(
+                success=False,
+                duration=duration,
+                boot_completed=False,
+                dmesg_output=f"ERROR: {str(e)}",
+                exit_code=-1,
+                log_file_path=log_file
+            )
+
+        finally:
+            # Cleanup temp script
+            if vm_script_file.exists():
+                try:
+                    vm_script_file.unlink()
+                except OSError:
+                    pass
+
+            # Cleanup host loop devices
+            for loop_dev, backing_file in created_loop_devices:
+                _cleanup_host_loop_device(loop_dev, backing_file)
+
+            # Cleanup tmpfs if it was mounted
+            if tmpfs_mounted:
+                logger.info("Cleaning up tmpfs...")
+                _cleanup_tmpfs_for_loop_devices()
 
 
 def format_boot_result(result: BootResult, max_errors: int = 10) -> str:

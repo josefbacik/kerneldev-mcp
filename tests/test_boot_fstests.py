@@ -82,30 +82,30 @@ class TestBootFstestsFilesystemType:
 
     def test_mcp_tool_has_fstype_in_schema(self):
         """
-        Verify that boot_kernel_with_fstests MCP tool has fstype in schema.
+        Verify that fstests_vm_boot_and_run MCP tool has fstype in schema.
         """
         from kerneldev_mcp import server
 
         # Get the source code to check that fstype is in the tool definition
         source = inspect.getsource(server)
 
-        # Find the boot_kernel_with_fstests tool definition
-        # Look for Tool(...name="boot_kernel_with_fstests"...)
-        assert 'name="boot_kernel_with_fstests"' in source, \
-            "boot_kernel_with_fstests tool should be defined"
+        # Find the fstests_vm_boot_and_run tool definition
+        # Look for Tool(...name="fstests_vm_boot_and_run"...)
+        assert 'name="fstests_vm_boot_and_run"' in source, \
+            "fstests_vm_boot_and_run tool should be defined"
 
         # Extract the tool definition section
         lines = source.split('\n')
         tool_start = None
         for i, line in enumerate(lines):
-            if 'name="boot_kernel_with_fstests"' in line:
+            if 'name="fstests_vm_boot_and_run"' in line:
                 tool_start = i
                 break
 
         assert tool_start is not None, "Could not find tool definition"
 
-        # Get next ~50 lines (the tool schema)
-        tool_def = '\n'.join(lines[tool_start:tool_start + 50])
+        # Get next ~100 lines (the tool schema - increased to cover longer descriptions)
+        tool_def = '\n'.join(lines[tool_start:tool_start + 100])
 
         # Check that fstype is in the schema
         assert '"fstype"' in tool_def or "'fstype'" in tool_def, \
@@ -149,7 +149,7 @@ class TestBootFstestsBasicFunctionality:
 
 
 class TestBootFstestsSuccessDetection:
-    """Test success detection in boot_kernel_with_fstests."""
+    """Test success detection in fstests_vm_boot_and_run."""
 
     def test_handler_checks_fstests_success(self):
         """
@@ -164,17 +164,17 @@ class TestBootFstestsSuccessDetection:
         # Get source code of call_tool function
         source = inspect.getsource(server.call_tool)
 
-        # Find the boot_kernel_with_fstests handler section
-        # Look for the section after "elif name == 'boot_kernel_with_fstests'"
+        # Find the fstests_vm_boot_and_run handler section
+        # Look for the section after "elif name == 'fstests_vm_boot_and_run'"
         lines = source.split('\n')
         handler_start = None
         for i, line in enumerate(lines):
-            if 'boot_kernel_with_fstests' in line and 'elif name' in line:
+            if 'fstests_vm_boot_and_run' in line and 'elif name' in line:
                 handler_start = i
                 break
 
         assert handler_start is not None, \
-            "Could not find boot_kernel_with_fstests handler"
+            "Could not find fstests_vm_boot_and_run handler"
 
         # Get next ~100 lines (the handler code)
         handler_code = '\n'.join(lines[handler_start:handler_start + 100])

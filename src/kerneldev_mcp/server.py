@@ -859,6 +859,95 @@ Use fstests_groups_list tool to see available test groups.""",
                         "description": "IO scheduler to use for block devices (default: mq-deadline). Valid values: mq-deadline, none, bfq, kyber",
                         "default": "mq-deadline",
                         "enum": ["mq-deadline", "none", "bfq", "kyber"]
+                    },
+                    "use_tmpfs": {
+                        "type": "boolean",
+                        "description": "Use tmpfs for loop device backing files (faster, but uses more RAM). Default: false",
+                        "default": False
+                    }
+                },
+                "required": ["kernel_path", "fstests_path"]
+            }
+        ),
+        Tool(
+            name="fstests_vm_boot_custom",
+            description="""Boot kernel in VM with fstests device environment and run custom command/script.
+
+This tool provides the same device setup as fstests_vm_boot_and_run but allows you to run
+arbitrary commands or scripts instead of fstests. Perfect for:
+  - Custom filesystem testing scripts
+  - Manual debugging with fstests devices
+  - Interactive exploration of filesystem behavior
+  - Running specific filesystem utilities
+
+The VM environment includes:
+  - 7 pre-configured block devices (/dev/vda-vdg)
+  - TEST_DEV, SCRATCH_DEV_POOL, LOGWRITES_DEV environment variables
+  - fstests directory mounted and available
+  - Results directory for persisting output
+  - Pre-formatted test device with specified filesystem type
+  - Configured IO scheduler
+
+Usage modes:
+  1. Run a command: Specify 'command' parameter with shell command
+  2. Run a script: Specify 'script_file' with path to local script
+  3. Interactive shell: Omit both 'command' and 'script_file'""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "kernel_path": {
+                        "type": "string",
+                        "description": "Path to kernel source directory"
+                    },
+                    "fstests_path": {
+                        "type": "string",
+                        "description": "Path to fstests installation (for environment setup)"
+                    },
+                    "command": {
+                        "type": "string",
+                        "description": "Shell command to run (optional, for interactive shell omit this and script_file)"
+                    },
+                    "script_file": {
+                        "type": "string",
+                        "description": "Path to local script file to upload and execute (optional)"
+                    },
+                    "fstype": {
+                        "type": "string",
+                        "description": "Filesystem type to format devices with",
+                        "default": "ext4"
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Boot and execution timeout in seconds",
+                        "default": 300,
+                        "minimum": 60
+                    },
+                    "memory": {
+                        "type": "string",
+                        "description": "VM memory size",
+                        "default": "4G"
+                    },
+                    "cpus": {
+                        "type": "integer",
+                        "description": "Number of CPUs",
+                        "default": 4,
+                        "minimum": 1
+                    },
+                    "force_9p": {
+                        "type": "boolean",
+                        "description": "Force use of 9p filesystem instead of virtio-fs",
+                        "default": False
+                    },
+                    "io_scheduler": {
+                        "type": "string",
+                        "description": "IO scheduler to use for block devices",
+                        "default": "mq-deadline",
+                        "enum": ["mq-deadline", "none", "bfq", "kyber"]
+                    },
+                    "use_tmpfs": {
+                        "type": "boolean",
+                        "description": "Use tmpfs for loop device backing files (faster, but uses more RAM)",
+                        "default": False
                     }
                 },
                 "required": ["kernel_path", "fstests_path"]
@@ -1660,6 +1749,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     pgid = info.get("pgid", pid)
                     description = info.get("description", "Unknown")
                     started_at = info.get("started_at", 0)
+                    log_file_path = info.get("log_file_path")
 
                     # Calculate running time
                     if started_at:
@@ -1668,11 +1758,13 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     else:
                         running_str = "unknown"
 
-                    logger.info(f"  PID={pid}, PGID={pgid}, Description={description}, Running={running_str}")
+                    logger.info(f"  PID={pid}, PGID={pgid}, Description={description}, Running={running_str}, LogFile={log_file_path}")
 
                     output_lines.append(f"  • PID {pid} (PGID {pgid})")
                     output_lines.append(f"    Description: {description}")
                     output_lines.append(f"    Running for: {running_str}")
+                    if log_file_path:
+                        output_lines.append(f"    Log file: {log_file_path}")
 
                     # Kill the process tree (vng parent + QEMU children)
                     # Use subprocess with timeout to prevent hanging
@@ -1755,6 +1847,69 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                         logger.error(f"  ERROR killing PID {pid}: {e}")
                         errors.append(f"Failed to kill PID {pid}: {e}")
                         output_lines.append(f"    Status: ✗ Failed ({e})")
+
+                    # Analyze log file if it exists and show key diagnostic info
+                    if log_file_path:
+                        try:
+                            log_path = Path(log_file_path)
+                            if log_path.exists():
+                                output_lines.append("")
+                                output_lines.append(f"    📋 Log file: {log_path}")
+
+                                # Read and analyze the log file
+                                from .boot_manager import DmesgParser
+
+                                with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
+                                    log_content = f.read()
+
+                                # Analyze for kernel issues
+                                errors, warnings, panics, oops = DmesgParser.analyze_dmesg(log_content)
+
+                                # Show critical issues if found
+                                if panics:
+                                    output_lines.append("    🔥 KERNEL PANICS DETECTED:")
+                                    for panic in panics[:3]:  # Show first 3
+                                        output_lines.append(f"       • {panic.message[:100]}")
+                                    if len(panics) > 3:
+                                        output_lines.append(f"       ... and {len(panics) - 3} more panics")
+
+                                if oops:
+                                    output_lines.append("    💥 KERNEL OOPS DETECTED:")
+                                    for oops_msg in oops[:3]:  # Show first 3
+                                        output_lines.append(f"       • {oops_msg.message[:100]}")
+                                    if len(oops) > 3:
+                                        output_lines.append(f"       ... and {len(oops) - 3} more oops")
+
+                                if errors and not panics and not oops:
+                                    output_lines.append("    ⚠ KERNEL ERRORS DETECTED:")
+                                    for error in errors[:5]:  # Show first 5
+                                        output_lines.append(f"       • {error.message[:100]}")
+                                    if len(errors) > 5:
+                                        output_lines.append(f"       ... and {len(errors) - 5} more errors")
+
+                                # Always show last few lines for context
+                                output_lines.append("")
+                                output_lines.append("    Last 10 lines of output:")
+                                log_lines = log_content.splitlines()
+                                for line in log_lines[-10:]:
+                                    if line.strip():
+                                        output_lines.append(f"       {line[:120]}")
+
+                                output_lines.append("")
+                                output_lines.append(f"    💡 Full log: Read {log_path}")
+
+                                # Add summary
+                                if panics or oops:
+                                    output_lines.append(f"    ⚠ VM HUNG DUE TO KERNEL CRASH - see panics/oops above")
+                                elif errors:
+                                    output_lines.append(f"    ⚠ VM hung with {len(errors)} kernel errors")
+                                else:
+                                    output_lines.append(f"    ℹ No obvious kernel issues - check full log for details")
+                            else:
+                                output_lines.append(f"    ⚠ Log file not found: {log_path}")
+                        except Exception as e:
+                            logger.warning(f"Failed to read log file {log_file_path}: {e}")
+                            output_lines.append(f"    ⚠ Could not read log file: {e}")
 
                     output_lines.append("")
                     logger.info(f"Finished processing PID {pid}")
@@ -2172,6 +2327,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             cpus = arguments.get("cpus", 4)
             force_9p = arguments.get("force_9p", False)
             io_scheduler = arguments.get("io_scheduler", "mq-deadline")
+            use_tmpfs = arguments.get("use_tmpfs", False)
 
             # Check kernel path exists
             if not kernel_path.exists():
@@ -2205,7 +2361,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 memory=memory,
                 cpus=cpus,
                 force_9p=force_9p,
-                io_scheduler=io_scheduler
+                io_scheduler=io_scheduler,
+                use_tmpfs=use_tmpfs
             )
 
             # Format output
@@ -2239,6 +2396,97 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 # - All test output
                 # - Test summary
                 output += "\n\n=== Console Output (last 300 lines) ===\n"
+                output += f"Full log saved to: {boot_result.log_file_path}\n\n"
+
+                last_lines = console_lines[-300:] if total_lines > 300 else console_lines
+                start_line_num = max(1, total_lines - len(last_lines) + 1)
+
+                for i, line in enumerate(last_lines, start=start_line_num):
+                    output += f"{i:5d} | {line}\n"
+
+                if total_lines > 300:
+                    output += f"\n... showing last 300 of {total_lines} total lines\n"
+
+            return [TextContent(type="text", text=output)]
+
+        elif name == "fstests_vm_boot_custom":
+            kernel_path = Path(arguments["kernel_path"])
+            fstests_path = Path(arguments["fstests_path"])
+            command = arguments.get("command")
+            script_file_str = arguments.get("script_file")
+            script_file = Path(script_file_str) if script_file_str else None
+            fstype = arguments.get("fstype", "ext4")
+            timeout = arguments.get("timeout", 300)
+            memory = arguments.get("memory", "4G")
+            cpus = arguments.get("cpus", 4)
+            force_9p = arguments.get("force_9p", False)
+            io_scheduler = arguments.get("io_scheduler", "mq-deadline")
+            use_tmpfs = arguments.get("use_tmpfs", False)
+
+            # Check kernel path exists
+            if not kernel_path.exists():
+                return [TextContent(
+                    type="text",
+                    text=f"Error: Kernel path does not exist: {kernel_path}"
+                )]
+
+            # Check fstests path exists
+            if not fstests_path.exists():
+                return [TextContent(
+                    type="text",
+                    text=f"Error: fstests path does not exist: {fstests_path}"
+                )]
+
+            # Check script file exists if provided
+            if script_file and not script_file.exists():
+                return [TextContent(
+                    type="text",
+                    text=f"Error: Script file does not exist: {script_file}"
+                )]
+
+            # Create boot manager
+            try:
+                boot_mgr = BootManager(kernel_path)
+            except Exception as e:
+                return [TextContent(
+                    type="text",
+                    text=f"Error creating BootManager: {str(e)}"
+                )]
+
+            # Boot with custom command
+            boot_result = await boot_mgr.boot_with_custom_command(
+                fstests_path=fstests_path,
+                command=command,
+                script_file=script_file,
+                fstype=fstype,
+                timeout=timeout,
+                memory=memory,
+                cpus=cpus,
+                force_9p=force_9p,
+                io_scheduler=io_scheduler,
+                use_tmpfs=use_tmpfs
+            )
+
+            # Format output
+            mode = "Interactive Shell" if not (command or script_file) else (f"Script: {script_file.name}" if script_file else "Command")
+            output = f"=== Kernel Boot with Custom Command ===\n\n"
+            output += f"Mode: {mode}\n\n"
+
+            # Boot status
+            output += format_boot_result(boot_result)
+            output += "\n\n"
+
+            # For successful boots, include console output to show what happened
+            if boot_result.boot_completed and boot_result.dmesg_output:
+                console_lines = boot_result.dmesg_output.splitlines()
+                total_lines = len(console_lines)
+
+                # Show last 300 lines which typically includes:
+                # - Kernel boot completion
+                # - Device setup
+                # - Command execution
+                # - Results
+                output += "\n=== Console Output (last 300 lines) ===\n"
                 output += f"Full log saved to: {boot_result.log_file_path}\n\n"
 
                 last_lines = console_lines[-300:] if total_lines > 300 else console_lines
