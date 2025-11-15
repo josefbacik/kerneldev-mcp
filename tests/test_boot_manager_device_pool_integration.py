@@ -321,6 +321,7 @@ class TestBootWithFstestsPoolIntegration:
 class TestDevicePoolCleanup:
     """Test device pool cleanup in boot_with_fstests finally block."""
 
+    @patch('kerneldev_mcp.boot_manager.VMDeviceManager.setup_devices')
     @patch('kerneldev_mcp.device_pool.release_pool_volumes')
     @patch('kerneldev_mcp.boot_manager.BootManager.check_qemu')
     @patch('kerneldev_mcp.boot_manager.BootManager.check_virtme_ng')
@@ -331,6 +332,7 @@ class TestDevicePoolCleanup:
         mock_virtme,
         mock_qemu,
         mock_release,
+        mock_setup_devices,
         temp_kernel_dir,
         tmp_path
     ):
@@ -343,6 +345,12 @@ class TestDevicePoolCleanup:
         # Mock pool allocation
         mock_devices = [DeviceSpec(path="/dev/test-vg/test", name="test")]
         mock_try_pool.return_value = mock_devices
+
+        # Mock device setup to succeed
+        import asyncio
+        async def mock_setup():
+            return (True, None, ["/dev/test-vg/test"])
+        mock_setup_devices.side_effect = lambda _: asyncio.ensure_future(mock_setup())
 
         # Pass early checks to reach try/finally block
         mock_virtme.return_value = True
@@ -386,6 +394,7 @@ class TestDevicePoolCleanup:
         assert call_args.kwargs['session_id'] == "20251115123456-abc123"
         assert call_args.kwargs['keep_volumes'] is False
 
+    @patch('kerneldev_mcp.boot_manager.VMDeviceManager.setup_devices')
     @patch('kerneldev_mcp.device_pool.release_pool_volumes')
     @patch('kerneldev_mcp.boot_manager.BootManager.check_qemu')
     @patch('kerneldev_mcp.boot_manager.BootManager.check_virtme_ng')
@@ -396,6 +405,7 @@ class TestDevicePoolCleanup:
         mock_virtme,
         mock_qemu,
         mock_release,
+        mock_setup_devices,
         temp_kernel_dir,
         tmp_path
     ):
@@ -404,6 +414,12 @@ class TestDevicePoolCleanup:
 
         mock_devices = [DeviceSpec(path="/dev/test-vg/test", name="test")]
         mock_try_pool.return_value = mock_devices
+
+        # Mock device setup to succeed
+        import asyncio
+        async def mock_setup():
+            return (True, None, ["/dev/test-vg/test"])
+        mock_setup_devices.side_effect = lambda _: asyncio.ensure_future(mock_setup())
 
         # Pass early checks
         mock_virtme.return_value = True
