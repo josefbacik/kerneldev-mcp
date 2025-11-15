@@ -60,8 +60,9 @@ def sample_pool_config(temp_config_dir):
 class TestVolumeAllocation:
     """Test volume allocation functionality."""
 
+    @patch('kerneldev_mcp.device_pool._grant_user_lv_access', return_value=True)
     @patch('subprocess.run')
-    def test_allocate_volumes_creates_unique_names(self, mock_run, lvm_manager, sample_pool_config):
+    def test_allocate_volumes_creates_unique_names(self, mock_run, mock_grant_access, lvm_manager, sample_pool_config):
         """Test allocate_volumes generates unique LV names."""
         # Mock lvcreate success
         mock_result = Mock()
@@ -93,8 +94,9 @@ class TestVolumeAllocation:
         # Verify lvcreate was called for each volume
         assert mock_run.call_count == 2
 
+    @patch('kerneldev_mcp.device_pool._grant_user_lv_access', return_value=True)
     @patch('subprocess.run')
-    def test_allocate_volumes_registers_state(self, mock_run, lvm_manager, sample_pool_config):
+    def test_allocate_volumes_registers_state(self, mock_run, mock_grant_access, lvm_manager, sample_pool_config):
         """Test allocate_volumes registers allocations in state file."""
         # Mock lvcreate success
         mock_result = Mock()
@@ -117,8 +119,9 @@ class TestVolumeAllocation:
         assert state["allocations"][0]["session_id"] == "session-test-456"
         assert state["allocations"][0]["pid"] == os.getpid()
 
+    @patch('kerneldev_mcp.device_pool._grant_user_lv_access', return_value=True)
     @patch('subprocess.run')
-    def test_allocate_volumes_rollback_on_failure(self, mock_run, lvm_manager, sample_pool_config):
+    def test_allocate_volumes_rollback_on_failure(self, mock_run, mock_grant_access, lvm_manager, sample_pool_config):
         """Test allocate_volumes rolls back on failure."""
         # First lvcreate succeeds, second fails, then rollback lvremove succeeds
         mock_success = Mock()
@@ -158,8 +161,9 @@ class TestVolumeAllocation:
                 session_id="session-test"
             )
 
+    @patch('kerneldev_mcp.device_pool._grant_user_lv_access', return_value=True)
     @patch('subprocess.run')
-    def test_allocate_volumes_timestamp_unique(self, mock_run, lvm_manager, sample_pool_config):
+    def test_allocate_volumes_timestamp_unique(self, mock_run, mock_grant_access, lvm_manager, sample_pool_config):
         """Test allocation timestamps make names unique."""
         # Mock lvcreate success
         mock_result = Mock()
@@ -193,8 +197,9 @@ class TestVolumeAllocation:
 class TestVolumeRelease:
     """Test volume release functionality."""
 
+    @patch('kerneldev_mcp.device_pool._grant_user_lv_access', return_value=True)
     @patch('subprocess.run')
-    def test_release_volumes_deletes_lvs(self, mock_run, lvm_manager, sample_pool_config):
+    def test_release_volumes_deletes_lvs(self, mock_run, mock_grant_access, lvm_manager, sample_pool_config):
         """Test release_volumes deletes LVs by default."""
         # Setup: allocate volumes first
         mock_result = Mock()
@@ -232,8 +237,9 @@ class TestVolumeRelease:
         state = lvm_manager.state_manager._load_state()
         assert len(state["allocations"]) == 0
 
+    @patch('kerneldev_mcp.device_pool._grant_user_lv_access', return_value=True)
     @patch('subprocess.run')
-    def test_release_volumes_keep_flag(self, mock_run, lvm_manager, sample_pool_config):
+    def test_release_volumes_keep_flag(self, mock_run, mock_grant_access, lvm_manager, sample_pool_config):
         """Test release_volumes with keep_volumes=True."""
         # Setup: allocate volumes first
         mock_result = Mock()
@@ -277,8 +283,9 @@ class TestVolumeRelease:
 
         assert success is True
 
+    @patch('kerneldev_mcp.device_pool._grant_user_lv_access', return_value=True)
     @patch('subprocess.run')
-    def test_release_volumes_partial_failure(self, mock_run, lvm_manager, sample_pool_config):
+    def test_release_volumes_partial_failure(self, mock_run, mock_grant_access, lvm_manager, sample_pool_config):
         """Test release_volumes continues even if some lvremove calls fail."""
         # Setup: allocate 2 volumes
         mock_result = Mock()
@@ -513,8 +520,9 @@ class TestPublicAPI:
 class TestUniqueNameGeneration:
     """Test unique LV name generation."""
 
+    @patch('kerneldev_mcp.device_pool._grant_user_lv_access', return_value=True)
     @patch('subprocess.run')
-    def test_names_include_timestamp(self, mock_run, lvm_manager, sample_pool_config):
+    def test_names_include_timestamp(self, mock_run, mock_grant_access, lvm_manager, sample_pool_config):
         """Test LV names include timestamp."""
         mock_result = Mock()
         mock_result.returncode = 0
@@ -541,8 +549,9 @@ class TestUniqueNameGeneration:
         assert len(match.group(1)) == 14  # Timestamp
         assert len(match.group(2)) == 6   # Random hex
 
+    @patch('kerneldev_mcp.device_pool._grant_user_lv_access', return_value=True)
     @patch('subprocess.run')
-    def test_names_include_random(self, mock_run, lvm_manager, sample_pool_config):
+    def test_names_include_random(self, mock_run, mock_grant_access, lvm_manager, sample_pool_config):
         """Test LV names include random component."""
         mock_result = Mock()
         mock_result.returncode = 0

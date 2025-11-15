@@ -1152,39 +1152,89 @@ def _grant_user_lv_access(lv_path: str) -> bool:
     Returns:
         True if access granted successfully
     """
-    # Get username safely (avoid os.getlogin() issues)
-    username = os.environ.get('USER') or pwd.getpwuid(os.getuid()).pw_name
+    import pwd
+
+    # Get username safely (check SUDO_USER first, then USER, then fallback to getpwuid)
+    username = (os.environ.get('SUDO_USER') or
+                os.environ.get('USER') or
+                pwd.getpwuid(os.getuid()).pw_name)
 
     # Wait for device to appear and settle (udev processing)
     device_path = Path(lv_path)
     for attempt in range(20):  # Wait up to 2 seconds
         if device_path.exists():
-            # Device exists, wait a bit more for udev to finish
-            time.sleep(0.1)
             break
         time.sleep(0.1)
     else:
         logger.error(f"Device {lv_path} did not appear after creation")
         return False
 
+    # Wait for udev to finish processing the device
+    try:
+        subprocess.run(
+            ["sudo", "udevadm", "settle", "--timeout=5"],
+            capture_output=True,
+            check=True,
+            timeout=10
+        )
+    except subprocess.CalledProcessError:
+        # Non-fatal - proceed anyway
+        logger.debug("udevadm settle failed, proceeding anyway")
+    except FileNotFoundError:
+        # udevadm not available
+        logger.debug("udevadm not found, proceeding without settle")
+
+    # Resolve symlinks to actual device (LVM creates both /dev/vg/lv and /dev/mapper/vg-lv)
+    actual_path = device_path.resolve()
+    if actual_path != device_path:
+        logger.debug(f"Resolved {lv_path} to {actual_path}")
+
     # Change ownership to user (disk group for compatibility)
     try:
         subprocess.run(
-            ["sudo", "chown", f"{username}:disk", lv_path],
+            ["sudo", "chown", f"{username}:disk", str(actual_path)],
             capture_output=True,
             check=True,
             timeout=5
         )
+        # Also chown the symlink if different
+        if actual_path != device_path:
+            subprocess.run(
+                ["sudo", "chown", "-h", f"{username}:disk", lv_path],
+                capture_output=True,
+                check=True,
+                timeout=5
+            )
         logger.debug(f"Changed ownership of {lv_path} to {username}:disk")
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed to change ownership of {lv_path}: {e.stderr.decode()}")
         return False
 
-    # Verify we can actually access the device (critical!)
+    # Ensure permissions are correct (660)
     try:
-        with open(lv_path, 'rb') as f:
-            f.read(512)  # Try reading first sector
-        logger.info(f"✓ Granted {username} access to {lv_path}")
+        subprocess.run(
+            ["sudo", "chmod", "660", str(actual_path)],
+            capture_output=True,
+            check=True,
+            timeout=5
+        )
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to chmod {lv_path}: {e.stderr.decode()}")
+        return False
+
+    # Log actual permissions for debugging
+    try:
+        stat_info = os.stat(lv_path)
+        logger.debug(f"Device {lv_path}: uid={stat_info.st_uid}, "
+                    f"gid={stat_info.st_gid}, mode={oct(stat_info.st_mode)}")
+    except Exception as e:
+        logger.debug(f"Could not stat {lv_path}: {e}")
+
+    # Verify we can actually access the device with read/write permissions
+    try:
+        fd = os.open(lv_path, os.O_RDWR | os.O_NONBLOCK)
+        os.close(fd)
+        logger.info(f"✓ Granted {username} read/write access to {lv_path}")
         return True
     except PermissionError:
         # Check if user is in disk group
