@@ -322,6 +322,7 @@ class TestDevicePoolCleanup:
     """Test device pool cleanup in boot_with_fstests finally block."""
 
     @patch('kerneldev_mcp.boot_manager.VMDeviceManager.setup_devices')
+    @patch('kerneldev_mcp.boot_manager.DeviceSpec.validate')
     @patch('kerneldev_mcp.device_pool.release_pool_volumes')
     @patch('kerneldev_mcp.boot_manager.BootManager.check_qemu')
     @patch('kerneldev_mcp.boot_manager.BootManager.check_virtme_ng')
@@ -332,27 +333,32 @@ class TestDevicePoolCleanup:
         mock_virtme,
         mock_qemu,
         mock_release,
+        mock_validate,
         mock_setup_devices,
         temp_kernel_dir,
         tmp_path
     ):
-        """Test cleanup releases pool volumes.
+        """Test cleanup releases pool volumes after try block wrapping fix.
 
-        Note: This test must get past early validation checks to reach the try/finally block.
+        Tests that pool resources are properly cleaned up even when the function
+        fails during device setup (after pool allocation but before VM execution).
         """
         from kerneldev_mcp.boot_manager import DeviceSpec
+        from unittest.mock import AsyncMock
+        import asyncio
 
         # Mock pool allocation
         mock_devices = [DeviceSpec(path="/dev/test-vg/test", name="test")]
         mock_try_pool.return_value = mock_devices
 
-        # Mock device setup to succeed
-        import asyncio
-        async def mock_setup():
-            return (True, None, ["/dev/test-vg/test"])
-        mock_setup_devices.side_effect = lambda _: asyncio.ensure_future(mock_setup())
+        # Mock device validation to pass (returns tuple: (is_valid, error_message))
+        mock_validate.return_value = (True, "")
 
-        # Pass early checks to reach try/finally block
+        # Mock device setup to fail (triggers cleanup without VM execution)
+        # Use AsyncMock's return_value for the awaitable result
+        mock_setup_devices.return_value = (False, "Mock device setup failure", [])
+
+        # Pass early checks to reach device setup
         mock_virtme.return_value = True
         mock_qemu.return_value = (True, "qemu-system-x86_64")
 
@@ -376,7 +382,7 @@ class TestDevicePoolCleanup:
         boot_mgr = BootManager(temp_kernel_dir)
         boot_mgr._pool_session_id = "20251115123456-abc123"
 
-        # Boot will fail at some point, but should reach cleanup
+        # Boot will fail somewhere (no real devices), but cleanup should run
         import asyncio
         try:
             asyncio.run(boot_mgr.boot_with_fstests(
@@ -385,9 +391,9 @@ class TestDevicePoolCleanup:
                 use_default_devices=True
             ))
         except:
-            pass  # Expected to fail, we just want cleanup to run
+            pass  # Expected to fail
 
-        # Verify release was called
+        # Verify pool cleanup was called (this is the key assertion)
         mock_release.assert_called_once()
         call_args = mock_release.call_args
         assert call_args.kwargs['pool_name'] == 'default'
@@ -395,6 +401,7 @@ class TestDevicePoolCleanup:
         assert call_args.kwargs['keep_volumes'] is False
 
     @patch('kerneldev_mcp.boot_manager.VMDeviceManager.setup_devices')
+    @patch('kerneldev_mcp.boot_manager.DeviceSpec.validate')
     @patch('kerneldev_mcp.device_pool.release_pool_volumes')
     @patch('kerneldev_mcp.boot_manager.BootManager.check_qemu')
     @patch('kerneldev_mcp.boot_manager.BootManager.check_virtme_ng')
@@ -405,21 +412,27 @@ class TestDevicePoolCleanup:
         mock_virtme,
         mock_qemu,
         mock_release,
+        mock_validate,
         mock_setup_devices,
         temp_kernel_dir,
         tmp_path
     ):
-        """Test cleanup handles release failure gracefully."""
+        """Test cleanup handles release failure gracefully.
+
+        Tests that even if release_pool_volumes fails during cleanup,
+        the function doesn't crash and cleanup completes.
+        """
         from kerneldev_mcp.boot_manager import DeviceSpec
+        import asyncio
 
         mock_devices = [DeviceSpec(path="/dev/test-vg/test", name="test")]
         mock_try_pool.return_value = mock_devices
 
-        # Mock device setup to succeed
-        import asyncio
-        async def mock_setup():
-            return (True, None, ["/dev/test-vg/test"])
-        mock_setup_devices.side_effect = lambda _: asyncio.ensure_future(mock_setup())
+        # Mock device validation to pass (returns tuple: (is_valid, error_message))
+        mock_validate.return_value = (True, "")
+
+        # Mock device setup to fail (triggers cleanup without VM execution)
+        mock_setup_devices.return_value = (False, "Mock device setup failure", [])
 
         # Pass early checks
         mock_virtme.return_value = True
@@ -457,9 +470,9 @@ class TestDevicePoolCleanup:
                 use_default_devices=True
             ))
         except:
-            pass
+            pass  # Expected to fail
 
-        # Release was attempted
+        # Release was attempted (even though it failed)
         mock_release.assert_called_once()
 
     @patch('kerneldev_mcp.device_pool.release_pool_volumes')

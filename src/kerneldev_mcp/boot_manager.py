@@ -2274,129 +2274,131 @@ class BootManager:
 
         # Track created loop devices for cleanup
         created_loop_devices: List[Tuple[str, Path]] = []
-
-        # Check virtme-ng is available
-        if not self.check_virtme_ng():
-            logger.error("✗ virtme-ng not found")
-            logger.info("=" * 60)
-            return (BootResult(
-                success=False,
-                duration=time.time() - start_time,
-                boot_completed=False,
-                dmesg_output="ERROR: virtme-ng (vng) not found. Install with: pip install virtme-ng",
-                exit_code=-1
-            ), None)
-
-        # Auto-detect kernel architecture if not explicitly specified
-        target_arch = self._resolve_target_architecture(cross_compile)
-
-        # Check QEMU is available for target architecture
-        qemu_available, qemu_info = self.check_qemu(target_arch)
-        if not qemu_available:
-            logger.error(f"✗ QEMU not found: {qemu_info}")
-            logger.info("=" * 60)
-            install_instructions = (
-                "Install QEMU for your distribution:\n"
-                "  Fedora/RHEL: sudo dnf install qemu-system-x86\n"
-                "  Ubuntu/Debian: sudo apt-get install qemu-system-x86\n"
-                "  Arch: sudo pacman -S qemu-system-x86"
-            )
-            return (BootResult(
-                success=False,
-                duration=time.time() - start_time,
-                boot_completed=False,
-                dmesg_output=f"ERROR: {qemu_info}\n\n{install_instructions}",
-                exit_code=-1
-            ), None)
-        else:
-            logger.info(f"✓ QEMU available: {qemu_info}")
-
-        # Check if kernel is built
-        vmlinux = self.kernel_path / "vmlinux"
-        if not vmlinux.exists():
-            return (BootResult(
-                success=False,
-                duration=time.time() - start_time,
-                boot_completed=False,
-                dmesg_output=f"ERROR: Kernel not built. vmlinux not found at {vmlinux}",
-                exit_code=-1
-            ), None)
-
-        # Check fstests is installed
-        fstests_path = Path(fstests_path)
-        if not fstests_path.exists() or not (fstests_path / "check").exists():
-            return (BootResult(
-                success=False,
-                duration=time.time() - start_time,
-                boot_completed=False,
-                dmesg_output=f"ERROR: fstests not found at {fstests_path}",
-                exit_code=-1
-            ), None)
-
-        # Verify that fstests is fully built by checking for critical binaries
-        critical_binaries = [
-            fstests_path / "ltp" / "fsstress",
-            fstests_path / "src" / "aio-dio-regress",
-        ]
-        missing_binaries = []
-        for binary in critical_binaries:
-            if not binary.exists() or not os.access(binary, os.X_OK):
-                missing_binaries.append(str(binary.relative_to(fstests_path)))
-
-        if missing_binaries:
-            return (BootResult(
-                success=False,
-                duration=time.time() - start_time,
-                boot_completed=False,
-                dmesg_output=(
-                    f"ERROR: fstests is not fully built. Missing binaries: {', '.join(missing_binaries)}\n"
-                    f"Run the install_fstests tool to rebuild fstests, or manually run:\n"
-                    f"  cd {fstests_path} && ./configure && make -j$(nproc)"
-                ),
-                exit_code=-1
-            ), None)
-
-        # Setup devices using VMDeviceManager
+        script_file = None
         device_manager = None
-        if device_specs:
-            device_manager = VMDeviceManager()
-            success, error, device_paths = await device_manager.setup_devices(device_specs)
-            if not success:
-                logger.error(f"✗ Device setup failed: {error}")
+
+        try:
+            # Check virtme-ng is available
+            if not self.check_virtme_ng():
+                logger.error("✗ virtme-ng not found")
                 logger.info("=" * 60)
                 return (BootResult(
                     success=False,
                     duration=time.time() - start_time,
                     boot_completed=False,
-                    dmesg_output=f"ERROR: Device setup failed: {error}",
+                    dmesg_output="ERROR: virtme-ng (vng) not found. Install with: pip install virtme-ng",
                     exit_code=-1
                 ), None)
-            logger.info(f"✓ Setup {len(device_paths)} device(s)")
 
-            # Track loop devices for backwards compatibility with cleanup code
-            created_loop_devices = device_manager.created_loop_devices
+            # Auto-detect kernel architecture if not explicitly specified
+            target_arch = self._resolve_target_architecture(cross_compile)
 
-        # Create timestamped results directory on host
-        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        results_base_dir = Path.home() / ".kerneldev-mcp" / "fstests-results"
-        results_dir = results_base_dir / f"run-{timestamp}"
-        results_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"✓ Created results directory: {results_dir}")
+            # Check QEMU is available for target architecture
+            qemu_available, qemu_info = self.check_qemu(target_arch)
+            if not qemu_available:
+                logger.error(f"✗ QEMU not found: {qemu_info}")
+                logger.info("=" * 60)
+                install_instructions = (
+                    "Install QEMU for your distribution:\n"
+                    "  Fedora/RHEL: sudo dnf install qemu-system-x86\n"
+                    "  Ubuntu/Debian: sudo apt-get install qemu-system-x86\n"
+                    "  Arch: sudo pacman -S qemu-system-x86"
+                )
+                return (BootResult(
+                    success=False,
+                    duration=time.time() - start_time,
+                    boot_completed=False,
+                    dmesg_output=f"ERROR: {qemu_info}\n\n{install_instructions}",
+                    exit_code=-1
+                ), None)
+            else:
+                logger.info(f"✓ QEMU available: {qemu_info}")
 
-        # Build test command to run inside VM
-        test_args = " ".join(tests) if tests else "-g quick"
+            # Check if kernel is built
+            vmlinux = self.kernel_path / "vmlinux"
+            if not vmlinux.exists():
+                return (BootResult(
+                    success=False,
+                    duration=time.time() - start_time,
+                    boot_completed=False,
+                    dmesg_output=f"ERROR: Kernel not built. vmlinux not found at {vmlinux}",
+                    exit_code=-1
+                ), None)
 
-        # Create script to run inside VM
-        # Note: virtme-ng runs as root, so no sudo needed
-        # This script uses devices passed from host via --disk
-        # Host loop devices appear as /dev/sda, /dev/sdb, etc. in the VM
-        # This script:
-        # 1. Uses passed-through block devices (no loop device creation needed)
-        # 2. Formats them with appropriate filesystem
-        # 3. Creates mount points in /tmp
-        # 4. Configures fstests with local.config
-        # 5. Runs the tests
-        test_script = f"""#!/bin/bash
+            # Check fstests is installed
+            fstests_path = Path(fstests_path)
+            if not fstests_path.exists() or not (fstests_path / "check").exists():
+                return (BootResult(
+                    success=False,
+                    duration=time.time() - start_time,
+                    boot_completed=False,
+                    dmesg_output=f"ERROR: fstests not found at {fstests_path}",
+                    exit_code=-1
+                ), None)
+
+            # Verify that fstests is fully built by checking for critical binaries
+            critical_binaries = [
+                fstests_path / "ltp" / "fsstress",
+                fstests_path / "src" / "aio-dio-regress",
+            ]
+            missing_binaries = []
+            for binary in critical_binaries:
+                if not binary.exists() or not os.access(binary, os.X_OK):
+                    missing_binaries.append(str(binary.relative_to(fstests_path)))
+
+            if missing_binaries:
+                return (BootResult(
+                    success=False,
+                    duration=time.time() - start_time,
+                    boot_completed=False,
+                    dmesg_output=(
+                        f"ERROR: fstests is not fully built. Missing binaries: {', '.join(missing_binaries)}\n"
+                        f"Run the install_fstests tool to rebuild fstests, or manually run:\n"
+                        f"  cd {fstests_path} && ./configure && make -j$(nproc)"
+                    ),
+                    exit_code=-1
+                ), None)
+
+            # Setup devices using VMDeviceManager
+            if device_specs:
+                device_manager = VMDeviceManager()
+                success, error, device_paths = await device_manager.setup_devices(device_specs)
+                if not success:
+                    logger.error(f"✗ Device setup failed: {error}")
+                    logger.info("=" * 60)
+                    return (BootResult(
+                        success=False,
+                        duration=time.time() - start_time,
+                        boot_completed=False,
+                        dmesg_output=f"ERROR: Device setup failed: {error}",
+                        exit_code=-1
+                    ), None)
+                logger.info(f"✓ Setup {len(device_paths)} device(s)")
+
+                # Track loop devices for backwards compatibility with cleanup code
+                created_loop_devices = device_manager.created_loop_devices
+
+            # Create timestamped results directory on host
+            timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+            results_base_dir = Path.home() / ".kerneldev-mcp" / "fstests-results"
+            results_dir = results_base_dir / f"run-{timestamp}"
+            results_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"✓ Created results directory: {results_dir}")
+
+            # Build test command to run inside VM
+            test_args = " ".join(tests) if tests else "-g quick"
+
+            # Create script to run inside VM
+            # Note: virtme-ng runs as root, so no sudo needed
+            # This script uses devices passed from host via --disk
+            # Host loop devices appear as /dev/sda, /dev/sdb, etc. in the VM
+            # This script:
+            # 1. Uses passed-through block devices (no loop device creation needed)
+            # 2. Formats them with appropriate filesystem
+            # 3. Creates mount points in /tmp
+            # 4. Configures fstests with local.config
+            # 5. Runs the tests
+            test_script = f"""#!/bin/bash
 # Don't exit on error immediately - we want to capture test results
 set +e
 
@@ -2547,52 +2549,50 @@ umount /tmp/scratch 2>/dev/null || true
 exit $exit_code
 """
 
-        # Write script to temp file
-        script_file = Path("/tmp/run-fstests.sh")
-        script_file.write_text(test_script)
-        script_file.chmod(0o755)
+            # Write script to temp file
+            script_file = Path("/tmp/run-fstests.sh")
+            script_file.write_text(test_script)
+            script_file.chmod(0o755)
 
-        # Build vng command
-        cmd = ["vng", "--verbose"]
+            # Build vng command
+            cmd = ["vng", "--verbose"]
 
-        # Force 9p if requested (required for old kernels without virtio-fs)
-        if force_9p:
-            cmd.append("--force-9p")
+            # Force 9p if requested (required for old kernels without virtio-fs)
+            if force_9p:
+                cmd.append("--force-9p")
 
-        # Add memory and CPU options
-        cmd.extend(["--memory", memory])
-        cmd.extend(["--cpus", str(cpus)])
+            # Add memory and CPU options
+            cmd.extend(["--memory", memory])
+            cmd.extend(["--cpus", str(cpus)])
 
-        # Add architecture if specified or auto-detected
-        if target_arch:
-            cmd.extend(["--arch", target_arch])
+            # Add architecture if specified or auto-detected
+            if target_arch:
+                cmd.extend(["--arch", target_arch])
 
-        # Pass devices to VM via --disk
-        # They will appear as /dev/vda, /dev/vdb, etc. in the VM
-        if device_manager:
-            disk_args = device_manager.get_vng_disk_args()
-            cmd.extend(disk_args)
+            # Pass devices to VM via --disk
+            # They will appear as /dev/vda, /dev/vdb, etc. in the VM
+            if device_manager:
+                disk_args = device_manager.get_vng_disk_args()
+                cmd.extend(disk_args)
 
-        # Make fstests directory available in VM with read-write overlay
-        # Using --overlay-rwdir creates a writable overlay in the VM without modifying the host
-        cmd.extend(["--overlay-rwdir", str(fstests_path)])
+            # Make fstests directory available in VM with read-write overlay
+            # Using --overlay-rwdir creates a writable overlay in the VM without modifying the host
+            cmd.extend(["--overlay-rwdir", str(fstests_path)])
 
-        # Mount results directory as read-write to persist test results
-        # This allows results to survive VM crashes and be accessible on host
-        cmd.extend([f"--rwdir=/tmp/results={results_dir}"])
+            # Mount results directory as read-write to persist test results
+            # This allows results to survive VM crashes and be accessible on host
+            cmd.extend([f"--rwdir=/tmp/results={results_dir}"])
 
-        # Execute the test script
-        cmd.extend(["--", "bash", str(script_file)])
+            # Execute the test script
+            cmd.extend(["--", "bash", str(script_file)])
 
-        # Run with PTY (with real-time progress logging)
-        logger.info(f"✓ Loop devices created: {len(created_loop_devices)}")
-        logger.info(f"Booting kernel and running fstests... (timeout: {timeout}s)")
-        logger.info("  Progress updates will be logged every 10 seconds")
-        # Flush before long operation
-        for handler in logger.handlers:
-            handler.flush()
-
-        try:
+            # Run with PTY (with real-time progress logging)
+            logger.info(f"✓ Loop devices created: {len(created_loop_devices)}")
+            logger.info(f"Booting kernel and running fstests... (timeout: {timeout}s)")
+            logger.info("  Progress updates will be logged every 10 seconds")
+            # Flush before long operation
+            for handler in logger.handlers:
+                handler.flush()
             description = f"fstests {fstype} on {self.kernel_path.name}"
             exit_code, output, progress_messages, log_file = await _run_with_pty_async(cmd, self.kernel_path, timeout, emit_output=True, description=description)
 
@@ -2712,7 +2712,7 @@ exit $exit_code
 
         finally:
             # Cleanup temp script
-            if script_file.exists():
+            if script_file and script_file.exists():
                 try:
                     script_file.unlink()
                 except OSError:
