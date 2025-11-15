@@ -2,18 +2,20 @@
 Kernel boot testing and validation using virtme-ng.
 """
 import asyncio
+import datetime
 import logging
 import os
 import pty
+import random
 import re
 import select
 import signal
+import string
 import subprocess
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from dataclasses import dataclass, field
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -1803,6 +1805,76 @@ class BootManager:
             logger.info(f"✓ Kernel architecture matches host: {detected_arch}")
             return None
 
+    def _generate_pool_session_id(self) -> str:
+        """Generate unique session ID for device pool allocation.
+
+        Returns:
+            Session ID in format: timestamp-random (e.g., "20251115103045-a3f9d2")
+        """
+        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+        return f"{timestamp}-{random_suffix}"
+
+    def _try_allocate_from_pool(self, use_tmpfs: bool) -> Optional[List[DeviceSpec]]:
+        """Try to allocate devices from device pool.
+
+        Args:
+            use_tmpfs: Ignored for pool devices (only affects loop devices)
+
+        Returns:
+            List of DeviceSpec objects if pool found and allocation succeeded, None otherwise
+        """
+        from .device_pool import ConfigManager, VolumeConfig, allocate_pool_volumes
+
+        config_dir = Path.home() / ".kerneldev-mcp"
+        config_file = config_dir / "device-pool.json"
+
+        if not config_file.exists():
+            logger.debug("No device pool configuration found")
+            return None
+
+        try:
+            config_manager = ConfigManager(config_dir)
+            pools = config_manager.load_pools()
+        except Exception as e:
+            logger.warning(f"Failed to load device pool config: {e}")
+            return None
+
+        if "default" not in pools:
+            logger.debug("No 'default' device pool configured")
+            return None
+
+        volume_specs = [
+            VolumeConfig(name="test", size="10G", env_var="TEST_DEV", order=0),
+            VolumeConfig(name="pool1", size="10G", order=1),
+            VolumeConfig(name="pool2", size="10G", order=2),
+            VolumeConfig(name="pool3", size="10G", order=3),
+            VolumeConfig(name="pool4", size="10G", order=4),
+            VolumeConfig(name="pool5", size="10G", order=5),
+            VolumeConfig(name="logwrites", size="10G", env_var="LOGWRITES_DEV", order=6),
+        ]
+
+        session_id = self._generate_pool_session_id()
+
+        try:
+            device_specs = allocate_pool_volumes(
+                pool_name="default",
+                volume_specs=volume_specs,
+                session_id=session_id,
+                config_dir=config_dir
+            )
+
+            if device_specs is None:
+                logger.warning("Device pool allocation failed")
+                return None
+
+            self._pool_session_id = session_id
+            return device_specs
+
+        except Exception as e:
+            logger.warning(f"Failed to allocate from device pool: {e}")
+            return None
+
     async def boot_test(
         self,
         command: Optional[str] = None,
@@ -2175,6 +2247,10 @@ class BootManager:
 
         start_time = time.time()
 
+        # Track pool usage for cleanup
+        pool_name = None
+        pool_session_id = None
+
         # Determine which devices to use
         device_specs = None
         if custom_devices is not None:
@@ -2182,10 +2258,15 @@ class BootManager:
             device_specs = custom_devices
             logger.info(f"Using {len(custom_devices)} custom device(s)")
         elif use_default_devices:
-            # Use default 7 devices from profile
-            profile = DeviceProfile.get_profile("fstests_default", use_tmpfs=use_tmpfs)
-            device_specs = profile.devices
-            logger.info(f"Using default fstests device profile (7 devices, tmpfs={use_tmpfs})")
+            device_specs = self._try_allocate_from_pool(use_tmpfs)
+            if device_specs is not None:
+                pool_name = "default"
+                pool_session_id = self._pool_session_id
+                logger.info(f"✓ Using device pool 'default' (session: {pool_session_id})")
+            else:
+                profile = DeviceProfile.get_profile("fstests_default", use_tmpfs=use_tmpfs)
+                device_specs = profile.devices
+                logger.info(f"Using default fstests device profile (7 loop devices, tmpfs={use_tmpfs})")
         else:
             # No devices
             device_specs = []
@@ -2638,6 +2719,21 @@ exit $exit_code
                     script_file.unlink()
                 except OSError:
                     pass
+
+            # Cleanup device pool volumes if we used them
+            if pool_name and pool_session_id:
+                try:
+                    from .device_pool import release_pool_volumes
+                    logger.info(f"Releasing device pool volumes (session: {pool_session_id})")
+                    release_pool_volumes(
+                        pool_name=pool_name,
+                        session_id=pool_session_id,
+                        keep_volumes=False,
+                        config_dir=Path.home() / ".kerneldev-mcp"
+                    )
+                    logger.info(f"✓ Device pool volumes released")
+                except Exception as e:
+                    logger.warning(f"Failed to release device pool volumes: {e}")
 
             # Cleanup devices
             if device_manager:
