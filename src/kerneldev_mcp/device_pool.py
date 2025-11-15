@@ -10,7 +10,9 @@ Design: docs/implementation/device-pool-design.md
 import json
 import logging
 import os
+import pwd
 import subprocess
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -1138,6 +1140,67 @@ class DevicePoolManager(ABC):
         )
 
 
+def _grant_user_lv_access(lv_path: str) -> bool:
+    """Grant user read/write access to LV device by changing ownership.
+
+    This is sufficient for ephemeral LVs that are deleted after each run.
+    For persistent access, user should be added to 'disk' group.
+
+    Args:
+        lv_path: Full LV path (e.g., /dev/vg/lv-name)
+
+    Returns:
+        True if access granted successfully
+    """
+    # Get username safely (avoid os.getlogin() issues)
+    username = os.environ.get('USER') or pwd.getpwuid(os.getuid()).pw_name
+
+    # Wait for device to appear and settle (udev processing)
+    device_path = Path(lv_path)
+    for attempt in range(20):  # Wait up to 2 seconds
+        if device_path.exists():
+            # Device exists, wait a bit more for udev to finish
+            time.sleep(0.1)
+            break
+        time.sleep(0.1)
+    else:
+        logger.error(f"Device {lv_path} did not appear after creation")
+        return False
+
+    # Change ownership to user (disk group for compatibility)
+    try:
+        subprocess.run(
+            ["sudo", "chown", f"{username}:disk", lv_path],
+            capture_output=True,
+            check=True,
+            timeout=5
+        )
+        logger.debug(f"Changed ownership of {lv_path} to {username}:disk")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to change ownership of {lv_path}: {e.stderr.decode()}")
+        return False
+
+    # Verify we can actually access the device (critical!)
+    try:
+        with open(lv_path, 'rb') as f:
+            f.read(512)  # Try reading first sector
+        logger.info(f"✓ Granted {username} access to {lv_path}")
+        return True
+    except PermissionError:
+        # Check if user is in disk group
+        logger.error(
+            f"Cannot access {lv_path} even after ownership change.\n"
+            f"You may need to add yourself to the 'disk' group:\n"
+            f"  sudo usermod -a -G disk {username}\n"
+            f"Then logout and login again.\n"
+            f"WARNING: This grants access to ALL block devices on the system."
+        )
+        return False
+    except Exception as e:
+        logger.error(f"Failed to verify access to {lv_path}: {e}")
+        return False
+
+
 class LVMPoolManager(DevicePoolManager):
     """
     LVM-based device pool manager (the only pool manager).
@@ -1356,6 +1419,11 @@ class LVMPoolManager(DevicePoolManager):
                     check=True,
                     timeout=30
                 )
+
+                # Grant user access to LV device
+                success = _grant_user_lv_access(lv_path)
+                if not success:
+                    raise RuntimeError(f"Failed to grant access to {lv_path}")
 
                 # Create allocation record
                 allocation = VolumeAllocation(

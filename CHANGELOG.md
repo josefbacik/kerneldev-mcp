@@ -2,6 +2,27 @@
 
 ## [Unreleased] - 2025-01-XX
 
+### Fixed
+
+#### Device Pool LV Permissions
+**Problem**: Logical volumes created by the device pool manager were not accessible to non-root users, causing permission errors when running filesystem tests without sudo.
+
+**Solution**: Automatically grant user access to each LV after creation by changing ownership to `{username}:disk`.
+
+**Implementation**:
+- Added `_grant_user_lv_access()` helper function that:
+  - Waits for device to appear (udev settling)
+  - Changes ownership via sudo
+  - Verifies access by actually opening the device
+- Called after each LV creation in `allocate_volumes()`
+- Works for ephemeral LVs (no persistence needed across reboots)
+
+**Testing**:
+- Added `tests/test_device_pool_permissions.py` - unit test for LV access
+- Added `tests/integration/test_device_pool_fstests_integration.py` - integration test with filesystem operations
+
+**User Impact**: Users can now read/write to pool LVs without needing sudo for each operation. The tool still requires sudo for LV creation/deletion (as before), but the created devices are immediately accessible to the user.
+
 ### Changed
 
 #### Redesigned Device Pools for Concurrency (Final Architecture)
