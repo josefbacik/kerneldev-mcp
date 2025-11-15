@@ -22,7 +22,7 @@ from mcp.types import (
 from .config_manager import ConfigManager, KernelConfig, CrossCompileConfig
 from .templates import TemplateManager
 from .build_manager import KernelBuilder, BuildResult, format_build_errors
-from .boot_manager import BootManager, BootResult, format_boot_result
+from .boot_manager import BootManager, BootResult, format_boot_result, DeviceSpec, DeviceProfile, VMDeviceManager
 from .device_manager import DeviceManager, DeviceConfig, DeviceSetupResult
 from .fstests_manager import (
     FstestsManager, FstestsConfig, FstestsRunResult, TestResult,
@@ -490,13 +490,21 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="boot_kernel_test",
-            description="Boot kernel with virtme-ng and validate it works correctly",
+            description="Boot kernel with virtme-ng and test it with optional custom command/script. By default validates successful boot via dmesg. Optionally run custom test commands or scripts for more sophisticated testing. Does NOT set up fstests infrastructure.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "kernel_path": {
                         "type": "string",
                         "description": "Path to kernel source directory"
+                    },
+                    "command": {
+                        "type": "string",
+                        "description": "Optional shell command to execute for testing. If not specified and script_file is not specified, runs dmesg validation (default)."
+                    },
+                    "script_file": {
+                        "type": "string",
+                        "description": "Optional path to local script file to upload and execute. Cannot be specified together with command."
                     },
                     "timeout": {
                         "type": "integer",
@@ -516,6 +524,55 @@ async def list_tools() -> list[Tool]:
                         "default": 2,
                         "minimum": 1,
                         "maximum": 32
+                    },
+                    "devices": {
+                        "type": "array",
+                        "description": "Custom devices to attach to VM. If not specified, no devices are attached.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "Existing block device path (e.g., '/dev/nvme0n1p5'). Mutually exclusive with 'size'."
+                                },
+                                "size": {
+                                    "type": "string",
+                                    "description": "Size for loop device creation (e.g., '10G', '512M'). Mutually exclusive with 'path'."
+                                },
+                                "name": {
+                                    "type": "string",
+                                    "description": "Descriptive name for logging"
+                                },
+                                "order": {
+                                    "type": "integer",
+                                    "description": "Device order (lower = earlier in device list). Devices appear as /dev/vda, /dev/vdb, etc. in order.",
+                                    "default": 0
+                                },
+                                "use_tmpfs": {
+                                    "type": "boolean",
+                                    "description": "Use tmpfs backing for loop device (faster, uses RAM)",
+                                    "default": False
+                                },
+                                "env_var": {
+                                    "type": "string",
+                                    "description": "Export device as environment variable in VM (e.g., 'TEST_DEV')"
+                                },
+                                "env_var_index": {
+                                    "type": "integer",
+                                    "description": "Device index for env var (0=vda, 1=vdb, etc.). If not specified, uses device order."
+                                },
+                                "readonly": {
+                                    "type": "boolean",
+                                    "description": "Attach as read-only device (recommended for existing devices)",
+                                    "default": False
+                                },
+                                "require_empty": {
+                                    "type": "boolean",
+                                    "description": "Fail if device has filesystem signature",
+                                    "default": False
+                                }
+                            }
+                        }
                     },
                     "cross_compile_arch": {
                         "type": "string",
@@ -860,9 +917,63 @@ Use fstests_groups_list tool to see available test groups.""",
                         "default": "mq-deadline",
                         "enum": ["mq-deadline", "none", "bfq", "kyber"]
                     },
+                    "custom_devices": {
+                        "type": "array",
+                        "description": "Custom device specifications. Overrides default fstests devices if provided.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "Existing block device path (e.g., '/dev/nvme0n1p5'). Mutually exclusive with 'size'."
+                                },
+                                "size": {
+                                    "type": "string",
+                                    "description": "Size for loop device creation (e.g., '10G', '512M'). Mutually exclusive with 'path'."
+                                },
+                                "name": {
+                                    "type": "string",
+                                    "description": "Descriptive name for logging"
+                                },
+                                "order": {
+                                    "type": "integer",
+                                    "description": "Device order (lower = earlier). Devices appear as /dev/vda, /dev/vdb, etc. in order.",
+                                    "default": 0
+                                },
+                                "use_tmpfs": {
+                                    "type": "boolean",
+                                    "description": "Use tmpfs backing for loop device (faster, uses RAM)",
+                                    "default": False
+                                },
+                                "env_var": {
+                                    "type": "string",
+                                    "description": "Export device as environment variable in VM (e.g., 'TEST_DEV')"
+                                },
+                                "env_var_index": {
+                                    "type": "integer",
+                                    "description": "Device index for env var (0=vda, 1=vdb, etc.). If not specified, uses device order."
+                                },
+                                "readonly": {
+                                    "type": "boolean",
+                                    "description": "Attach as read-only device (recommended for existing devices)",
+                                    "default": False
+                                },
+                                "require_empty": {
+                                    "type": "boolean",
+                                    "description": "Fail if device has filesystem signature",
+                                    "default": False
+                                }
+                            }
+                        }
+                    },
+                    "use_default_devices": {
+                        "type": "boolean",
+                        "description": "Use default 7 fstests devices (ignored if custom_devices is specified). Default: true",
+                        "default": True
+                    },
                     "use_tmpfs": {
                         "type": "boolean",
-                        "description": "Use tmpfs for loop device backing files (faster, but uses more RAM). Default: false",
+                        "description": "Use tmpfs for default loop device backing files (only affects default devices, not custom_devices). Default: false",
                         "default": False
                     }
                 },
@@ -944,9 +1055,63 @@ Usage modes:
                         "default": "mq-deadline",
                         "enum": ["mq-deadline", "none", "bfq", "kyber"]
                     },
+                    "custom_devices": {
+                        "type": "array",
+                        "description": "Custom device specifications. Overrides default fstests devices if provided.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "Existing block device path (e.g., '/dev/nvme0n1p5'). Mutually exclusive with 'size'."
+                                },
+                                "size": {
+                                    "type": "string",
+                                    "description": "Size for loop device creation (e.g., '10G', '512M'). Mutually exclusive with 'path'."
+                                },
+                                "name": {
+                                    "type": "string",
+                                    "description": "Descriptive name for logging"
+                                },
+                                "order": {
+                                    "type": "integer",
+                                    "description": "Device order (lower = earlier). Devices appear as /dev/vda, /dev/vdb, etc. in order.",
+                                    "default": 0
+                                },
+                                "use_tmpfs": {
+                                    "type": "boolean",
+                                    "description": "Use tmpfs backing for loop device (faster, uses RAM)",
+                                    "default": False
+                                },
+                                "env_var": {
+                                    "type": "string",
+                                    "description": "Export device as environment variable in VM (e.g., 'TEST_DEV')"
+                                },
+                                "env_var_index": {
+                                    "type": "integer",
+                                    "description": "Device index for env var (0=vda, 1=vdb, etc.). If not specified, uses device order."
+                                },
+                                "readonly": {
+                                    "type": "boolean",
+                                    "description": "Attach as read-only device (recommended for existing devices)",
+                                    "default": False
+                                },
+                                "require_empty": {
+                                    "type": "boolean",
+                                    "description": "Fail if device has filesystem signature",
+                                    "default": False
+                                }
+                            }
+                        }
+                    },
+                    "use_default_devices": {
+                        "type": "boolean",
+                        "description": "Use default 7 fstests devices (ignored if custom_devices is specified). Default: true",
+                        "default": True
+                    },
                     "use_tmpfs": {
                         "type": "boolean",
-                        "description": "Use tmpfs for loop device backing files (faster, but uses more RAM)",
+                        "description": "Use tmpfs for default loop device backing files (only affects default devices, not custom_devices). Default: false",
                         "default": False
                     }
                 },
@@ -1550,6 +1715,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
         elif name == "boot_kernel_test":
             kernel_path = Path(arguments["kernel_path"])
+            command = arguments.get("command")
+            script_file = Path(arguments["script_file"]) if arguments.get("script_file") else None
             timeout = arguments.get("timeout", 60)
             memory = arguments.get("memory", "2G")
             cpus = arguments.get("cpus", 2)
@@ -1557,22 +1724,49 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             use_host_kernel = arguments.get("use_host_kernel", False)
             cross_compile = _parse_cross_compile_args(arguments)
 
+            # Parse custom devices if specified
+            devices = None
+            if "devices" in arguments and arguments["devices"]:
+                devices = []
+                for device_dict in arguments["devices"]:
+                    device = DeviceSpec(
+                        path=device_dict.get("path"),
+                        size=device_dict.get("size"),
+                        name=device_dict.get("name"),
+                        order=device_dict.get("order", 0),
+                        use_tmpfs=device_dict.get("use_tmpfs", False),
+                        env_var=device_dict.get("env_var"),
+                        env_var_index=device_dict.get("env_var_index"),
+                        readonly=device_dict.get("readonly", False),
+                        require_empty=device_dict.get("require_empty", False)
+                    )
+                    devices.append(device)
+
             if not kernel_path.exists():
                 return [TextContent(type="text", text=f"Error: Kernel path does not exist: {kernel_path}")]
 
             boot_manager = BootManager(kernel_path)
 
             logger.info(f"Boot testing kernel at {kernel_path}...")
+            if command:
+                logger.info(f"Custom command: {command}")
+            if script_file:
+                logger.info(f"Custom script: {script_file}")
             if cross_compile:
                 logger.info(f"Cross-compilation architecture: {cross_compile.arch}")
             if use_host_kernel:
                 logger.info("Using host kernel instead of building")
+            if devices:
+                logger.info(f"Custom devices: {len(devices)} device(s)")
 
             # Run boot test
             result = await boot_manager.boot_test(
+                command=command,
+                script_file=script_file,
                 timeout=timeout,
                 memory=memory,
                 cpus=cpus,
+                devices=devices,
                 cross_compile=cross_compile,
                 extra_args=extra_args,
                 use_host_kernel=use_host_kernel
@@ -2328,6 +2522,25 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             force_9p = arguments.get("force_9p", False)
             io_scheduler = arguments.get("io_scheduler", "mq-deadline")
             use_tmpfs = arguments.get("use_tmpfs", False)
+            use_default_devices = arguments.get("use_default_devices", True)
+
+            # Parse custom devices if specified
+            custom_devices = None
+            if "custom_devices" in arguments and arguments["custom_devices"]:
+                custom_devices = []
+                for device_dict in arguments["custom_devices"]:
+                    device = DeviceSpec(
+                        path=device_dict.get("path"),
+                        size=device_dict.get("size"),
+                        name=device_dict.get("name"),
+                        order=device_dict.get("order", 0),
+                        use_tmpfs=device_dict.get("use_tmpfs", False),
+                        env_var=device_dict.get("env_var"),
+                        env_var_index=device_dict.get("env_var_index"),
+                        readonly=device_dict.get("readonly", False),
+                        require_empty=device_dict.get("require_empty", False)
+                    )
+                    custom_devices.append(device)
 
             # Check kernel path exists
             if not kernel_path.exists():
@@ -2360,6 +2573,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 timeout=timeout,
                 memory=memory,
                 cpus=cpus,
+                custom_devices=custom_devices,
+                use_default_devices=use_default_devices,
                 force_9p=force_9p,
                 io_scheduler=io_scheduler,
                 use_tmpfs=use_tmpfs
@@ -2422,6 +2637,25 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             force_9p = arguments.get("force_9p", False)
             io_scheduler = arguments.get("io_scheduler", "mq-deadline")
             use_tmpfs = arguments.get("use_tmpfs", False)
+            use_default_devices = arguments.get("use_default_devices", True)
+
+            # Parse custom devices if specified
+            custom_devices = None
+            if "custom_devices" in arguments and arguments["custom_devices"]:
+                custom_devices = []
+                for device_dict in arguments["custom_devices"]:
+                    device = DeviceSpec(
+                        path=device_dict.get("path"),
+                        size=device_dict.get("size"),
+                        name=device_dict.get("name"),
+                        order=device_dict.get("order", 0),
+                        use_tmpfs=device_dict.get("use_tmpfs", False),
+                        env_var=device_dict.get("env_var"),
+                        env_var_index=device_dict.get("env_var_index"),
+                        readonly=device_dict.get("readonly", False),
+                        require_empty=device_dict.get("require_empty", False)
+                    )
+                    custom_devices.append(device)
 
             # Check kernel path exists
             if not kernel_path.exists():
@@ -2462,6 +2696,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 timeout=timeout,
                 memory=memory,
                 cpus=cpus,
+                custom_devices=custom_devices,
+                use_default_devices=use_default_devices,
                 force_9p=force_9p,
                 io_scheduler=io_scheduler,
                 use_tmpfs=use_tmpfs

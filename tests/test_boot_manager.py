@@ -456,3 +456,42 @@ def test_dmesg_mixed_real_and_false_positives():
     assert not any("ignoring" in e.message for e in errors)
     assert not any("PCI" in e.message for e in errors)
     assert not any("virtme-ng-init" in e.message for e in errors)
+
+
+def test_boot_manager_command_and_script_validation():
+    """Test that boot_test validates command and script_file parameters."""
+    import tempfile
+
+    manager = BootManager(Path.cwd())
+
+    # Test: Cannot specify both command and script_file
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as f:
+        f.write("#!/bin/bash\necho 'test'\n")
+        script_path = Path(f.name)
+
+    try:
+        # This should raise ValueError
+        import asyncio
+        with pytest.raises(ValueError, match="Cannot specify both"):
+            asyncio.run(manager.boot_test(
+                command="echo 'test'",
+                script_file=script_path
+            ))
+    finally:
+        script_path.unlink()
+
+
+def test_boot_manager_script_file_not_found():
+    """Test that boot_test fails gracefully when script file doesn't exist."""
+    import asyncio
+
+    manager = BootManager(Path.cwd())
+
+    # Test with non-existent script file
+    result = asyncio.run(manager.boot_test(
+        script_file=Path("/nonexistent/script.sh")
+    ))
+
+    assert result.success is False
+    assert "not found" in result.dmesg_output.lower()
+    assert result.exit_code == -1

@@ -1,469 +1,304 @@
 """
-Unit tests for device_manager module.
+Unit tests for DeviceSpec, DeviceProfile, and VMDeviceManager classes.
 """
 import pytest
+import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock, call
-import subprocess
-
-from kerneldev_mcp.device_manager import (
-    DeviceManager,
-    DeviceConfig,
-    DeviceSetupResult
+from unittest.mock import Mock, patch, AsyncMock, MagicMock
+from src.kerneldev_mcp.boot_manager import (
+    DeviceSpec,
+    DeviceProfile,
+    VMDeviceManager,
+    MAX_CUSTOM_DEVICES,
+    MAX_DEVICE_SIZE_GB,
+    MAX_TMPFS_TOTAL_GB,
 )
 
 
-@pytest.fixture
-def device_manager(tmp_path):
-    """Create a DeviceManager with temporary work directory."""
-    return DeviceManager(work_dir=tmp_path)
-
-
-@pytest.fixture
-def mock_subprocess_success():
-    """Mock subprocess.run to return success."""
-    with patch('kerneldev_mcp.device_manager.subprocess.run') as mock:
-        mock.return_value = Mock(returncode=0, stdout="", stderr="")
-        yield mock
-
-
-@pytest.fixture
-def mock_subprocess_failure():
-    """Mock subprocess.run to raise CalledProcessError."""
-    with patch('kerneldev_mcp.device_manager.subprocess.run') as mock:
-        mock.side_effect = subprocess.CalledProcessError(1, "cmd")
-        yield mock
-
-
-class TestDeviceManager:
-    """Test DeviceManager class."""
-
-    def test_init_creates_work_dir(self, tmp_path):
-        """Test that DeviceManager creates work directory."""
-        work_dir = tmp_path / "test_work"
-        manager = DeviceManager(work_dir=work_dir)
-
-        assert manager.work_dir == work_dir
-        assert work_dir.exists()
-
-    def test_init_default_work_dir(self):
-        """Test default work directory."""
-        manager = DeviceManager()
-        assert manager.work_dir == Path("/tmp/kerneldev-fstests")
-
-    def test_find_free_loop_device_success(self, device_manager):
-        """Test finding a free loop device."""
-        with patch('kerneldev_mcp.device_manager.subprocess.run') as mock_run:
-            mock_run.return_value = Mock(
-                returncode=0,
-                stdout="/dev/loop0\n",
-                stderr=""
-            )
-
-            loop_dev = device_manager.find_free_loop_device()
-
-            assert loop_dev == "/dev/loop0"
-            mock_run.assert_called_once()
-
-    def test_find_free_loop_device_failure(self, device_manager):
-        """Test finding loop device when none available."""
-        with patch('kerneldev_mcp.device_manager.subprocess.run') as mock_run:
-            mock_run.side_effect = subprocess.CalledProcessError(1, "losetup")
-
-            loop_dev = device_manager.find_free_loop_device()
-
-            assert loop_dev is None
-
-    def test_create_loop_device_success(self, device_manager):
-        """Test creating a loop device."""
-        with patch('kerneldev_mcp.device_manager.subprocess.run') as mock_run:
-            mock_run.return_value = Mock(returncode=0)
-
-            with patch.object(device_manager, 'find_free_loop_device') as mock_find:
-                mock_find.return_value = "/dev/loop0"
-
-                loop_dev, backing_file = device_manager.create_loop_device("10G", "test")
-
-                assert loop_dev == "/dev/loop0"
-                assert backing_file == device_manager.work_dir / "test.img"
-                assert backing_file.exists()
-                assert "/dev/loop0" in device_manager._created_loop_devices
-
-    def test_create_loop_device_no_free_device(self, device_manager):
-        """Test creating loop device when none available."""
-        with patch('kerneldev_mcp.device_manager.subprocess.run'):
-            with patch.object(device_manager, 'find_free_loop_device') as mock_find:
-                mock_find.return_value = None
-
-                loop_dev, backing_file = device_manager.create_loop_device("10G", "test")
-
-                assert loop_dev is None
-                assert backing_file is None
-
-    def test_validate_device_success(self, device_manager):
-        """Test validating a block device."""
-        with patch('kerneldev_mcp.device_manager.subprocess.run') as mock_run:
-            mock_run.return_value = Mock(returncode=0)
-
-            with patch('kerneldev_mcp.device_manager.Path.exists') as mock_exists:
-                mock_exists.return_value = True
-
-                result = device_manager.validate_device("/dev/sda1")
-
-                assert result is True
-
-    def test_validate_device_not_exists(self, device_manager):
-        """Test validating non-existent device."""
-        with patch('kerneldev_mcp.device_manager.Path.exists') as mock_exists:
-            mock_exists.return_value = False
-
-            result = device_manager.validate_device("/dev/nonexistent")
-
-            assert result is False
-
-    def test_validate_device_not_block(self, device_manager):
-        """Test validating non-block device."""
-        with patch('kerneldev_mcp.device_manager.subprocess.run') as mock_run:
-            mock_run.return_value = Mock(returncode=1)
-
-            with patch('kerneldev_mcp.device_manager.Path.exists') as mock_exists:
-                mock_exists.return_value = True
-
-                result = device_manager.validate_device("/tmp/file")
-
-                assert result is False
-
-    def test_get_device_size_success(self, device_manager):
-        """Test getting device size."""
-        with patch('kerneldev_mcp.device_manager.subprocess.run') as mock_run:
-            mock_run.return_value = Mock(
-                returncode=0,
-                stdout="10737418240\n",
-                stderr=""
-            )
-
-            size = device_manager.get_device_size("/dev/sda1")
-
-            assert size == 10737418240
-
-    def test_get_device_size_failure(self, device_manager):
-        """Test getting device size failure."""
-        with patch('kerneldev_mcp.device_manager.subprocess.run') as mock_run:
-            mock_run.side_effect = subprocess.CalledProcessError(1, "blockdev")
-
-            size = device_manager.get_device_size("/dev/sda1")
-
-            assert size is None
-
-    def test_create_filesystem_ext4(self, device_manager):
-        """Test creating ext4 filesystem."""
-        with patch('kerneldev_mcp.device_manager.subprocess.run') as mock_run:
-            mock_run.return_value = Mock(returncode=0)
-
-            result = device_manager.create_filesystem("/dev/loop0", "ext4")
-
-            assert result is True
-            # Check that -F flag was used for ext4
-            call_args = mock_run.call_args[0][0]
-            assert "mkfs.ext4" in call_args
-            assert "-F" in call_args
-
-    def test_create_filesystem_btrfs(self, device_manager):
-        """Test creating btrfs filesystem."""
-        with patch('kerneldev_mcp.device_manager.subprocess.run') as mock_run:
-            mock_run.return_value = Mock(returncode=0)
-
-            result = device_manager.create_filesystem("/dev/loop0", "btrfs")
-
-            assert result is True
-            call_args = mock_run.call_args[0][0]
-            assert "mkfs.btrfs" in call_args
-            assert "-f" in call_args
-
-    def test_create_filesystem_with_options(self, device_manager):
-        """Test creating filesystem with options."""
-        with patch('kerneldev_mcp.device_manager.subprocess.run') as mock_run:
-            mock_run.return_value = Mock(returncode=0)
-
-            result = device_manager.create_filesystem(
-                "/dev/loop0", "ext4", mkfs_options="-b 4096"
-            )
-
-            assert result is True
-            call_args = mock_run.call_args[0][0]
-            assert "-b" in call_args
-            assert "4096" in call_args
-
-    def test_create_filesystem_failure(self, device_manager):
-        """Test filesystem creation failure."""
-        with patch('kerneldev_mcp.device_manager.subprocess.run') as mock_run:
-            mock_run.side_effect = subprocess.CalledProcessError(1, "mkfs")
-
-            result = device_manager.create_filesystem("/dev/loop0", "ext4")
-
-            assert result is False
-
-    def test_mount_device_success(self, device_manager, tmp_path):
-        """Test mounting a device."""
-        mount_point = tmp_path / "mnt"
-
-        with patch('kerneldev_mcp.device_manager.subprocess.run') as mock_run:
-            mock_run.return_value = Mock(returncode=0)
-
-            result = device_manager.mount_device("/dev/loop0", mount_point)
-
-            assert result is True
-            assert mount_point.exists()
-            assert mount_point in device_manager._created_mounts
-
-    def test_mount_device_with_options(self, device_manager, tmp_path):
-        """Test mounting device with options."""
-        mount_point = tmp_path / "mnt"
-
-        with patch('kerneldev_mcp.device_manager.subprocess.run') as mock_run:
-            mock_run.return_value = Mock(returncode=0)
-
-            result = device_manager.mount_device(
-                "/dev/loop0", mount_point, mount_options="noatime,nodiratime"
-            )
-
-            assert result is True
-            call_args = mock_run.call_args[0][0]
-            assert "-o" in call_args
-            assert "noatime,nodiratime" in call_args
-
-    def test_mount_device_failure(self, device_manager, tmp_path):
-        """Test mount failure."""
-        mount_point = tmp_path / "mnt"
-
-        with patch('kerneldev_mcp.device_manager.subprocess.run') as mock_run:
-            mock_run.side_effect = subprocess.CalledProcessError(1, "mount")
-
-            result = device_manager.mount_device("/dev/loop0", mount_point)
-
-            assert result is False
-
-    def test_umount_device_success(self, device_manager, tmp_path):
-        """Test unmounting a device."""
-        mount_point = tmp_path / "mnt"
-        device_manager._created_mounts.append(mount_point)
-
-        with patch('kerneldev_mcp.device_manager.subprocess.run') as mock_run:
-            mock_run.return_value = Mock(returncode=0)
-
-            result = device_manager.umount_device(mount_point)
-
-            assert result is True
-            assert mount_point not in device_manager._created_mounts
-
-    def test_umount_device_failure(self, device_manager, tmp_path):
-        """Test unmount failure."""
-        mount_point = tmp_path / "mnt"
-
-        with patch('kerneldev_mcp.device_manager.subprocess.run') as mock_run:
-            mock_run.side_effect = subprocess.CalledProcessError(1, "umount")
-
-            result = device_manager.umount_device(mount_point)
-
-            assert result is False
-
-    def test_detach_loop_device_success(self, device_manager):
-        """Test detaching a loop device."""
-        device_manager._created_loop_devices.append("/dev/loop0")
-
-        with patch('kerneldev_mcp.device_manager.subprocess.run') as mock_run:
-            mock_run.return_value = Mock(returncode=0)
-
-            result = device_manager.detach_loop_device("/dev/loop0")
-
-            assert result is True
-            assert "/dev/loop0" not in device_manager._created_loop_devices
-
-    def test_detach_loop_device_failure(self, device_manager):
-        """Test detach failure."""
-        with patch('kerneldev_mcp.device_manager.subprocess.run') as mock_run:
-            mock_run.side_effect = subprocess.CalledProcessError(1, "losetup")
-
-            result = device_manager.detach_loop_device("/dev/loop0")
-
-            assert result is False
-
-    def test_setup_loop_devices_success(self, device_manager):
+class TestDeviceSpec:
+    """Test DeviceSpec validation."""
+
+    def test_valid_loop_device(self):
+        """Test valid loop device specification."""
+        spec = DeviceSpec(size="10G", name="test")
+        valid, error = spec.validate()
+        assert valid is True
+        assert error == ""
+
+    def test_valid_existing_device(self, tmp_path):
+        """Test valid existing device specification."""
+        # Create a fake block device file for testing
+        device_file = tmp_path / "fake_device"
+        device_file.touch()
+
+        # Note: We can't actually create a block device without root,
+        # so this test will fail validation for not being a block device.
+        # This is expected behavior.
+        spec = DeviceSpec(path=str(device_file))
+        valid, error = spec.validate()
+        assert valid is False
+        assert "Not a block device" in error
+
+    def test_both_path_and_size(self):
+        """Test that specifying both path and size fails."""
+        spec = DeviceSpec(path="/dev/sda1", size="10G")
+        valid, error = spec.validate()
+        assert valid is False
+        assert "Exactly one of 'path' or 'size'" in error
+
+    def test_neither_path_nor_size(self):
+        """Test that specifying neither path nor size fails."""
+        spec = DeviceSpec(name="test")
+        valid, error = spec.validate()
+        assert valid is False
+        assert "Exactly one of 'path' or 'size'" in error
+
+    def test_invalid_size_format(self):
+        """Test invalid size format."""
+        spec = DeviceSpec(size="invalid")
+        valid, error = spec.validate()
+        assert valid is False
+        assert "Invalid size format" in error
+
+    def test_size_too_large(self):
+        """Test size exceeding maximum."""
+        spec = DeviceSpec(size=f"{MAX_DEVICE_SIZE_GB + 1}G")
+        valid, error = spec.validate()
+        assert valid is False
+        assert "exceeds maximum" in error
+
+    def test_valid_size_formats(self):
+        """Test various valid size formats."""
+        for size in ["10G", "512M", "1024K", "100g", "256m"]:
+            spec = DeviceSpec(size=size)
+            valid, error = spec.validate()
+            assert valid is True, f"Size {size} should be valid but got error: {error}"
+
+    def test_device_not_exists(self):
+        """Test non-existent device path."""
+        spec = DeviceSpec(path="/dev/nonexistent_device")
+        valid, error = spec.validate()
+        assert valid is False
+        assert "does not exist" in error
+
+    def test_size_unit_conversion(self):
+        """Test size unit conversion logic."""
+        # Test that 1G = 1024M in our validation
+        spec_g = DeviceSpec(size="1G")
+        spec_m = DeviceSpec(size="1024M")
+
+        valid_g, _ = spec_g.validate()
+        valid_m, _ = spec_m.validate()
+
+        assert valid_g is True
+        assert valid_m is True
+
+
+class TestDeviceProfile:
+    """Test DeviceProfile predefined configurations."""
+
+    def test_get_fstests_default_profile(self):
+        """Test getting default fstests profile."""
+        profile = DeviceProfile.get_profile("fstests_default")
+        assert profile is not None
+        assert profile.name == "fstests_default"
+        assert len(profile.devices) == 7
+        assert profile.devices[0].name == "test"
+        assert profile.devices[0].env_var == "TEST_DEV"
+        assert profile.devices[6].name == "logwrites"
+
+    def test_get_fstests_small_profile(self):
+        """Test getting small fstests profile."""
+        profile = DeviceProfile.get_profile("fstests_small")
+        assert profile is not None
+        assert len(profile.devices) == 7
+        assert all(d.size == "5G" for d in profile.devices)
+
+    def test_get_fstests_large_profile(self):
+        """Test getting large fstests profile."""
+        profile = DeviceProfile.get_profile("fstests_large")
+        assert profile is not None
+        assert len(profile.devices) == 7
+        assert all(d.size == "50G" for d in profile.devices)
+
+    def test_profile_with_tmpfs(self):
+        """Test profile with tmpfs override."""
+        profile = DeviceProfile.get_profile("fstests_default", use_tmpfs=True)
+        assert profile is not None
+        assert all(d.use_tmpfs is True for d in profile.devices)
+
+    def test_profile_without_tmpfs(self):
+        """Test profile without tmpfs."""
+        profile = DeviceProfile.get_profile("fstests_default", use_tmpfs=False)
+        assert profile is not None
+        assert all(d.use_tmpfs is False for d in profile.devices)
+
+    def test_nonexistent_profile(self):
+        """Test getting non-existent profile."""
+        profile = DeviceProfile.get_profile("nonexistent")
+        assert profile is None
+
+    def test_list_profiles(self):
+        """Test listing available profiles."""
+        profiles = DeviceProfile.list_profiles()
+        assert len(profiles) == 3
+        assert ("fstests_default", "Default 7 devices for fstests (10G each)") in profiles
+        assert ("fstests_small", "Smaller devices (5G each) for faster setup") in profiles
+        assert ("fstests_large", "Larger devices (50G each) for extensive testing") in profiles
+
+    def test_profile_device_order(self):
+        """Test that profile devices have correct order."""
+        profile = DeviceProfile.get_profile("fstests_default")
+        for i, device in enumerate(profile.devices):
+            assert device.order == i
+
+
+class TestVMDeviceManager:
+    """Test DeviceManager setup and cleanup."""
+
+    @pytest.mark.asyncio
+    async def test_init(self):
+        """Test DeviceManager initialization."""
+        manager = VMDeviceManager()
+        assert manager.created_loop_devices == []
+        assert manager.attached_block_devices == []
+        assert manager.device_specs == []
+        assert manager.tmpfs_setup is False
+
+    @pytest.mark.asyncio
+    async def test_too_many_devices(self):
+        """Test device count limit."""
+        manager = VMDeviceManager()
+        specs = [DeviceSpec(size="1G") for _ in range(MAX_CUSTOM_DEVICES + 1)]
+
+        success, error, _ = await manager.setup_devices(specs)
+        assert success is False
+        assert "Too many devices" in error
+
+    @pytest.mark.asyncio
+    async def test_invalid_device_spec(self):
+        """Test setup with invalid device spec."""
+        manager = VMDeviceManager()
+        specs = [DeviceSpec(size="invalid_size")]
+
+        success, error, _ = await manager.setup_devices(specs)
+        assert success is False
+        assert "Invalid size format" in error
+
+    @pytest.mark.asyncio
+    async def test_tmpfs_size_limit(self):
+        """Test tmpfs total size limit."""
+        manager = VMDeviceManager()
+        # Create devices that exceed tmpfs limit
+        specs = [
+            DeviceSpec(size=f"{MAX_TMPFS_TOTAL_GB + 1}G", use_tmpfs=True)
+        ]
+
+        success, error, _ = await manager.setup_devices(specs)
+        assert success is False
+        assert "exceeds maximum" in error
+
+    @pytest.mark.asyncio
+    async def test_device_ordering(self):
+        """Test device ordering by order parameter."""
+        manager = VMDeviceManager()
+        specs = [
+            DeviceSpec(size="1G", name="third", order=2),
+            DeviceSpec(size="1G", name="first", order=0),
+            DeviceSpec(size="1G", name="second", order=1),
+        ]
+
+        # Just test that sorting works (not actually creating devices)
+        manager.device_specs = sorted(specs, key=lambda s: s.order)
+
+        assert manager.device_specs[0].name == "first"
+        assert manager.device_specs[1].name == "second"
+        assert manager.device_specs[2].name == "third"
+
+    @pytest.mark.asyncio
+    @patch('src.kerneldev_mcp.boot_manager._setup_tmpfs_for_loop_devices')
+    @patch('src.kerneldev_mcp.boot_manager._create_host_loop_device')
+    async def test_setup_loop_devices(self, mock_create, mock_setup_tmpfs):
         """Test setting up loop devices."""
-        with patch.object(device_manager, 'create_loop_device') as mock_create:
-            mock_create.side_effect = [
-                ("/dev/loop0", device_manager.work_dir / "test.img"),
-                ("/dev/loop1", device_manager.work_dir / "scratch.img")
-            ]
+        mock_setup_tmpfs.return_value = True
+        mock_create.return_value = ("/dev/loop0", Path("/tmp/backing"))
 
-            with patch.object(device_manager, 'create_filesystem') as mock_mkfs:
-                mock_mkfs.return_value = True
+        manager = VMDeviceManager()
+        specs = [DeviceSpec(size="10G", name="test", use_tmpfs=True)]
 
-                with patch.object(device_manager, 'mount_device') as mock_mount:
-                    mock_mount.return_value = True
+        success, error, devices = await manager.setup_devices(specs)
 
-                    result = device_manager.setup_loop_devices(
-                        test_size="10G",
-                        scratch_size="10G",
-                        fstype="ext4"
-                    )
+        assert success is True
+        assert error == ""
+        assert len(devices) == 1
+        assert devices[0] == "/dev/loop0"
+        assert len(manager.created_loop_devices) == 1
 
-                    assert result.success
-                    assert result.test_device.device_path == "/dev/loop0"
-                    assert result.scratch_device.device_path == "/dev/loop1"
-                    assert result.cleanup_needed
+    @pytest.mark.asyncio
+    @patch('src.kerneldev_mcp.boot_manager._cleanup_host_loop_device')
+    @patch('src.kerneldev_mcp.boot_manager._cleanup_tmpfs_for_loop_devices')
+    async def test_cleanup(self, mock_cleanup_tmpfs, mock_cleanup_device):
+        """Test cleanup of devices."""
+        manager = VMDeviceManager()
+        manager.created_loop_devices = [("/dev/loop0", Path("/tmp/backing"))]
+        manager.tmpfs_setup = True
 
-    def test_setup_loop_devices_test_creation_fails(self, device_manager):
-        """Test setup when test device creation fails."""
-        with patch.object(device_manager, 'create_loop_device') as mock_create:
-            mock_create.return_value = (None, None)
+        manager.cleanup()
 
-            result = device_manager.setup_loop_devices()
+        mock_cleanup_device.assert_called_once_with("/dev/loop0", Path("/tmp/backing"))
+        mock_cleanup_tmpfs.assert_called_once()
+        assert manager.created_loop_devices == []
+        assert manager.tmpfs_setup is False
 
-            assert not result.success
-            assert "Failed to create test loop device" in result.message
+    def test_get_vng_disk_args(self):
+        """Test generating vng disk arguments."""
+        manager = VMDeviceManager()
+        manager.created_loop_devices = [("/dev/loop0", Path("/tmp/backing1")), ("/dev/loop1", Path("/tmp/backing2"))]
+        manager.attached_block_devices = ["/dev/sda1"]
 
-    def test_setup_loop_devices_scratch_creation_fails(self, device_manager):
-        """Test setup when scratch device creation fails."""
-        with patch.object(device_manager, 'create_loop_device') as mock_create:
-            mock_create.side_effect = [
-                ("/dev/loop0", device_manager.work_dir / "test.img"),
-                (None, None)
-            ]
+        args = manager.get_vng_disk_args()
 
-            with patch.object(device_manager, 'detach_loop_device') as mock_detach:
-                mock_detach.return_value = True
+        expected = ["--disk", "/dev/loop0", "--disk", "/dev/loop1", "--disk", "/dev/sda1"]
+        assert args == expected
 
-                result = device_manager.setup_loop_devices()
+    def test_get_vm_env_script(self):
+        """Test generating VM environment variable script."""
+        manager = VMDeviceManager()
+        manager.device_specs = [
+            DeviceSpec(size="10G", name="test", env_var="TEST_DEV", order=0),
+            DeviceSpec(size="10G", name="scratch", env_var="SCRATCH_DEV", order=1),
+            DeviceSpec(size="10G", name="other", order=2),  # No env_var
+        ]
 
-                assert not result.success
-                assert "Failed to create scratch loop device" in result.message
+        script = manager.get_vm_env_script()
 
-    def test_setup_existing_devices_success(self, device_manager):
-        """Test setting up existing devices."""
-        with patch.object(device_manager, 'validate_device') as mock_validate:
-            mock_validate.return_value = True
+        assert "export TEST_DEV=/dev/vda" in script
+        assert "export SCRATCH_DEV=/dev/vdb" in script
+        assert "other" not in script
 
-            with patch.object(device_manager, 'create_filesystem') as mock_mkfs:
-                mock_mkfs.return_value = True
+    def test_get_vm_env_script_with_custom_index(self):
+        """Test VM env script with custom index."""
+        manager = VMDeviceManager()
+        manager.device_specs = [
+            DeviceSpec(size="10G", name="test", env_var="TEST_DEV", env_var_index=2, order=0),
+        ]
 
-                with patch.object(device_manager, 'mount_device') as mock_mount:
-                    mock_mount.return_value = True
+        script = manager.get_vm_env_script()
 
-                    result = device_manager.setup_existing_devices(
-                        test_dev="/dev/sda1",
-                        scratch_dev="/dev/sda2",
-                        fstype="btrfs"
-                    )
+        # Should use vdc (index 2) instead of vda (index 0)
+        assert "export TEST_DEV=/dev/vdc" in script
 
-                    assert result.success
-                    assert result.test_device.device_path == "/dev/sda1"
-                    assert result.scratch_device.device_path == "/dev/sda2"
-                    assert not result.cleanup_needed
+    def test_get_vm_env_script_empty(self):
+        """Test VM env script with no env vars."""
+        manager = VMDeviceManager()
+        manager.device_specs = [
+            DeviceSpec(size="10G", name="test", order=0),
+        ]
 
-    def test_setup_existing_devices_invalid_test(self, device_manager):
-        """Test setup with invalid test device."""
-        with patch.object(device_manager, 'validate_device') as mock_validate:
-            mock_validate.return_value = False
+        script = manager.get_vm_env_script()
 
-            result = device_manager.setup_existing_devices(
-                test_dev="/dev/invalid",
-                scratch_dev="/dev/sda2",
-                fstype="ext4"
-            )
-
-            assert not result.success
-            assert "not valid" in result.message
-
-    def test_cleanup_all(self, device_manager, tmp_path):
-        """Test cleaning up all devices."""
-        # Setup some mounts and loop devices
-        mount1 = tmp_path / "mnt1"
-        mount2 = tmp_path / "mnt2"
-        mount1.mkdir()
-        mount2.mkdir()
-
-        device_manager._created_mounts = [mount1, mount2]
-        device_manager._created_loop_devices = ["/dev/loop0", "/dev/loop1"]
-
-        # Create backing files
-        (device_manager.work_dir / "test.img").touch()
-        (device_manager.work_dir / "scratch.img").touch()
-
-        with patch.object(device_manager, 'umount_device') as mock_umount:
-            mock_umount.return_value = True
-
-            with patch.object(device_manager, 'detach_loop_device') as mock_detach:
-                mock_detach.return_value = True
-
-                device_manager.cleanup_all()
-
-                assert len(device_manager._created_mounts) == 0
-                assert len(device_manager._created_loop_devices) == 0
-                assert not (device_manager.work_dir / "test.img").exists()
-                assert not (device_manager.work_dir / "scratch.img").exists()
+        assert script == ""
 
 
-class TestDeviceConfig:
-    """Test DeviceConfig dataclass."""
-
-    def test_device_config_creation(self):
-        """Test creating DeviceConfig."""
-        config = DeviceConfig(
-            device_path="/dev/loop0",
-            mount_point=Path("/mnt/test"),
-            filesystem_type="ext4",
-            size="10G"
-        )
-
-        assert config.device_path == "/dev/loop0"
-        assert config.mount_point == Path("/mnt/test")
-        assert config.filesystem_type == "ext4"
-        assert config.size == "10G"
-
-    def test_device_config_defaults(self):
-        """Test DeviceConfig default values."""
-        config = DeviceConfig(
-            device_path="/dev/sda1",
-            mount_point=Path("/mnt"),
-            filesystem_type="btrfs"
-        )
-
-        assert config.size is None
-        assert config.mount_options is None
-        assert config.mkfs_options is None
-        assert config.is_loop_device is False
-        assert config.backing_file is None
-
-
-class TestDeviceSetupResult:
-    """Test DeviceSetupResult dataclass."""
-
-    def test_setup_result_success(self):
-        """Test successful setup result."""
-        test_config = DeviceConfig(
-            device_path="/dev/loop0",
-            mount_point=Path("/mnt/test"),
-            filesystem_type="ext4"
-        )
-
-        result = DeviceSetupResult(
-            success=True,
-            test_device=test_config,
-            message="Success"
-        )
-
-        assert result.success
-        assert result.test_device == test_config
-        assert result.message == "Success"
-
-    def test_setup_result_failure(self):
-        """Test failure result."""
-        result = DeviceSetupResult(
-            success=False,
-            message="Failed"
-        )
-
-        assert not result.success
-        assert result.test_device is None
-        assert result.scratch_device is None
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

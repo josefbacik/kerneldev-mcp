@@ -98,10 +98,401 @@ class BootResult:
         return f"✓ Boot successful, no issues detected ({self.duration:.1f}s)"
 
 
+# Resource limits for custom device attachment
+MAX_CUSTOM_DEVICES = 20
+MAX_DEVICE_SIZE_GB = 100
+MAX_TMPFS_TOTAL_GB = 50
+
+
+def _parse_device_size_to_gb(size: str) -> Tuple[bool, str, float]:
+    """Parse device size string to GB.
+
+    Args:
+        size: Size string (e.g., "10G", "512M", "1024K")
+
+    Returns:
+        Tuple of (is_valid, error_message, size_in_gb)
+    """
+    match = re.match(r'^(\d+)(G|M|K)?$', size, re.IGNORECASE)
+    if not match:
+        return False, f"Invalid size format: {size}. Use format like '10G', '512M'", 0.0
+
+    size_num = int(match.group(1))
+    size_unit = (match.group(2) or 'M').upper()
+
+    size_gb = {
+        'K': size_num / (1024 * 1024),
+        'M': size_num / 1024,
+        'G': size_num
+    }[size_unit]
+
+    return True, "", size_gb
+
+
+@dataclass
+class DeviceSpec:
+    """Specification for a device to attach to VM.
+
+    Devices appear in VM as /dev/vda, /dev/vdb, etc. in order specified.
+    virtme-ng auto-assigns device names; use 'order' parameter to control ordering.
+
+    Examples:
+        DeviceSpec(size="10G", name="test", env_var="TEST_DEV")
+        DeviceSpec(path="/dev/nvme0n1p5", readonly=True)
+    """
+
+    # Device source (mutually exclusive)
+    path: Optional[str] = None          # Existing block device path
+    size: Optional[str] = None          # Size for loop device creation (e.g., "10G")
+
+    # Device configuration
+    name: Optional[str] = None          # Descriptive name for logging
+    order: int = 0                      # Order in device list (lower = earlier)
+    use_tmpfs: bool = False             # Use tmpfs backing for loop device
+
+    # VM environment
+    env_var: Optional[str] = None       # Export as env var (e.g., "TEST_DEV")
+    env_var_index: Optional[int] = None # Device index for env var (e.g., /dev/vda = index 0)
+
+    # Safety options
+    readonly: bool = False              # Attach as read-only device
+    require_empty: bool = False         # Fail if device has filesystem signature
+
+    def validate(self) -> Tuple[bool, str]:
+        """Validate device specification.
+
+        Returns:
+            (is_valid, error_message)
+        """
+        import stat
+
+        if (self.path is None) == (self.size is None):
+            return False, "Exactly one of 'path' or 'size' must be specified"
+
+        if self.size:
+            valid, error, size_gb = _parse_device_size_to_gb(self.size)
+            if not valid:
+                return False, error
+
+            if size_gb > MAX_DEVICE_SIZE_GB:
+                return False, f"Device size {self.size} exceeds maximum {MAX_DEVICE_SIZE_GB}G"
+
+        if self.path:
+            device_path = Path(self.path)
+            if not device_path.exists():
+                return False, f"Device does not exist: {self.path}"
+
+            try:
+                if not stat.S_ISBLK(device_path.stat().st_mode):
+                    return False, f"Not a block device: {self.path}"
+            except Exception as e:
+                return False, f"Cannot stat device {self.path}: {e}"
+
+            # Safety: disallow whole disk devices without readonly
+            # Patterns: /dev/sda, /dev/nvme0n1, /dev/vda, /dev/hda
+            if re.match(r'^/dev/(sd[a-z]|nvme\d+n\d+|vd[a-z]|hd[a-z])$', self.path):
+                if not self.readonly:
+                    return False, (
+                        f"Whole disk device '{self.path}' requires readonly=True for safety. "
+                        f"Use a partition instead (e.g., {self.path}1) or set readonly=True."
+                    )
+
+        return True, ""
+
+
+@dataclass
+class DeviceProfile:
+    """Predefined device configurations for common use cases."""
+
+    name: str
+    description: str
+    devices: List[DeviceSpec]
+
+    @staticmethod
+    def get_profile(name: str, use_tmpfs: bool = False) -> Optional["DeviceProfile"]:
+        """Get a predefined device profile.
+
+        Args:
+            name: Profile name
+            use_tmpfs: Override use_tmpfs setting for all devices
+
+        Returns:
+            DeviceProfile or None if not found
+        """
+        base_devices = [
+            DeviceSpec(size="10G", name="test", env_var="TEST_DEV", order=0),
+            DeviceSpec(size="10G", name="pool1", order=1),
+            DeviceSpec(size="10G", name="pool2", order=2),
+            DeviceSpec(size="10G", name="pool3", order=3),
+            DeviceSpec(size="10G", name="pool4", order=4),
+            DeviceSpec(size="10G", name="pool5", order=5),
+            DeviceSpec(size="10G", name="logwrites", env_var="LOGWRITES_DEV", order=6),
+        ]
+
+        profiles = {
+            "fstests_default": DeviceProfile(
+                name="fstests_default",
+                description="Default 7 devices for fstests (1 TEST + 5 POOL + 1 LOGWRITES)",
+                devices=[
+                    DeviceSpec(
+                        size=d.size,
+                        name=d.name,
+                        env_var=d.env_var,
+                        order=d.order,
+                        use_tmpfs=use_tmpfs
+                    ) for d in base_devices
+                ]
+            ),
+            "fstests_small": DeviceProfile(
+                name="fstests_small",
+                description="Smaller fstests devices (5G each) for faster setup",
+                devices=[
+                    DeviceSpec(
+                        size="5G",
+                        name=d.name,
+                        env_var=d.env_var,
+                        order=d.order,
+                        use_tmpfs=use_tmpfs
+                    ) for d in base_devices
+                ]
+            ),
+            "fstests_large": DeviceProfile(
+                name="fstests_large",
+                description="Larger fstests devices (50G each) for extensive testing",
+                devices=[
+                    DeviceSpec(
+                        size="50G",
+                        name=d.name,
+                        env_var=d.env_var,
+                        order=d.order,
+                        use_tmpfs=use_tmpfs
+                    ) for d in base_devices
+                ]
+            ),
+        }
+        return profiles.get(name)
+
+    @staticmethod
+    def list_profiles() -> List[Tuple[str, str]]:
+        """List available profiles.
+
+        Returns:
+            List of (name, description) tuples
+        """
+        return [
+            ("fstests_default", "Default 7 devices for fstests (10G each)"),
+            ("fstests_small", "Smaller devices (5G each) for faster setup"),
+            ("fstests_large", "Larger devices (50G each) for extensive testing"),
+        ]
+
+
+class VMDeviceManager:
+    """Manages device setup and cleanup for VM boots.
+
+    Integrates with existing loop device infrastructure to provide
+    flexible device attachment for VMs.
+    """
+
+    def __init__(self):
+        self.created_loop_devices: List[Tuple[str, Optional[Path]]] = []
+        self.attached_block_devices: List[str] = []
+        self.device_specs: List[DeviceSpec] = []
+        self.tmpfs_setup = False
+
+    async def setup_devices(
+        self,
+        device_specs: List[DeviceSpec]
+    ) -> Tuple[bool, str, List[str]]:
+        """Setup devices from specifications.
+
+        Args:
+            device_specs: List of DeviceSpec to setup
+
+        Returns:
+            (success, error_message, device_paths_in_order)
+        """
+        if len(device_specs) > MAX_CUSTOM_DEVICES:
+            return False, f"Too many devices: {len(device_specs)} exceeds maximum {MAX_CUSTOM_DEVICES}", []
+
+        for i, spec in enumerate(device_specs):
+            valid, error = spec.validate()
+            if not valid:
+                return False, f"Device {i} ({spec.name or 'unnamed'}): {error}", []
+
+        tmpfs_total = 0.0
+        for spec in device_specs:
+            if spec.use_tmpfs and spec.size:
+                valid, _, size_gb = _parse_device_size_to_gb(spec.size)
+                if valid:
+                    tmpfs_total += size_gb
+
+        if tmpfs_total > MAX_TMPFS_TOTAL_GB:
+            return False, f"Total tmpfs size {tmpfs_total:.1f}G exceeds maximum {MAX_TMPFS_TOTAL_GB}G", []
+
+        self.device_specs = sorted(device_specs, key=lambda s: s.order)
+        device_paths = []
+
+        try:
+            if any(spec.use_tmpfs for spec in self.device_specs if spec.size):
+                if not _setup_tmpfs_for_loop_devices():
+                    return False, "Failed to setup tmpfs for loop devices", []
+                self.tmpfs_setup = True
+                logger.info(f"✓ Setup tmpfs at {HOST_LOOP_TMPFS_DIR}")
+
+            for spec in self.device_specs:
+                if spec.path:
+                    success, error, device_path = await self._validate_existing_device(spec)
+                    if not success:
+                        await self.cleanup()
+                        return False, error, []
+                    device_paths.append(device_path)
+                    self.attached_block_devices.append(device_path)
+                    logger.info(f"✓ Validated existing device: {device_path} ({spec.name or 'unnamed'})")
+
+                elif spec.size:
+                    backing_dir = HOST_LOOP_TMPFS_DIR if (spec.use_tmpfs and self.tmpfs_setup) else None
+                    loop_dev, backing_file = _create_host_loop_device(
+                        spec.size,
+                        spec.name or f"custom-{len(self.created_loop_devices)}",
+                        backing_dir
+                    )
+                    if not loop_dev:
+                        await self.cleanup()
+                        return False, f"Failed to create loop device for {spec.name or 'unnamed'}", []
+
+                    self.created_loop_devices.append((loop_dev, backing_file))
+                    device_paths.append(loop_dev)
+                    logger.info(f"✓ Created loop device: {loop_dev} ({spec.name or 'unnamed'}, {spec.size})")
+
+            return True, "", device_paths
+
+        except Exception as e:
+            await self.cleanup()
+            return False, f"Device setup failed: {str(e)}", []
+
+    async def _validate_existing_device(
+        self,
+        spec: DeviceSpec
+    ) -> Tuple[bool, str, str]:
+        """Validate existing device is safe to use.
+
+        Args:
+            spec: DeviceSpec for existing device
+
+        Returns:
+            (success, error_message, device_path)
+        """
+        device_path = spec.path
+
+        try:
+            result = subprocess.run(
+                ["findmnt", "-n", "-o", "TARGET", device_path],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                mount_point = result.stdout.strip()
+                if mount_point and not spec.readonly:
+                    return False, (
+                        f"Device {device_path} is mounted at {mount_point}. "
+                        f"Unmount it first or use readonly=True."
+                    ), ""
+        except Exception as e:
+            logger.warning(f"Could not check if {device_path} is mounted: {e}")
+
+        if spec.require_empty:
+            try:
+                result = subprocess.run(
+                    ["sudo", "blkid", "-p", device_path],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    fs_type = result.stdout
+                    return False, (
+                        f"Device {device_path} has filesystem signature: {fs_type.strip()}. "
+                        f"Set require_empty=False to override."
+                    ), ""
+            except Exception as e:
+                logger.warning(f"Could not check filesystem signature on {device_path}: {e}")
+
+        try:
+            with open(device_path, 'rb') as f:
+                f.read(512)
+            logger.debug(f"✓ Can access {device_path} directly")
+        except PermissionError:
+            try:
+                result = subprocess.run(
+                    ["sudo", "-n", "dd", f"if={device_path}", "of=/dev/null", "count=1", "bs=512"],
+                    capture_output=True,
+                    timeout=5
+                )
+                if result.returncode != 0:
+                    return False, (
+                        f"No permission to access {device_path}. "
+                        f"Run with appropriate permissions."
+                    ), ""
+                logger.warning(f"⚠ Can access {device_path} only with sudo")
+            except Exception as e:
+                return False, f"Cannot access {device_path}: {str(e)}", ""
+        except Exception as e:
+            return False, f"Cannot read from {device_path}: {str(e)}", ""
+
+        return True, "", device_path
+
+    def cleanup(self):
+        """Cleanup all created devices."""
+        for loop_dev, backing_file in self.created_loop_devices:
+            _cleanup_host_loop_device(loop_dev, backing_file)
+
+        if self.tmpfs_setup:
+            _cleanup_tmpfs_for_loop_devices()
+
+        self.created_loop_devices = []
+        self.attached_block_devices = []
+        self.device_specs = []
+        self.tmpfs_setup = False
+
+    def get_vng_disk_args(self) -> List[str]:
+        """Get --disk arguments for vng command.
+
+        Devices will appear in VM as /dev/vda, /dev/vdb, /dev/vdc...
+        in the order they are added here (respecting order parameter).
+
+        Returns:
+            List of arguments to pass to vng (e.g., ["--disk", "/dev/loop0", "--disk", "/dev/loop1"])
+        """
+        args = []
+        all_devices = [d for d, _ in self.created_loop_devices] + self.attached_block_devices
+
+        for device in all_devices:
+            args.extend(["--disk", device])
+
+        return args
+
+    def get_vm_env_script(self) -> str:
+        """Get bash script to export environment variables in VM.
+
+        Returns:
+            Bash script snippet to export env vars
+        """
+        script_lines = []
+        script_lines.append("# Device environment variables")
+
+        for i, spec in enumerate(self.device_specs):
+            if spec.env_var:
+                index = spec.env_var_index if spec.env_var_index is not None else i
+                vm_dev = f"/dev/vd{chr(ord('a') + index)}"
+                script_lines.append(f"export {spec.env_var}={vm_dev}")
+
+        return "\n".join(script_lines) if len(script_lines) > 1 else ""
+
+
 class DmesgParser:
     """Parse and analyze dmesg output."""
 
-    # Kernel log levels
     LOG_LEVELS = {
         0: "emerg",   # System is unusable
         1: "alert",   # Action must be taken immediately
@@ -110,10 +501,9 @@ class DmesgParser:
         4: "warn",    # Warning conditions
         5: "notice",  # Normal but significant
         6: "info",    # Informational
-        7: "debug",   # Debug-level messages
+        7: "debug",
     }
 
-    # Patterns for detecting critical issues
     PANIC_PATTERNS = [
         re.compile(r"Kernel panic", re.IGNORECASE),
         re.compile(r"BUG: unable to handle", re.IGNORECASE),
@@ -132,7 +522,6 @@ class DmesgParser:
         re.compile(r"\bfailure\b", re.IGNORECASE),
     ]
 
-    # Patterns to exclude from error detection (known false positives)
     ERROR_EXCLUSIONS = [
         re.compile(r"ignoring", re.IGNORECASE),  # "failed...ignoring" is not an error
         re.compile(r"virtme-ng-init:.*(?:Failed|Permission denied)", re.IGNORECASE),  # userspace init issues
@@ -148,7 +537,6 @@ class DmesgParser:
         re.compile(r"\bWARN", re.IGNORECASE),
     ]
 
-    # Userspace message prefixes to ignore (not kernel messages)
     USERSPACE_PREFIXES = [
         "virtme-ng-init:",
         "systemd-tmpfile",
@@ -205,11 +593,9 @@ class DmesgParser:
                         break
 
             if level == "info":
-                # Check if this looks like an error, but exclude false positives
                 is_error = False
                 for pattern in DmesgParser.ERROR_PATTERNS:
                     if pattern.search(message):
-                        # Check if this matches any exclusion patterns
                         is_excluded = any(excl.search(message) for excl in DmesgParser.ERROR_EXCLUSIONS)
                         if not is_excluded:
                             is_error = True
@@ -245,33 +631,27 @@ class DmesgParser:
         oops = []
 
         for line in dmesg_text.splitlines():
-            # Skip userspace messages (not kernel messages)
             if any(prefix in line for prefix in DmesgParser.USERSPACE_PREFIXES):
                 continue
 
-            # Skip lines that don't start with timestamp (likely continuation lines from userspace)
             stripped = line.strip()
             if stripped and not stripped.startswith('[') and not stripped.startswith('<'):
-                # This is likely a continuation line from userspace output
                 continue
 
             msg = DmesgParser.parse_dmesg_line(line)
             if not msg:
                 continue
 
-            # Check for panics
             for pattern in DmesgParser.PANIC_PATTERNS:
                 if pattern.search(msg.message):
                     panics.append(msg)
                     break
 
-            # Check for oops
             for pattern in DmesgParser.OOPS_PATTERNS:
                 if pattern.search(msg.message):
                     oops.append(msg)
                     break
 
-            # Categorize by level
             if msg.level in ("emerg", "alert", "crit", "err"):
                 errors.append(msg)
             elif msg.level == "warn":
@@ -315,10 +695,8 @@ def _track_vm_process(pid: int, pgid: int, description: str = "", log_file_path:
             with open(VM_PID_TRACKING_FILE, 'r') as f:
                 tracking_data = json.load(f)
         except (json.JSONDecodeError, OSError):
-            # File corrupted or unreadable, start fresh
             tracking_data = {}
 
-    # Add new process
     tracking_data[str(pid)] = {
         "pid": pid,
         "pgid": pgid,
@@ -327,7 +705,6 @@ def _track_vm_process(pid: int, pgid: int, description: str = "", log_file_path:
         "log_file_path": str(log_file_path) if log_file_path else None,
     }
 
-    # Write back
     try:
         with open(VM_PID_TRACKING_FILE, 'w') as f:
             json.dump(tracking_data, f, indent=2)
@@ -350,11 +727,9 @@ def _untrack_vm_process(pid: int):
         with open(VM_PID_TRACKING_FILE, 'r') as f:
             tracking_data = json.load(f)
 
-        # Remove this PID
         if str(pid) in tracking_data:
             del tracking_data[str(pid)]
 
-        # Write back (or delete file if empty)
         if tracking_data:
             with open(VM_PID_TRACKING_FILE, 'w') as f:
                 json.dump(tracking_data, f, indent=2)
@@ -1430,29 +1805,56 @@ class BootManager:
 
     async def boot_test(
         self,
+        command: Optional[str] = None,
+        script_file: Optional[Path] = None,
         timeout: int = 60,
         memory: str = "2G",
         cpus: int = 2,
+        devices: Optional[List[DeviceSpec]] = None,
         cross_compile: Optional["CrossCompileConfig"] = None,
         extra_args: Optional[List[str]] = None,
         use_host_kernel: bool = False
     ) -> BootResult:
-        """Boot kernel and validate it works.
+        """Boot kernel and test it with optional custom command/script.
+
+        By default, validates successful boot via dmesg. Optionally run custom
+        test commands or scripts for more sophisticated testing.
 
         Args:
+            command: Optional shell command to execute for testing.
+                    If None and script_file is None, runs dmesg validation (default).
+            script_file: Optional path to local script file to upload and execute.
+                        Cannot be specified together with command.
             timeout: Boot timeout in seconds
             memory: Memory size for VM (e.g., "2G")
             cpus: Number of CPUs for VM
+            devices: Optional list of DeviceSpec for custom device attachment.
+                     If provided, device environment variables are exported (TEST_DEV, etc.).
             cross_compile: Cross-compilation configuration
             extra_args: Additional arguments to pass to vng
             use_host_kernel: Use host kernel instead of building from source
 
         Returns:
             BootResult with boot status and analysis
+
+        Note:
+            This tool does NOT set up fstests infrastructure (no filesystem formatting,
+            no mount points, no fstests config). For filesystem testing with fstests
+            environment, use fstests_vm_boot_custom instead.
         """
+        # Validation: cannot specify both command and script_file
+        if command and script_file:
+            raise ValueError("Cannot specify both 'command' and 'script_file' parameters")
+
         logger.info("=" * 60)
         logger.info(f"Starting kernel boot test: {self.kernel_path}")
         logger.info(f"Config: memory={memory}, cpus={cpus}, timeout={timeout}s")
+        if command:
+            logger.info(f"Test command: {command}")
+        elif script_file:
+            logger.info(f"Test script: {script_file}")
+        else:
+            logger.info("Test mode: dmesg validation (default)")
         if cross_compile:
             logger.info(f"Cross-compile arch: {cross_compile.arch}")
         if use_host_kernel:
@@ -1462,6 +1864,20 @@ class BootManager:
 
         # Cleanup old boot logs
         _cleanup_old_logs()
+
+        # Check script file exists if provided
+        if script_file:
+            script_file = Path(script_file)
+            if not script_file.exists():
+                logger.error(f"✗ Script file not found: {script_file}")
+                logger.info("=" * 60)
+                return BootResult(
+                    success=False,
+                    duration=time.time() - start_time,
+                    boot_completed=False,
+                    dmesg_output=f"ERROR: Script file not found: {script_file}",
+                    exit_code=-1
+                )
 
         # Check virtme-ng is available
         if not self.check_virtme_ng():
@@ -1513,6 +1929,23 @@ class BootManager:
                     exit_code=-1
                 )
 
+        # Setup custom devices if specified
+        device_manager = None
+        if devices:
+            device_manager = VMDeviceManager()
+            success, error, device_paths = await device_manager.setup_devices(devices)
+            if not success:
+                logger.error(f"✗ Device setup failed: {error}")
+                logger.info("=" * 60)
+                return BootResult(
+                    success=False,
+                    duration=time.time() - start_time,
+                    boot_completed=False,
+                    dmesg_output=f"ERROR: Device setup failed: {error}",
+                    exit_code=-1
+                )
+            logger.info(f"✓ Setup {len(device_paths)} custom device(s)")
+
         # Build vng command
         cmd = ["vng", "--verbose"]  # --verbose is critical to capture serial console output
         logger.info(f"Boot command: {' '.join(cmd[:5])}...")  # Don't log full command (may be long)
@@ -1529,18 +1962,52 @@ class BootManager:
         if target_arch:
             cmd.extend(["--arch", target_arch])
 
+        # Add custom device disk arguments
+        if device_manager:
+            disk_args = device_manager.get_vng_disk_args()
+            cmd.extend(disk_args)
+
         # Add any extra arguments
         if extra_args:
             cmd.extend(extra_args)
 
-        # Execute command to get dmesg
-        cmd.extend(["--", "dmesg"])
+        # Determine what command to execute
+        if command or script_file:
+            # Create wrapper script that sets up environment and runs the command/script
+            wrapper_script = "#!/bin/bash\nset -e\n\n"
 
-        logger.info("Booting kernel... (this may take a minute)")
+            # Export device environment variables if devices are present
+            if device_manager:
+                env_script = device_manager.get_vm_env_script()
+                if env_script:
+                    wrapper_script += env_script + "\n\n"
+
+            # Add the user's command or script
+            if script_file:
+                script_contents = script_file.read_text()
+                wrapper_script += f"# Execute uploaded script: {script_file.name}\n"
+                wrapper_script += script_contents + "\n"
+            elif command:
+                wrapper_script += "# Execute custom command\n"
+                wrapper_script += command + "\n"
+
+            # Write wrapper script to temp file
+            vm_script_file = Path("/tmp/boot-test-wrapper.sh")
+            vm_script_file.write_text(wrapper_script)
+            vm_script_file.chmod(0o755)
+
+            # Execute the wrapper script
+            cmd.extend(["--", "bash", str(vm_script_file)])
+            logger.info("Booting kernel and running test command/script...")
+        else:
+            # Default: Execute dmesg command
+            cmd.extend(["--", "dmesg"])
+            logger.info("Booting kernel... (this may take a minute)")
 
         # Run boot test with PTY (virtme-ng requires a valid PTS)
         try:
-            description = f"boot_kernel_test: {self.kernel_path.name}"
+            mode_desc = "script" if script_file else ("command" if command else "dmesg")
+            description = f"boot_kernel_test ({mode_desc}): {self.kernel_path.name}"
             exit_code, dmesg_output, _, log_file = await _run_with_pty_async(cmd, self.kernel_path, timeout, description=description)
 
             duration = time.time() - start_time
@@ -1634,6 +2101,11 @@ class BootManager:
                 log_file_path=log_file
             )
 
+        finally:
+            # Cleanup devices
+            if device_manager:
+                device_manager.cleanup()
+
     async def boot_with_fstests(
         self,
         fstests_path: Path,
@@ -1642,6 +2114,8 @@ class BootManager:
         timeout: int = 300,
         memory: str = "4G",
         cpus: int = 4,
+        custom_devices: Optional[List[DeviceSpec]] = None,
+        use_default_devices: bool = True,
         cross_compile: Optional["CrossCompileConfig"] = None,
         force_9p: bool = False,
         io_scheduler: str = "mq-deadline",
@@ -1656,11 +2130,15 @@ class BootManager:
             timeout: Total timeout in seconds
             memory: Memory size for VM
             cpus: Number of CPUs
+            custom_devices: Custom device specifications. If provided, use_default_devices is ignored.
+            use_default_devices: If True and custom_devices is None, use 7 default fstests devices.
+                                 If False and custom_devices is None, no devices are attached.
             cross_compile: Cross-compilation configuration
             force_9p: Force use of 9p filesystem instead of virtio-fs
             io_scheduler: IO scheduler to use for block devices (default: "mq-deadline")
                          Valid values: "mq-deadline", "none", "bfq", "kyber"
-            use_tmpfs: Use tmpfs for loop device backing files (faster but uses more RAM)
+            use_tmpfs: Only affects default devices (when custom_devices is None).
+                      Use tmpfs for loop device backing files (faster but uses more RAM)
 
         Returns:
             Tuple of (BootResult, FstestsRunResult or None)
@@ -1696,6 +2174,22 @@ class BootManager:
                 ), None)
 
         start_time = time.time()
+
+        # Determine which devices to use
+        device_specs = None
+        if custom_devices is not None:
+            # Use custom devices
+            device_specs = custom_devices
+            logger.info(f"Using {len(custom_devices)} custom device(s)")
+        elif use_default_devices:
+            # Use default 7 devices from profile
+            profile = DeviceProfile.get_profile("fstests_default", use_tmpfs=use_tmpfs)
+            device_specs = profile.devices
+            logger.info(f"Using default fstests device profile (7 devices, tmpfs={use_tmpfs})")
+        else:
+            # No devices
+            device_specs = []
+            logger.info("No devices will be attached")
 
         # Track created loop devices for cleanup
         created_loop_devices: List[Tuple[str, Path]] = []
@@ -1781,59 +2275,25 @@ class BootManager:
                 exit_code=-1
             ), None)
 
-        # Setup tmpfs if requested
-        tmpfs_mounted = False
-        backing_directory = None
-        if use_tmpfs:
-            logger.info("Setting up tmpfs for loop device backing files...")
-            if _setup_tmpfs_for_loop_devices():
-                tmpfs_mounted = True
-                backing_directory = HOST_LOOP_TMPFS_DIR
-                logger.info(f"✓ tmpfs ready at {HOST_LOOP_TMPFS_DIR}")
-            else:
-                logger.error("✗ Failed to setup tmpfs, falling back to regular disk-backed loop devices")
-                backing_directory = None
+        # Setup devices using VMDeviceManager
+        device_manager = None
+        if device_specs:
+            device_manager = VMDeviceManager()
+            success, error, device_paths = await device_manager.setup_devices(device_specs)
+            if not success:
+                logger.error(f"✗ Device setup failed: {error}")
+                logger.info("=" * 60)
+                return (BootResult(
+                    success=False,
+                    duration=time.time() - start_time,
+                    boot_completed=False,
+                    dmesg_output=f"ERROR: Device setup failed: {error}",
+                    exit_code=-1
+                ), None)
+            logger.info(f"✓ Setup {len(device_paths)} device(s)")
 
-        # Create loop devices on host for passing to VM
-        # We need: 1 test device + 5 scratch pool devices + 1 log-writes device = 7 total
-        logger.info("Creating loop devices on host (7 x 10G)...")
-        device_size = "10G"
-        device_names = ["test", "pool1", "pool2", "pool3", "pool4", "pool5", "logwrites"]
-
-        try:
-            for name in device_names:
-                loop_dev, backing_file = _create_host_loop_device(device_size, name, backing_directory)
-                if not loop_dev:
-                    # Cleanup any already created devices
-                    for dev, backing in created_loop_devices:
-                        _cleanup_host_loop_device(dev, backing)
-                    # Cleanup tmpfs if it was mounted
-                    if tmpfs_mounted:
-                        _cleanup_tmpfs_for_loop_devices()
-                    return (BootResult(
-                        success=False,
-                        duration=time.time() - start_time,
-                        boot_completed=False,
-                        dmesg_output=f"ERROR: Failed to create host loop device '{name}'\n"
-                                     f"Make sure you have sudo access for losetup commands.",
-                        exit_code=-1
-                    ), None)
-                created_loop_devices.append((loop_dev, backing_file))
-
-        except Exception as e:
-            # Cleanup on any error
-            for dev, backing in created_loop_devices:
-                _cleanup_host_loop_device(dev, backing)
-            # Cleanup tmpfs if it was mounted
-            if tmpfs_mounted:
-                _cleanup_tmpfs_for_loop_devices()
-            return (BootResult(
-                success=False,
-                duration=time.time() - start_time,
-                boot_completed=False,
-                dmesg_output=f"ERROR: Exception while creating loop devices: {e}",
-                exit_code=-1
-            ), None)
+            # Track loop devices for backwards compatibility with cleanup code
+            created_loop_devices = device_manager.created_loop_devices
 
         # Create timestamped results directory on host
         # Using timestamp ensures each run has isolated results
@@ -2028,10 +2488,11 @@ exit $exit_code
         if target_arch:
             cmd.extend(["--arch", target_arch])
 
-        # Pass loop devices to VM via --disk
-        # They will appear as /dev/sda, /dev/sdb, etc. in the VM
-        for loop_dev, _ in created_loop_devices:
-            cmd.extend(["--disk", loop_dev])
+        # Pass devices to VM via --disk
+        # They will appear as /dev/vda, /dev/vdb, etc. in the VM
+        if device_manager:
+            disk_args = device_manager.get_vng_disk_args()
+            cmd.extend(disk_args)
 
         # Make fstests directory available in VM with read-write overlay
         # Using --overlay-rwdir creates a writable overlay in the VM without modifying the host
@@ -2178,14 +2639,9 @@ exit $exit_code
                 except OSError:
                     pass
 
-            # Cleanup host loop devices
-            for loop_dev, backing_file in created_loop_devices:
-                _cleanup_host_loop_device(loop_dev, backing_file)
-
-            # Cleanup tmpfs if it was mounted
-            if tmpfs_mounted:
-                logger.info("Cleaning up tmpfs...")
-                _cleanup_tmpfs_for_loop_devices()
+            # Cleanup devices
+            if device_manager:
+                device_manager.cleanup()
 
     async def boot_with_custom_command(
         self,
@@ -2196,6 +2652,8 @@ exit $exit_code
         timeout: int = 300,
         memory: str = "4G",
         cpus: int = 4,
+        custom_devices: Optional[List[DeviceSpec]] = None,
+        use_default_devices: bool = True,
         cross_compile: Optional["CrossCompileConfig"] = None,
         force_9p: bool = False,
         io_scheduler: str = "mq-deadline",
@@ -2214,11 +2672,15 @@ exit $exit_code
             timeout: Total timeout in seconds
             memory: Memory size for VM
             cpus: Number of CPUs
+            custom_devices: Custom device specifications. If provided, use_default_devices is ignored.
+            use_default_devices: If True and custom_devices is None, use 7 default fstests devices.
+                                 If False and custom_devices is None, no devices are attached.
             cross_compile: Cross-compilation configuration
             force_9p: Force use of 9p filesystem instead of virtio-fs
             io_scheduler: IO scheduler to use for block devices (default: "mq-deadline")
                          Valid values: "mq-deadline", "none", "bfq", "kyber"
-            use_tmpfs: Use tmpfs for loop device backing files (faster but uses more RAM)
+            use_tmpfs: Only affects default devices (when custom_devices is None).
+                      Use tmpfs for loop device backing files (faster but uses more RAM)
 
         Security Note:
             The command and script_file parameters are executed without sanitization.
@@ -2247,9 +2709,24 @@ exit $exit_code
 
         start_time = time.time()
 
-        # Track created loop devices for cleanup
+        # Determine which devices to use
+        device_specs = None
+        if custom_devices is not None:
+            # Use custom devices
+            device_specs = custom_devices
+            logger.info(f"Using {len(custom_devices)} custom device(s)")
+        elif use_default_devices:
+            # Use default 7 devices from profile
+            profile = DeviceProfile.get_profile("fstests_default", use_tmpfs=use_tmpfs)
+            device_specs = profile.devices
+            logger.info(f"Using default fstests device profile (7 devices, tmpfs={use_tmpfs})")
+        else:
+            # No devices
+            device_specs = []
+            logger.info("No devices will be attached")
+
+        # Track created loop devices for cleanup (for backwards compatibility)
         created_loop_devices: List[Tuple[str, Path]] = []
-        tmpfs_mounted = False
 
         # Check virtme-ng is available
         if not self.check_virtme_ng():
@@ -2321,58 +2798,25 @@ exit $exit_code
                     exit_code=-1
                 )
 
-        # Setup tmpfs if requested
-        backing_directory = None
-        if use_tmpfs:
-            logger.info("Setting up tmpfs for loop device backing files...")
-            if _setup_tmpfs_for_loop_devices():
-                tmpfs_mounted = True
-                backing_directory = HOST_LOOP_TMPFS_DIR
-                logger.info(f"✓ tmpfs ready at {HOST_LOOP_TMPFS_DIR}")
-            else:
-                logger.error("✗ Failed to setup tmpfs, falling back to regular disk-backed loop devices")
-                backing_directory = None
+        # Setup devices using VMDeviceManager
+        device_manager = None
+        if device_specs:
+            device_manager = VMDeviceManager()
+            success, error, device_paths = await device_manager.setup_devices(device_specs)
+            if not success:
+                logger.error(f"✗ Device setup failed: {error}")
+                logger.info("=" * 60)
+                return BootResult(
+                    success=False,
+                    duration=time.time() - start_time,
+                    boot_completed=False,
+                    dmesg_output=f"ERROR: Device setup failed: {error}",
+                    exit_code=-1
+                )
+            logger.info(f"✓ Setup {len(device_paths)} device(s)")
 
-        # Create loop devices on host for passing to VM
-        # We need: 1 test device + 5 scratch pool devices + 1 log-writes device = 7 total
-        logger.info("Creating loop devices on host (7 x 10G)...")
-        device_size = "10G"
-        device_names = ["test", "pool1", "pool2", "pool3", "pool4", "pool5", "logwrites"]
-
-        try:
-            for name in device_names:
-                loop_dev, backing_file = _create_host_loop_device(device_size, name, backing_directory)
-                if not loop_dev:
-                    # Cleanup any already created devices
-                    for dev, backing in created_loop_devices:
-                        _cleanup_host_loop_device(dev, backing)
-                    # Cleanup tmpfs if it was mounted
-                    if tmpfs_mounted:
-                        _cleanup_tmpfs_for_loop_devices()
-                    return BootResult(
-                        success=False,
-                        duration=time.time() - start_time,
-                        boot_completed=False,
-                        dmesg_output=f"ERROR: Failed to create host loop device '{name}'\n"
-                                     f"Make sure you have sudo access for losetup commands.",
-                        exit_code=-1
-                    )
-                created_loop_devices.append((loop_dev, backing_file))
-
-        except Exception as e:
-            # Cleanup on any error
-            for dev, backing in created_loop_devices:
-                _cleanup_host_loop_device(dev, backing)
-            # Cleanup tmpfs if it was mounted
-            if tmpfs_mounted:
-                _cleanup_tmpfs_for_loop_devices()
-            return BootResult(
-                success=False,
-                duration=time.time() - start_time,
-                boot_completed=False,
-                dmesg_output=f"ERROR: Exception while creating loop devices: {e}",
-                exit_code=-1
-            )
+            # Track loop devices for backwards compatibility with cleanup code
+            created_loop_devices = device_manager.created_loop_devices
 
         # Create timestamped results directory on host
         from datetime import datetime
@@ -2561,9 +3005,11 @@ exit $exit_code
         if target_arch:
             cmd.extend(["--arch", target_arch])
 
-        # Pass loop devices to VM via --disk
-        for loop_dev, _ in created_loop_devices:
-            cmd.extend(["--disk", loop_dev])
+        # Pass devices to VM via --disk
+        # They will appear as /dev/vda, /dev/vdb, etc. in the VM
+        if device_manager:
+            disk_args = device_manager.get_vng_disk_args()
+            cmd.extend(disk_args)
 
         # Make fstests directory available in VM with read-write overlay
         cmd.extend(["--overlay-rwdir", str(fstests_path)])
@@ -2695,14 +3141,9 @@ exit $exit_code
                 except OSError:
                     pass
 
-            # Cleanup host loop devices
-            for loop_dev, backing_file in created_loop_devices:
-                _cleanup_host_loop_device(loop_dev, backing_file)
-
-            # Cleanup tmpfs if it was mounted
-            if tmpfs_mounted:
-                logger.info("Cleaning up tmpfs...")
-                _cleanup_tmpfs_for_loop_devices()
+            # Cleanup devices
+            if device_manager:
+                device_manager.cleanup()
 
 
 def format_boot_result(result: BootResult, max_errors: int = 10) -> str:

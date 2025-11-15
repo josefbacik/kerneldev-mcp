@@ -24,6 +24,140 @@
 
 ### Added
 
+#### Command/Script Execution Support in boot_kernel_test
+Extended `boot_kernel_test` to support running custom commands and scripts for more sophisticated kernel testing, eliminating the need to use fstests infrastructure for simple testing scenarios.
+
+**New Parameters:**
+- **`command`**: Optional shell command to execute for testing
+  - If not specified and `script_file` is not specified, runs default dmesg validation (backward compatible)
+  - Example: `command="lsblk && mount -t btrfs /dev/vda /mnt && dd if=/dev/zero of=/mnt/test bs=1M count=100"`
+
+- **`script_file`**: Optional path to local script file to upload and execute
+  - Cannot be specified together with `command`
+  - Script is uploaded to VM and executed
+  - Example: `script_file="/tmp/my-test.sh"`
+
+**Key Features:**
+- **No fstests overhead**: Unlike `fstests_vm_boot_custom`, does NOT set up fstests infrastructure (no filesystem formatting, mount points, or config files)
+- **Device environment variables**: Automatically exports device env vars if devices are attached (e.g., `TEST_DEV=/dev/vda`)
+- **Clean VM environment**: Just boots kernel and runs your code - minimal setup
+- **Backward compatible**: Existing code continues to work (defaults to dmesg validation)
+
+**Use Cases:**
+- Run custom filesystem testing scripts without fstests setup
+- Debug kernel features with specific test commands
+- Performance testing with custom workloads
+- Simple validation scripts for kernel patches
+- Any scenario where fstests environment is unnecessary overhead
+
+**Example Usage:**
+
+```json
+// Simple command
+{
+  "kernel_path": "/path/to/kernel",
+  "command": "echo 'Testing' && dmesg | tail -20",
+  "devices": [{"size": "1G", "env_var": "TEST_DEV"}]
+}
+
+// Upload and run script
+{
+  "kernel_path": "/path/to/kernel",
+  "script_file": "/tmp/btrfs-test.sh",
+  "devices": [{"path": "/dev/loop0", "env_var": "TEST_DEV"}],
+  "memory": "4G",
+  "cpus": 4
+}
+```
+
+**When to Use Each Tool:**
+- **`boot_kernel_test`** (with command/script): General kernel testing without fstests
+- **`fstests_vm_boot_custom`**: Filesystem testing that needs fstests environment (mount points, formatted devices, config)
+- **`fstests_vm_boot_and_run`**: Running actual fstests test suite
+
+**Implementation:**
+- 2 new unit tests for parameter validation
+- Wrapper script generation for environment variable export
+- Integrates with existing VMDeviceManager for device attachment
+- Full backward compatibility maintained
+
+#### Custom Device Attachment for VM Boot Tools
+Added flexible custom device attachment capability for all VM boot tools, enabling users to attach existing block devices or custom-configured loop devices:
+
+**New Classes:**
+- **`DeviceSpec`**: Flexible device specification with validation
+  - Create loop devices: `DeviceSpec(size="10G", name="test")`
+  - Use existing block devices: `DeviceSpec(path="/dev/nvme0n1p5", readonly=True)`
+  - Tmpfs-backed devices: `DeviceSpec(size="10G", use_tmpfs=True)`
+  - Environment variables: Export devices as env vars in VM (e.g., `env_var="TEST_DEV"`)
+  - Device ordering: Control order devices appear in VM (`order` parameter)
+
+- **`DeviceProfile`**: Predefined device configurations for common use cases
+  - `fstests_default`: 7 devices @ 10G each (standard)
+  - `fstests_small`: 7 devices @ 5G each (faster setup)
+  - `fstests_large`: 7 devices @ 50G each (extensive testing)
+  - Profile support for tmpfs backing
+
+- **`VMDeviceManager`**: Manages device lifecycle with robust error handling
+  - Automatic setup from DeviceSpec list
+  - Validation of existing block devices
+  - Integration with existing loop device infrastructure
+  - Guaranteed cleanup in finally blocks
+
+**Safety Features:**
+- Resource limits: 20 devices max, 100GB per device, 50GB tmpfs total
+- Whole disk protection: Requires `readonly=True` for whole disks (e.g., `/dev/sda`)
+- Mounted device detection: Prevents use of mounted devices without readonly
+- Filesystem signature checking: Optional `require_empty` flag
+- Permission validation: Checks device access before VM boot
+- Clear error messages for misconfigurations
+
+**API Changes:**
+- **`boot_kernel_test`**: Added optional `devices` parameter
+  - `devices=None`: No devices attached (default, backward compatible)
+  - `devices=[DeviceSpec(...)]`: Custom device attachment
+
+- **`fstests_vm_boot_and_run`**: Added `custom_devices` and `use_default_devices` parameters
+  - `custom_devices=None, use_default_devices=True`: Use default 7 devices (backward compatible)
+  - `custom_devices=[DeviceSpec(...)]`: Override with custom devices
+  - `use_default_devices=False`: No devices attached
+
+- **`fstests_vm_boot_custom`**: Same custom_devices and use_default_devices parameters
+
+**Use Cases:**
+- **Debug performance**: Compare loop devices vs real NVMe/SSD to identify slowdowns
+- **Custom sizing**: Create larger or smaller devices based on test requirements
+- **Tmpfs testing**: Use RAM-backed devices for maximum speed
+- **Mixed configurations**: Combine existing block devices with loop devices
+- **Minimal setups**: Boot with just 1-2 devices instead of default 7
+
+**Example Usage:**
+```json
+{
+  "kernel_path": "/path/to/kernel",
+  "devices": [
+    {
+      "path": "/dev/nvme0n1p5",
+      "readonly": true,
+      "env_var": "FAST_DEV",
+      "order": 0
+    },
+    {
+      "size": "50G",
+      "name": "scratch",
+      "use_tmpfs": true,
+      "order": 1
+    }
+  ]
+}
+```
+
+**Implementation:**
+- 28 passing unit tests in `tests/test_device_manager.py`
+- Backward compatible: All existing code works without changes
+- Integrated with existing loop device management functions
+- Phased implementation: Foundation → boot_test → fstests methods
+
 #### fstests_vm_boot_custom Tool
 New MCP tool to boot a kernel in a VM with all fstests devices configured, but run custom commands or scripts instead of fstests:
 - **Same device environment as fstests**: Sets up 7 loop devices (test, pool1-5, logwrites) with proper IO scheduler
