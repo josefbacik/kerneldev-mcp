@@ -2377,8 +2377,6 @@ class BootManager:
             created_loop_devices = device_manager.created_loop_devices
 
         # Create timestamped results directory on host
-        # Using timestamp ensures each run has isolated results
-        from datetime import datetime
         timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         results_base_dir = Path.home() / ".kerneldev-mcp" / "fstests-results"
         results_dir = results_base_dir / f"run-{timestamp}"
@@ -2915,7 +2913,6 @@ exit $exit_code
             created_loop_devices = device_manager.created_loop_devices
 
         # Create timestamped results directory on host
-        from datetime import datetime
         timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         results_base_dir = Path.home() / ".kerneldev-mcp" / "fstests-results"
         results_dir = results_base_dir / f"custom-{timestamp}"

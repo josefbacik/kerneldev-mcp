@@ -409,5 +409,37 @@ class TestBootCustomCommandEnvironmentSetup:
             "Method should use 'custom' prefix for results directory"
 
 
+class TestBootWithCustomCommandDatetimeUsage:
+    """Test datetime usage consistency in boot methods."""
+
+    def test_boot_with_custom_command_no_local_datetime_import(self):
+        """Ensure boot_with_custom_command uses module-level datetime import.
+
+        Regression test for bug where local 'from datetime import datetime'
+        shadowed module-level 'import datetime', causing confusion about
+        which 'datetime' to use (module vs class).
+        """
+        from kerneldev_mcp.boot_manager import BootManager
+        import inspect
+
+        source = inspect.getsource(BootManager.boot_with_custom_command)
+        assert 'from datetime import datetime' not in source, \
+            "Method should use module-level 'import datetime', not local import"
+
+    def test_boot_with_fstests_no_local_datetime_import(self):
+        """Ensure boot_with_fstests uses module-level datetime import.
+
+        Regression test for bug where local 'from datetime import datetime'
+        shadowed module-level 'import datetime', causing confusion about
+        which 'datetime' to use (module vs class).
+        """
+        from kerneldev_mcp.boot_manager import BootManager
+        import inspect
+
+        source = inspect.getsource(BootManager.boot_with_fstests)
+        assert 'from datetime import datetime' not in source, \
+            "Method should use module-level 'import datetime', not local import"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
