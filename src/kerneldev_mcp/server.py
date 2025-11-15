@@ -33,6 +33,7 @@ from .baseline_manager import (
     format_comparison_result
 )
 from .git_manager import GitManager, GitNoteMetadata
+from . import device_pool_tools
 
 # Configure logging - log to both file and stderr
 # File logging allows tailing progress: tail -f /tmp/kerneldev-mcp.log
@@ -1256,7 +1257,7 @@ Current results can be loaded from git notes or a JSON file.""",
                 "required": ["kernel_path"]
             }
         ),
-    ]
+    ] + device_pool_tools.get_device_pool_tools()
 
 
 def _parse_cross_compile_args(arguments: Dict[str, Any]) -> Optional[CrossCompileConfig]:
@@ -2841,6 +2842,10 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 output = f"✗ Failed to delete results for {location}"
 
             return [TextContent(type="text", text=output)]
+
+        # Device pool tools
+        elif name.startswith("device_pool_"):
+            return await device_pool_tools.handle_device_pool_tool(name, arguments)
 
         else:
             raise ValueError(f"Unknown tool: {name}")

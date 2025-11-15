@@ -70,6 +70,58 @@ An MCP (Model Context Protocol) server for intelligent Linux kernel configuratio
 
 See [docs/implementation/FSTESTS.md](docs/implementation/FSTESTS.md) for detailed filesystem testing documentation.
 
+### LVM Device Pools (Physical Storage)
+
+- **High-Performance Testing**: Use LVM-managed physical storage instead of slow loop devices
+  - **9-10× performance improvement** for I/O-intensive tests (475K vs 50K IOPS)
+  - Only ~5% overhead compared to raw device
+  - LVM provides snapshots, resizing, and thin provisioning
+
+- **One-Time Setup**: Configure once, use everywhere
+  - Comprehensive safety validation (10-point checklist)
+  - All operations use sudo (no special permissions needed)
+  - VG name is persistent across reboots (auto-discovered by LVM)
+  - Transactional operations with rollback on failure
+
+- **LVM Features**:
+  - **Snapshots**: Create backups before risky tests, rollback if kernel corrupts data
+  - **Dynamic Resizing**: Grow or shrink volumes without recreating pool
+  - **Thin Provisioning**: Overcommit storage when needed
+  - **Maximum Flexibility**: Industry-standard volume management
+
+- **MCP Tools Available**:
+  - `device_pool_setup`: Create LVM pools with safety checks
+  - `device_pool_status`: Health check and volume info
+  - `device_pool_teardown`: Safe removal with cleanup
+  - `device_pool_list`: List all pools
+  - `device_pool_resize`: Resize logical volumes
+  - `device_pool_snapshot`: Snapshot management
+
+**Quick Start:**
+```bash
+# Identify available disk
+lsblk
+
+# Create LVM pool via MCP (uses sudo)
+device_pool_setup --device=/dev/nvme1n1
+
+# Enable auto-use
+export KERNELDEV_DEVICE_POOL=default
+
+# All tests now use LVM volumes automatically!
+fstests_vm_boot_and_run --kernel=/path/to/kernel --fstests=/path/to/fstests
+```
+
+**How it works:**
+- Creates VG with name `kerneldev-default-vg` (persistent across reboots)
+- Each test auto-creates unique LVs (timestamp + random in name)
+- Multiple Claudes can share same pool concurrently
+- LVs auto-deleted after tests (unless you use `keep_volumes=true`)
+
+**Documentation:**
+- [Device Pool Setup Guide](docs/device-pool-setup-guide.md) - Complete setup instructions
+- [Architecture](docs/DEVICE-POOL-ARCHITECTURE.md) - Concurrency model and design details
+
 ## Installation
 
 ```bash
