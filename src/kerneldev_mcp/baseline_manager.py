@@ -105,7 +105,11 @@ class ComparisonResult:
     still_failing: List[TestResult] = field(default_factory=list)
     still_passing: List[TestResult] = field(default_factory=list)
     new_notrun: List[TestResult] = field(default_factory=list)
-    regression_detected: bool = False
+
+    @property
+    def regression_detected(self) -> bool:
+        """Whether any regressions were detected."""
+        return len(self.new_failures) > 0
 
     @property
     def regression_count(self) -> int:
@@ -369,8 +373,7 @@ class BaselineManager:
             new_passes=new_passes,
             still_failing=still_failing,
             still_passing=still_passing,
-            new_notrun=new_notrun,
-            regression_detected=(len(new_failures) > 0)
+            new_notrun=new_notrun
         )
 
     def generate_exclude_list(self, baseline: Baseline, output_file: Path) -> int:

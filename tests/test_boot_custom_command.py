@@ -194,8 +194,8 @@ class TestBootCustomCommandMCPTool:
 
         assert tool_start is not None, "Could not find tool definition"
 
-        # Get schema (next ~100 lines)
-        tool_def = '\n'.join(lines[tool_start:tool_start + 100])
+        # Get schema (next ~150 lines to capture required field)
+        tool_def = '\n'.join(lines[tool_start:tool_start + 150])
 
         # Should have required array with kernel_path and fstests_path
         assert '"required"' in tool_def, \

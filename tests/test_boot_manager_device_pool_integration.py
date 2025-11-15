@@ -34,7 +34,7 @@ def temp_kernel_dir(tmp_path):
 @pytest.fixture
 def temp_config_dir(tmp_path):
     """Create temporary config directory for device pool."""
-    config_dir = tmp_path / "config"
+    config_dir = tmp_path / ".kerneldev-mcp"
     config_dir.mkdir()
     return config_dir
 
@@ -125,7 +125,7 @@ class TestBootManagerPoolAutoDetection:
 
         assert result is None
 
-    @patch('kerneldev_mcp.boot_manager.allocate_pool_volumes')
+    @patch('kerneldev_mcp.device_pool.allocate_pool_volumes')
     @patch('pathlib.Path.home')
     def test_try_allocate_from_pool_success(
         self,
@@ -202,7 +202,7 @@ class TestBootManagerPoolAutoDetection:
         # Should return None and log warning, not crash
         assert result is None
 
-    @patch('kerneldev_mcp.boot_manager.allocate_pool_volumes')
+    @patch('kerneldev_mcp.device_pool.allocate_pool_volumes')
     @patch('pathlib.Path.home')
     def test_try_allocate_stores_session_id(
         self,
@@ -331,7 +331,8 @@ class TestDevicePoolCleanup:
         mock_virtme,
         mock_qemu,
         mock_release,
-        temp_kernel_dir
+        temp_kernel_dir,
+        tmp_path
     ):
         """Test cleanup releases pool volumes.
 
@@ -351,6 +352,19 @@ class TestDevicePoolCleanup:
         vmlinux = temp_kernel_dir / "vmlinux"
         vmlinux.write_text("fake vmlinux")
 
+        # Create fake fstests directory with required structure
+        fstests_dir = tmp_path / "fstests"
+        fstests_dir.mkdir()
+        (fstests_dir / "check").touch()
+        ltp_dir = fstests_dir / "ltp"
+        ltp_dir.mkdir()
+        (ltp_dir / "fsstress").touch()
+        (ltp_dir / "fsstress").chmod(0o755)
+        src_dir = fstests_dir / "src"
+        src_dir.mkdir()
+        (src_dir / "aio-dio-regress").touch()
+        (src_dir / "aio-dio-regress").chmod(0o755)
+
         boot_mgr = BootManager(temp_kernel_dir)
         boot_mgr._pool_session_id = "20251115123456-abc123"
 
@@ -358,7 +372,7 @@ class TestDevicePoolCleanup:
         import asyncio
         try:
             asyncio.run(boot_mgr.boot_with_fstests(
-                fstests_path=Path("/fake/fstests"),
+                fstests_path=fstests_dir,
                 tests=["-g", "quick"],
                 use_default_devices=True
             ))
@@ -382,7 +396,8 @@ class TestDevicePoolCleanup:
         mock_virtme,
         mock_qemu,
         mock_release,
-        temp_kernel_dir
+        temp_kernel_dir,
+        tmp_path
     ):
         """Test cleanup handles release failure gracefully."""
         from kerneldev_mcp.boot_manager import DeviceSpec
@@ -398,6 +413,19 @@ class TestDevicePoolCleanup:
         vmlinux = temp_kernel_dir / "vmlinux"
         vmlinux.write_text("fake vmlinux")
 
+        # Create fake fstests directory with required structure
+        fstests_dir = tmp_path / "fstests"
+        fstests_dir.mkdir()
+        (fstests_dir / "check").touch()
+        ltp_dir = fstests_dir / "ltp"
+        ltp_dir.mkdir()
+        (ltp_dir / "fsstress").touch()
+        (ltp_dir / "fsstress").chmod(0o755)
+        src_dir = fstests_dir / "src"
+        src_dir.mkdir()
+        (src_dir / "aio-dio-regress").touch()
+        (src_dir / "aio-dio-regress").chmod(0o755)
+
         # Mock release to fail
         mock_release.side_effect = Exception("lvremove failed")
 
@@ -408,7 +436,7 @@ class TestDevicePoolCleanup:
         import asyncio
         try:
             asyncio.run(boot_mgr.boot_with_fstests(
-                fstests_path=Path("/fake/fstests"),
+                fstests_path=fstests_dir,
                 tests=["-g", "quick"],
                 use_default_devices=True
             ))
