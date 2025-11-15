@@ -495,3 +495,29 @@ def test_boot_manager_script_file_not_found():
     assert result.success is False
     assert "not found" in result.dmesg_output.lower()
     assert result.exit_code == -1
+
+
+def test_save_boot_log_datetime():
+    """Test that _save_boot_log uses datetime correctly.
+
+    Regression test for bug where datetime.now() was called instead of
+    datetime.datetime.now(), causing AttributeError: module 'datetime' has
+    no attribute 'now'.
+    """
+    from kerneldev_mcp.boot_manager import _save_boot_log
+
+    # This will fail if datetime is used incorrectly
+    log_path = _save_boot_log("Test boot output", True)
+
+    assert log_path.exists(), "Log file should be created"
+    assert "boot-" in log_path.name, "Log filename should contain 'boot-'"
+    assert log_path.name.endswith("-success.log"), "Should indicate success"
+
+    # Clean up
+    log_path.unlink()
+
+    # Test failure case too
+    log_path = _save_boot_log("Test failure output", False)
+    assert log_path.exists()
+    assert log_path.name.endswith("-failure.log"), "Should indicate failure"
+    log_path.unlink()

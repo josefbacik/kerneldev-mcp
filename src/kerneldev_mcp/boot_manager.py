@@ -1090,7 +1090,7 @@ def _save_boot_log(output: str, success: bool) -> Path:
     _ensure_log_directory()
 
     # Create timestamped filename
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     status = "success" if success else "failure"
     log_file = BOOT_LOG_DIR / f"boot-{timestamp}-{status}.log"
 
@@ -1124,7 +1124,7 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = F
     """
     # Create log file for this run (before starting the process)
     _ensure_log_directory()
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     log_file_path = BOOT_LOG_DIR / f"boot-{timestamp}-running.log"
     log_file_handle = None
 
@@ -1133,7 +1133,7 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = F
         log_file_handle = open(log_file_path, 'w', encoding='utf-8', buffering=1)  # Line buffered
         log_file_handle.write(f"=== VM Boot Log ===\n")
         log_file_handle.write(f"Description: {description}\n")
-        log_file_handle.write(f"Started: {datetime.now().isoformat()}\n")
+        log_file_handle.write(f"Started: {datetime.datetime.now().isoformat()}\n")
         log_file_handle.write(f"Command: {' '.join(cmd)}\n")
         log_file_handle.write("=" * 80 + "\n\n")
         log_file_handle.flush()
@@ -1315,7 +1315,7 @@ def _run_with_pty(cmd: List[str], cwd: Path, timeout: int, emit_output: bool = F
         if log_file_handle:
             try:
                 log_file_handle.write(f"\n\n=== VM Process Terminated ===\n")
-                log_file_handle.write(f"Ended: {datetime.now().isoformat()}\n")
+                log_file_handle.write(f"Ended: {datetime.datetime.now().isoformat()}\n")
                 log_file_handle.close()
             except Exception:
                 pass
@@ -1360,7 +1360,7 @@ async def _run_with_pty_async(cmd: List[str], cwd: Path, timeout: int, emit_outp
     """
     # Create log file for this run (before starting the process)
     _ensure_log_directory()
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     log_file_path = BOOT_LOG_DIR / f"boot-{timestamp}-running.log"
     log_file_handle = None
 
@@ -1369,7 +1369,7 @@ async def _run_with_pty_async(cmd: List[str], cwd: Path, timeout: int, emit_outp
         log_file_handle = open(log_file_path, 'w', encoding='utf-8', buffering=1)  # Line buffered
         log_file_handle.write(f"=== VM Boot Log ===\n")
         log_file_handle.write(f"Description: {description}\n")
-        log_file_handle.write(f"Started: {datetime.now().isoformat()}\n")
+        log_file_handle.write(f"Started: {datetime.datetime.now().isoformat()}\n")
         log_file_handle.write(f"Command: {' '.join(cmd)}\n")
         log_file_handle.write("=" * 80 + "\n\n")
         log_file_handle.flush()
@@ -1600,7 +1600,7 @@ async def _run_with_pty_async(cmd: List[str], cwd: Path, timeout: int, emit_outp
         if log_file_handle:
             try:
                 log_file_handle.write(f"\n\n=== VM Process Terminated ===\n")
-                log_file_handle.write(f"Ended: {datetime.now().isoformat()}\n")
+                log_file_handle.write(f"Ended: {datetime.datetime.now().isoformat()}\n")
                 log_file_handle.close()
             except Exception:
                 pass
@@ -2379,7 +2379,7 @@ class BootManager:
         # Create timestamped results directory on host
         # Using timestamp ensures each run has isolated results
         from datetime import datetime
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         results_base_dir = Path.home() / ".kerneldev-mcp" / "fstests-results"
         results_dir = results_base_dir / f"run-{timestamp}"
         results_dir.mkdir(parents=True, exist_ok=True)
@@ -2916,7 +2916,7 @@ exit $exit_code
 
         # Create timestamped results directory on host
         from datetime import datetime
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         results_base_dir = Path.home() / ".kerneldev-mcp" / "fstests-results"
         results_dir = results_base_dir / f"custom-{timestamp}"
         results_dir.mkdir(parents=True, exist_ok=True)
