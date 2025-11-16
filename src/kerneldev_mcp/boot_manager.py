@@ -1155,7 +1155,7 @@ def _run_with_pty(
     try:
         # Open log file for writing
         log_file_handle = open(log_file_path, "w", encoding="utf-8", buffering=1)  # Line buffered
-        log_file_handle.write(f"=== VM Boot Log ===\n")
+        log_file_handle.write("=== VM Boot Log ===\n")
         log_file_handle.write(f"Description: {description}\n")
         log_file_handle.write(f"Started: {datetime.datetime.now().isoformat()}\n")
         log_file_handle.write(f"Command: {' '.join(cmd)}\n")
@@ -1356,7 +1356,7 @@ def _run_with_pty(
         # Close log file if it's open
         if log_file_handle:
             try:
-                log_file_handle.write(f"\n\n=== VM Process Terminated ===\n")
+                log_file_handle.write("\n\n=== VM Process Terminated ===\n")
                 log_file_handle.write(f"Ended: {datetime.datetime.now().isoformat()}\n")
                 log_file_handle.close()
             except Exception:
@@ -1411,7 +1411,7 @@ async def _run_with_pty_async(
     try:
         # Open log file for writing (append mode in case we want to write header)
         log_file_handle = open(log_file_path, "w", encoding="utf-8", buffering=1)  # Line buffered
-        log_file_handle.write(f"=== VM Boot Log ===\n")
+        log_file_handle.write("=== VM Boot Log ===\n")
         log_file_handle.write(f"Description: {description}\n")
         log_file_handle.write(f"Started: {datetime.datetime.now().isoformat()}\n")
         log_file_handle.write(f"Command: {' '.join(cmd)}\n")
@@ -1663,7 +1663,7 @@ async def _run_with_pty_async(
         # Close log file if it's open
         if log_file_handle:
             try:
-                log_file_handle.write(f"\n\n=== VM Process Terminated ===\n")
+                log_file_handle.write("\n\n=== VM Process Terminated ===\n")
                 log_file_handle.write(f"Ended: {datetime.datetime.now().isoformat()}\n")
                 log_file_handle.close()
             except Exception:
@@ -2272,7 +2272,7 @@ class BootManager:
             Tuple of (BootResult, FstestsRunResult or None)
         """
         # Import here to avoid circular dependency
-        from .fstests_manager import FstestsManager, FstestsRunResult
+        from .fstests_manager import FstestsManager
 
         logger.info("=" * 60)
         logger.info(f"Starting kernel boot with fstests: {self.kernel_path}")
@@ -2820,7 +2820,7 @@ exit $exit_code
                         keep_volumes=False,
                         config_dir=Path.home() / ".kerneldev-mcp",
                     )
-                    logger.info(f"✓ Device pool volumes released")
+                    logger.info("✓ Device pool volumes released")
                 except Exception as e:
                     logger.warning(f"Failed to release device pool volumes: {e}")
 

@@ -134,7 +134,6 @@ class TestBootFstestsBasicFunctionality:
         associated with a value" due to redundant imports in try blocks.
         """
         from kerneldev_mcp.boot_manager import BootManager
-        from pathlib import Path
         import tempfile
 
         # Use a real temp directory

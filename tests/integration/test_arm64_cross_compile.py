@@ -6,7 +6,6 @@ This test validates that the kerneldev-mcp can correctly cross-compile
 the Linux kernel for arm64 architecture.
 """
 
-import os
 from pathlib import Path
 from kerneldev_mcp.config_manager import ConfigManager, KernelConfig, CrossCompileConfig
 from kerneldev_mcp.build_manager import KernelBuilder
@@ -25,7 +24,7 @@ def test_arm64_defconfig():
     # Create cross-compile configuration
     cross_compile = CrossCompileConfig(arch="arm64")
 
-    print(f"Cross-compile configuration:")
+    print("Cross-compile configuration:")
     print(f"  Architecture: {cross_compile.arch}")
     print(f"  Toolchain prefix: {cross_compile.cross_compile_prefix}")
     print(f"  Using LLVM: {cross_compile.use_llvm}")
@@ -72,7 +71,7 @@ def test_arm64_defconfig():
     # Try to build just the kernel preparation targets
     # (This validates that cross-compilation settings work without a full build)
     print("\nTesting kernel preparation with cross-compilation...")
-    builder = KernelBuilder(kernel_path)
+    KernelBuilder(kernel_path)
 
     import subprocess
 
@@ -92,7 +91,7 @@ def test_arm64_defconfig():
         )
 
         if result.returncode != 0:
-            print(f"ERROR: prepare target failed")
+            print("ERROR: prepare target failed")
             print(f"STDOUT: {result.stdout[-500:]}")
             print(f"STDERR: {result.stderr[-500:]}")
             # Don't fail the test - just warn, as cross-compile settings were validated

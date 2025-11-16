@@ -4,8 +4,7 @@ Tests for LVM volume allocation and release functionality.
 
 import os
 import pytest
-from pathlib import Path
-from unittest.mock import Mock, patch, call
+from unittest.mock import Mock, patch
 from datetime import datetime
 
 from kerneldev_mcp.device_pool import (
@@ -103,7 +102,7 @@ class TestVolumeAllocation:
 
         volume_specs = [VolumeConfig(name="test", size="10G", order=0)]
 
-        allocations = lvm_manager.allocate_volumes(
+        lvm_manager.allocate_volumes(
             pool_name="test-pool", volume_specs=volume_specs, session_id="session-test-456"
         )
 
@@ -204,7 +203,7 @@ class TestVolumeRelease:
             VolumeConfig(name="pool1", size="10G", order=1),
         ]
 
-        allocations = lvm_manager.allocate_volumes(
+        lvm_manager.allocate_volumes(
             pool_name="test-pool", volume_specs=volume_specs, session_id="session-release-test"
         )
 
@@ -239,7 +238,7 @@ class TestVolumeRelease:
 
         volume_specs = [VolumeConfig(name="test", size="10G", order=0)]
 
-        allocations = lvm_manager.allocate_volumes(
+        lvm_manager.allocate_volumes(
             pool_name="test-pool", volume_specs=volume_specs, session_id="session-keep-test"
         )
 
@@ -284,7 +283,7 @@ class TestVolumeRelease:
             VolumeConfig(name="pool1", size="10G", order=1),
         ]
 
-        allocations = lvm_manager.allocate_volumes(
+        lvm_manager.allocate_volumes(
             pool_name="test-pool", volume_specs=volume_specs, session_id="session-partial"
         )
 

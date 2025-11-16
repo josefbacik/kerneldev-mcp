@@ -3,9 +3,7 @@ Unit tests for baseline_manager module.
 """
 
 import pytest
-import json
 from pathlib import Path
-from datetime import datetime
 
 from kerneldev_mcp.baseline_manager import (
     BaselineManager,
@@ -252,7 +250,7 @@ class TestBaselineManager:
 
     def test_save_baseline_sanitizes_name(self, baseline_manager, sample_results):
         """Test that baseline name is sanitized for filesystem."""
-        baseline = baseline_manager.save_baseline(
+        baseline_manager.save_baseline(
             baseline_name="test/baseline:with*special", results=sample_results
         )
 

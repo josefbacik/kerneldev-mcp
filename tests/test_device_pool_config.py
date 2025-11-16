@@ -5,9 +5,7 @@ These tests verify configuration storage, serialization, and management.
 """
 
 import json
-import os
 import pytest
-import tempfile
 from pathlib import Path
 from datetime import datetime
 

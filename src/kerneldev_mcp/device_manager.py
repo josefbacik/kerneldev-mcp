@@ -2,11 +2,9 @@
 Device management for fstests - handles loop devices, filesystem creation, and mounting.
 """
 
-import os
 import subprocess
-import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 from dataclasses import dataclass
 
 
@@ -100,7 +98,7 @@ class DeviceManager:
 
             return loop_dev, backing_file
 
-        except subprocess.CalledProcessError as e:
+        except subprocess.CalledProcessError:
             # Cleanup backing file if loop setup failed
             if backing_file.exists():
                 backing_file.unlink()
@@ -181,7 +179,7 @@ class DeviceManager:
         try:
             subprocess.run(cmd, check=True, capture_output=True, text=True)
             return True
-        except subprocess.CalledProcessError as e:
+        except subprocess.CalledProcessError:
             return False
 
     def mount_device(

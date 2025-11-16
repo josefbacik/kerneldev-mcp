@@ -3,9 +3,8 @@ Unit tests for DeviceSpec, DeviceProfile, and VMDeviceManager classes.
 """
 
 import pytest
-import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
+from unittest.mock import patch
 from src.kerneldev_mcp.boot_manager import (
     DeviceSpec,
     DeviceProfile,

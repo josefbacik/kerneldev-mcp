@@ -80,7 +80,7 @@ class TestLVPermissions:
         if hasattr(cls, "temp_file"):
             try:
                 os.unlink(cls.temp_file.name)
-            except:
+            except Exception:
                 pass
 
     def test_lv_user_permissions(self):
@@ -144,7 +144,6 @@ class TestLVPermissions:
                     )
 
                 # Test 3: Check ownership
-                import stat
                 import pwd
 
                 stat_info = os.stat(lv_path)
@@ -190,7 +189,7 @@ class TestLVPermissions:
             # Try to clean up
             try:
                 lvm_manager.teardown_pool(self.pool_name)
-            except:
+            except Exception:
                 pass
             raise
 

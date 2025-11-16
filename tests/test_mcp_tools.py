@@ -10,7 +10,6 @@ variable for the entire call_tool function, breaking other handlers.
 """
 
 import subprocess
-from pathlib import Path
 import pytest
 
 
@@ -63,7 +62,6 @@ class TestNoVariableShadowing:
         the entire call_tool function.
         """
         # Import the server module - this should not raise any errors
-        from kerneldev_mcp import server
 
         # Verify KernelBuilder is accessible at module level
         # (it's imported from build_manager)
@@ -93,7 +91,6 @@ class TestNoVariableShadowing:
         from within the run_and_save_fstests handler.
         """
         # Import server first (which has call_tool function that could shadow)
-        from kerneldev_mcp import server
 
         # Now try to use KernelBuilder - this would fail with the bug
         from kerneldev_mcp.build_manager import KernelBuilder

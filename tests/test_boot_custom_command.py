@@ -9,7 +9,6 @@ Tests ensure that:
 """
 
 import inspect
-import re
 from pathlib import Path
 import pytest
 
@@ -337,7 +336,6 @@ class TestBootCustomCommandBasicFunctionality:
         Regression test for import scoping bugs.
         """
         from kerneldev_mcp.boot_manager import BootManager
-        from pathlib import Path
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:

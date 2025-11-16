@@ -5,7 +5,7 @@ Baseline management for fstests - tracking, comparison, and regression detection
 import json
 import shutil
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 
@@ -324,7 +324,7 @@ class BaselineManager:
 
         # Get test names
         current_tests = set(current_map.keys())
-        baseline_tests = set(baseline_map.keys())
+        set(baseline_map.keys())
 
         # Analyze results
         new_failures = []

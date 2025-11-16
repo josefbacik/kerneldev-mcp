@@ -19,7 +19,7 @@ def test_kernel_boot():
         print(f"ERROR: Kernel path does not exist: {kernel_path}")
         return False
 
-    print(f"Testing kernel boot with virtme-ng")
+    print("Testing kernel boot with virtme-ng")
     print(f"Kernel path: {kernel_path}")
     print("")
 

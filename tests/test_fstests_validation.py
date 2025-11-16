@@ -4,7 +4,7 @@ Unit tests for fstests test argument validation and error detection.
 
 import pytest
 from pathlib import Path
-from kerneldev_mcp.fstests_manager import FstestsManager, FstestsRunResult
+from kerneldev_mcp.fstests_manager import FstestsManager
 
 
 class TestFstestsValidation:

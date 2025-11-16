@@ -14,7 +14,7 @@ import pwd
 import subprocess
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Any
@@ -549,9 +549,7 @@ class SafetyValidator:
 
             # Check for direct device path or basename
             if device in fstab_content or device_base in fstab_content:
-                return ValidationResult(
-                    ValidationLevel.ERROR, f"Device is referenced in /etc/fstab"
-                )
+                return ValidationResult(ValidationLevel.ERROR, "Device is referenced in /etc/fstab")
 
             # Check for UUID or LABEL references
             try:
@@ -616,7 +614,7 @@ class SafetyValidator:
             )
 
             if result.returncode == 0:
-                return ValidationResult(ValidationLevel.ERROR, f"Device is a RAID member")
+                return ValidationResult(ValidationLevel.ERROR, "Device is a RAID member")
 
             return ValidationResult(ValidationLevel.OK, "Device is not a RAID member")
 
@@ -637,7 +635,7 @@ class SafetyValidator:
 
             if result.returncode == 0:
                 return ValidationResult(
-                    ValidationLevel.ERROR, f"Device is already an LVM physical volume"
+                    ValidationLevel.ERROR, "Device is already an LVM physical volume"
                 )
 
             return ValidationResult(ValidationLevel.OK, "Device is not an LVM PV")
@@ -658,7 +656,7 @@ class SafetyValidator:
             )
 
             if result.returncode == 0:
-                return ValidationResult(ValidationLevel.ERROR, f"Device is LUKS encrypted")
+                return ValidationResult(ValidationLevel.ERROR, "Device is LUKS encrypted")
 
             return ValidationResult(ValidationLevel.OK, "Device is not encrypted")
 
@@ -1034,7 +1032,6 @@ def _grant_user_lv_access(lv_path: str) -> bool:
     Returns:
         True if access granted successfully
     """
-    import pwd
 
     # Get username safely (check SUDO_USER first, then USER, then fallback to getpwuid)
     username = (
@@ -1159,7 +1156,6 @@ class LVMPoolManager(DevicePoolManager):
         Returns:
             PoolConfig for created pool
         """
-        import pwd
 
         logger.info(f"Creating LVM pool '{pool_name}' on {device} (PV + VG only)")
 
@@ -1296,7 +1292,6 @@ class LVMPoolManager(DevicePoolManager):
             List of VolumeAllocation objects
         """
         import secrets
-        import time
 
         pool = self.config_manager.get_pool(pool_name)
         if pool is None:

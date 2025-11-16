@@ -2,9 +2,7 @@
 Tests for template management.
 """
 
-import pytest
-from pathlib import Path
-from kerneldev_mcp.templates import TemplateManager, ConfigTemplate
+from kerneldev_mcp.templates import TemplateManager
 
 
 def test_template_manager_initialization():

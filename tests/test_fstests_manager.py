@@ -4,7 +4,7 @@ Unit tests for fstests_manager module.
 
 import pytest
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 import subprocess
 
 from kerneldev_mcp.fstests_manager import (
@@ -689,7 +689,7 @@ Failed 1 of 1 tests
         assert result.passed == 0
         assert result.failed == 1
         assert result.notrun == 0
-        assert result.success == False
+        assert not result.success
 
         failed_tests = [t for t in result.test_results if t.status == "failed"]
         assert len(failed_tests) == 1
@@ -709,7 +709,7 @@ Failed 2 of 3 tests
         assert result.passed == 1
         assert result.failed == 2
         assert result.notrun == 0
-        assert result.success == False
+        assert not result.success
 
         failed_tests = [t for t in result.test_results if t.status == "failed"]
         assert len(failed_tests) == 2

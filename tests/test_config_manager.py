@@ -2,8 +2,6 @@
 Tests for configuration management.
 """
 
-import pytest
-from pathlib import Path
 from kerneldev_mcp.config_manager import (
     ConfigOption,
     KernelConfig,

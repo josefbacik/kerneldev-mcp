@@ -16,22 +16,17 @@ from mcp.types import (
     Resource,
     Tool,
     TextContent,
-    ImageContent,
-    EmbeddedResource,
 )
 
 from .config_manager import ConfigManager, KernelConfig, CrossCompileConfig
 from .templates import TemplateManager
-from .build_manager import KernelBuilder, BuildResult, format_build_errors
+from .build_manager import KernelBuilder, format_build_errors
 from .boot_manager import (
     BootManager,
-    BootResult,
     format_boot_result,
     DeviceSpec,
-    DeviceProfile,
-    VMDeviceManager,
 )
-from .device_manager import DeviceManager, DeviceConfig, DeviceSetupResult
+from .device_manager import DeviceManager
 from .fstests_manager import (
     FstestsManager,
     FstestsConfig,
@@ -39,8 +34,8 @@ from .fstests_manager import (
     TestResult,
     format_fstests_result,
 )
-from .baseline_manager import BaselineManager, Baseline, ComparisonResult, format_comparison_result
-from .git_manager import GitManager, GitNoteMetadata
+from .baseline_manager import BaselineManager, format_comparison_result
+from .git_manager import GitManager
 from . import device_pool_tools
 
 # Configure logging - log to both file and stderr
@@ -57,7 +52,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 logger.info("=" * 80)
-logger.info(f"kerneldev-mcp server starting")
+logger.info("kerneldev-mcp server starting")
 logger.info(f"Log file: {log_file}")
 logger.info(f"Tip: Monitor progress with: tail -f {log_file}")
 logger.info("=" * 80)
@@ -1240,10 +1235,10 @@ def _parse_cross_compile_args(arguments: Dict[str, Any]) -> Optional[CrossCompil
 async def call_tool(name: str, arguments: Any) -> list[TextContent]:
     """Handle tool calls."""
     # Log IMMEDIATELY at entry to catch any hangs before tool logic
-    logger.info(f"=" * 80)
+    logger.info("=" * 80)
     logger.info(f"TOOL CALL: {name}")
     logger.info(f"Arguments: {arguments}")
-    logger.info(f"=" * 80)
+    logger.info("=" * 80)
     # Force flush immediately
     for handler in logger.handlers:
         handler.flush()
@@ -2034,7 +2029,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     except subprocess.TimeoutExpired as e:
                         logger.error(f"  TIMEOUT killing PID {pid}: {e}")
                         errors.append(f"Timeout killing PID {pid} (process may be stuck)")
-                        output_lines.append(f"    Status: ✗ Timeout (stuck)")
+                        output_lines.append("    Status: ✗ Timeout (stuck)")
                     except (ProcessLookupError, OSError, subprocess.CalledProcessError) as e:
                         logger.error(f"  ERROR killing PID {pid}: {e}")
                         errors.append(f"Failed to kill PID {pid}: {e}")
@@ -2101,7 +2096,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                                 # Add summary
                                 if panics or oops:
                                     output_lines.append(
-                                        f"    ⚠ VM HUNG DUE TO KERNEL CRASH - see panics/oops above"
+                                        "    ⚠ VM HUNG DUE TO KERNEL CRASH - see panics/oops above"
                                     )
                                 elif errors:
                                     output_lines.append(
@@ -2109,7 +2104,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                                     )
                                 else:
                                     output_lines.append(
-                                        f"    ℹ No obvious kernel issues - check full log for details"
+                                        "    ℹ No obvious kernel issues - check full log for details"
                                     )
                             else:
                                 output_lines.append(f"    ⚠ Log file not found: {log_path}")
@@ -2341,7 +2336,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 if result.cleanup_needed:
                     output += "\n⚠ Cleanup required when done (loop devices)"
                 if result.pool_devices:
-                    output += f"\n\n💡 Remember to pass pool_devices to fstests_setup_configure"
+                    output += "\n\n💡 Remember to pass pool_devices to fstests_setup_configure"
             else:
                 output = f"✗ {result.message}"
 
@@ -2716,7 +2711,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 if not (command or script_file)
                 else (f"Script: {script_file.name}" if script_file else "Command")
             )
-            output = f"=== Kernel Boot with Custom Command ===\n\n"
+            output = "=== Kernel Boot with Custom Command ===\n\n"
             output += f"Mode: {mode}\n\n"
 
             # Boot status

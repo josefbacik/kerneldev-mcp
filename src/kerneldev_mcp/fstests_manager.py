@@ -2,7 +2,6 @@
 Core fstests management - installation, configuration, execution, and result parsing.
 """
 
-import json
 import logging
 import os
 import re

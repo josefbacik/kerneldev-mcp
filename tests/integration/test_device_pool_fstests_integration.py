@@ -75,7 +75,7 @@ class TestDevicePoolFstestsIntegration:
         if hasattr(cls, "temp_file"):
             try:
                 os.unlink(cls.temp_file.name)
-            except:
+            except Exception:
                 pass
 
     def test_device_manager_with_pool(self):
@@ -188,7 +188,7 @@ class TestDevicePoolFstestsIntegration:
                 if "session_id" in locals():
                     lvm_manager.release_volumes(self.pool_name, session_id)
                 lvm_manager.teardown_pool(self.pool_name)
-            except:
+            except Exception:
                 pass
             raise
 

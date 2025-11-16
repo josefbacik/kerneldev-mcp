@@ -3,11 +3,10 @@ Kernel configuration management - generation, merging, and manipulation.
 """
 
 import logging
-import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Union
+from typing import Dict, List, Optional, Union
 from dataclasses import dataclass
 
 from .templates import TemplateManager
@@ -228,7 +227,7 @@ class ConfigManager:
         """
         config = KernelConfig()
         config.header_comments = [
-            f"Automatically generated kernel configuration",
+            "Automatically generated kernel configuration",
             f"Target: {target}",
             f"Debug level: {debug_level}",
             f"Architecture: {architecture}",
@@ -606,7 +605,7 @@ class ConfigManager:
                 content = kconfig_file.read_text()
                 # Simple search for config options
                 for match in re.finditer(
-                    rf"config\s+(\w+).*?(?=\nconfig\s|\nendmenu|\nmenu\s|\Z)",
+                    r"config\s+(\w+).*?(?=\nconfig\s|\nendmenu|\nmenu\s|\Z)",
                     content,
                     re.DOTALL | re.IGNORECASE,
                 ):

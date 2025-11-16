@@ -8,8 +8,6 @@ Tests the full workflow of:
 """
 
 import subprocess
-import tempfile
-from pathlib import Path
 import pytest
 
 from kerneldev_mcp.git_manager import GitManager

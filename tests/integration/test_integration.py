@@ -6,7 +6,6 @@ Integration test with actual kernel source.
 import sys
 from pathlib import Path
 import tempfile
-import subprocess
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
@@ -48,7 +47,7 @@ def test_with_real_kernel():
     virtio_count = text.count("CONFIG_VIRTIO")
     debug_count = text.count("CONFIG_DEBUG")
 
-    print(f"\n  Statistics:")
+    print("\n  Statistics:")
     print(f"    Total lines: {len(lines)}")
     print(f"    VIRTIO options: {virtio_count}")
     print(f"    DEBUG options: {debug_count}")

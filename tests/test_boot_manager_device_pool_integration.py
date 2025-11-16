@@ -5,15 +5,13 @@ These tests verify that BootManager automatically detects and uses device pools
 when configured, with proper fallback to loop devices.
 """
 
-import json
 import pytest
-import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import patch
 from datetime import datetime
 
 from kerneldev_mcp.boot_manager import BootManager
-from kerneldev_mcp.device_pool import ConfigManager, PoolConfig, LVMPoolConfig, VolumeConfig
+from kerneldev_mcp.device_pool import ConfigManager, PoolConfig, LVMPoolConfig
 
 
 @pytest.fixture
@@ -241,7 +239,7 @@ class TestBootWithFstestsPoolIntegration:
         ]
         mock_try_pool.return_value = mock_devices
 
-        boot_mgr = BootManager(temp_kernel_dir)
+        BootManager(temp_kernel_dir)
 
         # We can't easily test the full flow without mocking everything,
         # but we can verify the pool allocation is attempted
@@ -310,7 +308,6 @@ class TestDevicePoolCleanup:
         fails during device setup (after pool allocation but before VM execution).
         """
         from kerneldev_mcp.boot_manager import DeviceSpec
-        from unittest.mock import AsyncMock
         import asyncio
 
         # Mock pool allocation
@@ -349,7 +346,6 @@ class TestDevicePoolCleanup:
         boot_mgr._pool_session_id = "20251115123456-abc123"
 
         # Boot will fail somewhere (no real devices), but cleanup should run
-        import asyncio
 
         try:
             asyncio.run(
@@ -357,7 +353,7 @@ class TestDevicePoolCleanup:
                     fstests_path=fstests_dir, tests=["-g", "quick"], use_default_devices=True
                 )
             )
-        except:
+        except Exception:
             pass  # Expected to fail
 
         # Verify pool cleanup was called (this is the key assertion)
@@ -429,7 +425,6 @@ class TestDevicePoolCleanup:
         boot_mgr._pool_session_id = "20251115123456-abc123"
 
         # Should not crash despite release failure
-        import asyncio
 
         try:
             asyncio.run(
@@ -437,7 +432,7 @@ class TestDevicePoolCleanup:
                     fstests_path=fstests_dir, tests=["-g", "quick"], use_default_devices=True
                 )
             )
-        except:
+        except Exception:
             pass  # Expected to fail
 
         # Release was attempted (even though it failed)

@@ -1,9 +1,9 @@
 #!/bin/bash
 #
-# Pre-commit hook to enforce code formatting and unit tests
+# Pre-commit hook to enforce code quality and unit tests
 #
-# This hook checks formatting with ruff and runs unit tests before allowing a commit.
-# If either check fails, the commit will be blocked with a helpful message.
+# This hook checks formatting and linting with ruff, then runs unit tests.
+# If any check fails, the commit will be blocked with a helpful message.
 
 # Colors
 GREEN='\033[0;32m'
@@ -21,6 +21,22 @@ else
     echo -e "${RED}✗ Code formatting check failed${NC}"
     echo ""
     echo "Please run: ruff format ."
+    echo ""
+    echo "To skip this check (not recommended), use: git commit --no-verify"
+    exit 1
+fi
+
+# Check code quality with ruff
+echo -ne "Checking code quality (ruff)... "
+if ruff check . &> /dev/null; then
+    echo -e "${GREEN}✓${NC}"
+else
+    echo -e "${RED}✗${NC}"
+    echo ""
+    echo -e "${RED}✗ Code quality check failed${NC}"
+    echo ""
+    echo "Please run: ruff check . --fix"
+    echo "Or view issues with: ruff check ."
     echo ""
     echo "To skip this check (not recommended), use: git commit --no-verify"
     exit 1

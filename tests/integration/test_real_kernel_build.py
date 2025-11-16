@@ -11,7 +11,7 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from kerneldev_mcp.build_manager import KernelBuilder, format_build_errors
+from kerneldev_mcp.build_manager import KernelBuilder
 from kerneldev_mcp.config_manager import ConfigManager
 
 

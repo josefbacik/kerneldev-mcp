@@ -4,11 +4,8 @@ Tests for SafetyValidator in device_pool module.
 These tests verify the comprehensive 10-point safety checklist.
 """
 
-import os
 import pytest
-import tempfile
 from unittest.mock import Mock, patch, mock_open
-from pathlib import Path
 
 from kerneldev_mcp.device_pool import SafetyValidator, ValidationLevel, ValidationResult
 

@@ -9,9 +9,8 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import List, Optional, Tuple, TYPE_CHECKING
 from dataclasses import dataclass, field
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -415,7 +414,7 @@ class KernelBuilder:
             )
             logger.info(f"✓ Clean completed: make {target}")
             return True
-        except subprocess.CalledProcessError as e:
+        except subprocess.CalledProcessError:
             logger.error(f"✗ Clean failed: make {target}")
             return False
 

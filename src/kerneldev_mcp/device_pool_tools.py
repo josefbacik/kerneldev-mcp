@@ -4,11 +4,9 @@ MCP tools for device pool management.
 Provides MCP tool definitions and handlers for device pool operations.
 """
 
-import json
 import logging
 import subprocess
 from typing import Any, Dict, List
-from pathlib import Path
 
 from mcp.types import Tool, TextContent
 
@@ -225,7 +223,7 @@ async def _handle_device_pool_setup(arguments: Dict[str, Any]) -> List[TextConte
             timeout=5,
         )
         vg_size = result.stdout.strip() if result.returncode == 0 else "unknown"
-    except:
+    except Exception:
         vg_size = "unknown"
 
     # Format response
@@ -246,12 +244,12 @@ All LVM operations use sudo - no special permissions configuration needed.
 VG name '{vg_name}' is persistent across reboots.
 """
 
-    response_text += f"\nConfiguration saved to: ~/.kerneldev-mcp/device-pool.json"
+    response_text += "\nConfiguration saved to: ~/.kerneldev-mcp/device-pool.json"
     response_text += (
         f"\n\nTo use this pool automatically:\n  export KERNELDEV_DEVICE_POOL={pool_name}"
     )
     response_text += (
-        f"\n\nLVs will be created automatically when running:\n  fstests_vm_boot_and_run ..."
+        "\n\nLVs will be created automatically when running:\n  fstests_vm_boot_and_run ..."
     )
 
     return [TextContent(type="text", text=response_text)]
@@ -300,7 +298,7 @@ async def _handle_device_pool_status(arguments: Dict[str, Any]) -> List[TextCont
             vg_free = parts[1] if len(parts) > 1 else "unknown"
         else:
             vg_size = vg_free = "unknown"
-    except:
+    except Exception:
         vg_size = vg_free = "unknown"
 
     # Format response
@@ -321,7 +319,7 @@ Active LVs: {len(pool_allocations)}
             response_text += f"  - {alloc['lv_name']}: {alloc['volume_spec']['size']}"
             response_text += f" (PID {alloc['pid']}, session {alloc['session_id'][:8]}...)\n"
 
-    response_text += f"\n\nHealth Status: "
+    response_text += "\n\nHealth Status: "
     if validation.level == ValidationLevel.OK:
         response_text += "✓ HEALTHY"
     elif validation.level == ValidationLevel.WARNING:
@@ -332,8 +330,8 @@ Active LVs: {len(pool_allocations)}
     response_text += f"\n{validation.message}"
 
     if pool_allocations:
-        response_text += f"\n\nNote: LVs are automatically created/deleted per test run."
-        response_text += f"\nUse device_pool_cleanup to remove orphaned LVs from dead processes."
+        response_text += "\n\nNote: LVs are automatically created/deleted per test run."
+        response_text += "\nUse device_pool_cleanup to remove orphaned LVs from dead processes."
 
     return [TextContent(type="text", text=response_text)]
 

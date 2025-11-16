@@ -2,7 +2,6 @@
 Configuration template management for kernel configurations.
 """
 
-import os
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass

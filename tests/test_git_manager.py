@@ -2,13 +2,10 @@
 Unit tests for git_manager module.
 """
 
-import json
 import subprocess
-import tempfile
-from pathlib import Path
 import pytest
 
-from kerneldev_mcp.git_manager import GitManager, FSTESTS_NOTES_REF
+from kerneldev_mcp.git_manager import GitManager
 from kerneldev_mcp.fstests_manager import FstestsRunResult, TestResult
 
 

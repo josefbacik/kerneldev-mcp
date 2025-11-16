@@ -6,8 +6,7 @@ root privileges and physical devices.
 """
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
-from pathlib import Path
+from unittest.mock import Mock, patch
 
 from kerneldev_mcp.device_pool import LVMPoolManager, ConfigManager, ValidationLevel
 

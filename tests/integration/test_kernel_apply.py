@@ -53,7 +53,7 @@ def test_apply_to_kernel():
             # Show some stats
             if config_path.exists():
                 lines = config_path.read_text().splitlines()
-                print(f"Generated .config statistics:")
+                print("Generated .config statistics:")
                 print(f"  Total lines: {len(lines)}")
 
                 enabled = sum(1 for line in lines if line.startswith("CONFIG_") and "=y" in line)
@@ -69,7 +69,7 @@ def test_apply_to_kernel():
     finally:
         # Restore backup
         if backup_path.exists():
-            print(f"\nRestoring original .config from backup...")
+            print("\nRestoring original .config from backup...")
             shutil.copy2(backup_path, config_path)
             backup_path.unlink()
             print("✓ Original .config restored")
