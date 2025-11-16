@@ -501,7 +501,6 @@ async def list_tools() -> list[Tool]:
                         "description": "Boot timeout in seconds",
                         "default": 60,
                         "minimum": 10,
-                        "maximum": 300,
                     },
                     "memory": {
                         "type": "string",
