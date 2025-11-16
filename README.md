@@ -502,15 +502,20 @@ After cloning the repository, set up git hooks to ensure code quality:
 ```
 
 This configures:
-- **pre-commit hook**: Checks code formatting and runs unit tests
-  - Code formatting check with `ruff format --check` (fast, ~instant)
+- **pre-commit hook**: Checks code formatting, linting, and runs unit tests
+  - Code formatting with `ruff format --check` (instant)
+  - Code quality with `ruff check` (instant)
   - Ensures all 384 unit tests pass before code is committed
-  - Helps catch formatting issues and regressions early
+  - Helps catch formatting, quality issues, and regressions early
   - Can be bypassed with `git commit --no-verify` (not recommended)
 
-If the formatting check fails, run:
+If checks fail:
 ```bash
+# Fix formatting
 ruff format .
+
+# Fix linting issues
+ruff check . --fix
 ```
 
 The hooks are stored in the `hooks/` directory and are version-controlled, ensuring all contributors use the same quality checks.
