@@ -493,6 +493,22 @@ Contributions welcome! Please:
 3. Add tests for new functionality
 4. Update documentation
 
+### Development Setup
+
+After cloning the repository, set up git hooks to ensure code quality:
+
+```bash
+./setup-hooks.sh
+```
+
+This configures:
+- **pre-commit hook**: Runs unit tests before allowing commits
+  - Ensures all tests pass before code is committed
+  - Helps catch regressions early
+  - Can be bypassed with `git commit --no-verify` (not recommended)
+
+The hooks are stored in the `hooks/` directory and are version-controlled, ensuring all contributors use the same quality checks.
+
 ## License
 
 GPL-2.0 (to match Linux kernel licensing)

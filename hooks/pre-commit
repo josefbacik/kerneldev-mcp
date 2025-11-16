@@ -1,0 +1,26 @@
+#!/bin/bash
+#
+# Pre-commit hook to enforce unit tests pass
+#
+# This hook runs unit tests before allowing a commit.
+# If tests fail, the commit will be blocked with a helpful message.
+
+# Colors
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[0;33m'
+NC='\033[0m' # No Color
+
+echo -e "${YELLOW}Running unit tests...${NC}"
+
+# Run pytest for unit tests only (excluding integration tests)
+if python3 -m pytest tests/ -v --ignore=tests/integration/ --tb=short; then
+    echo -e "${GREEN}✓ All unit tests passed${NC}"
+    exit 0
+else
+    echo ""
+    echo -e "${RED}✗ Unit tests failed - please fix the failing tests before committing${NC}"
+    echo ""
+    echo "To skip this check (not recommended), use: git commit --no-verify"
+    exit 1
+fi
