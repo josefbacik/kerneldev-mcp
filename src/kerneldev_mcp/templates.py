@@ -1,6 +1,7 @@
 """
 Configuration template management for kernel configurations.
 """
+
 import os
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -50,7 +51,7 @@ class TemplateManager:
                     name=name,
                     category="target",
                     description=self._extract_description(template_file),
-                    path=template_file
+                    path=template_file,
                 )
 
         # Load debug templates
@@ -62,7 +63,7 @@ class TemplateManager:
                     name=name,
                     category="debug",
                     description=self._extract_description(template_file),
-                    path=template_file
+                    path=template_file,
                 )
 
         # Load fragments
@@ -74,7 +75,7 @@ class TemplateManager:
                     name=name,
                     category="fragment",
                     description=self._extract_description(template_file),
-                    path=template_file
+                    path=template_file,
                 )
 
     def _extract_description(self, template_file: Path) -> str:
@@ -91,7 +92,11 @@ class TemplateManager:
                 elif line.strip():
                     # Stop at first non-comment, non-empty line
                     break
-            return " ".join(description_lines) if description_lines else f"Configuration template: {template_file.stem}"
+            return (
+                " ".join(description_lines)
+                if description_lines
+                else f"Configuration template: {template_file.stem}"
+            )
         except Exception:
             return f"Configuration template: {template_file.stem}"
 
@@ -107,11 +112,7 @@ class TemplateManager:
         presets = []
         for (cat, name), template in self._templates.items():
             if category is None or cat == category:
-                presets.append({
-                    "name": name,
-                    "category": cat,
-                    "description": template.description
-                })
+                presets.append({"name": name, "category": cat, "description": template.description})
         return sorted(presets, key=lambda x: (x["category"], x["name"]))
 
     def get_template(self, category: str, name: str) -> Optional[ConfigTemplate]:

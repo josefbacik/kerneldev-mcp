@@ -3,6 +3,7 @@
 Test building actual kernel in ~/linux.
 This test will attempt a real kernel build.
 """
+
 import sys
 import time
 from pathlib import Path
@@ -69,7 +70,7 @@ def test_build_small_target():
     result = builder.build(
         jobs=4,
         target="init/main.o",
-        timeout=120  # 2 minute timeout for single file
+        timeout=120,  # 2 minute timeout for single file
     )
 
     duration = time.time() - start
@@ -112,7 +113,7 @@ def test_build_scripts():
     result = builder.build(
         jobs=4,
         target="scripts",
-        timeout=300  # 5 minute timeout
+        timeout=300,  # 5 minute timeout
     )
 
     duration = time.time() - start
@@ -176,7 +177,7 @@ def test_error_handling():
     result = builder.build(
         jobs=1,
         target="init/main.o",
-        timeout=1  # Very short timeout
+        timeout=1,  # Very short timeout
     )
 
     print(result.summary())
@@ -230,6 +231,7 @@ def main():
     except Exception as e:
         print(f"\n✗ Error: {e}")
         import traceback
+
         traceback.print_exc()
         return 1
 

@@ -1,6 +1,7 @@
 """
 Core fstests management - installation, configuration, execution, and result parsing.
 """
+
 import json
 import logging
 import os
@@ -50,7 +51,7 @@ class FstestsConfig:
             "",
             "# Filesystem type",
             f"export FSTYP={self.fstype}",
-            ""
+            "",
         ]
 
         # Add optional mount options
@@ -176,7 +177,7 @@ class FstestsManager:
             return True, None
 
         # Pattern for individual test names: category/number (e.g., btrfs/010, generic/001)
-        test_name_pattern = re.compile(r'^[a-z0-9_]+/\d+$')
+        test_name_pattern = re.compile(r"^[a-z0-9_]+/\d+$")
 
         i = 0
         while i < len(tests):
@@ -259,7 +260,7 @@ class FstestsManager:
                 cwd=self.fstests_path,
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
             )
             if result.returncode == 0:
                 return result.stdout.strip()
@@ -270,7 +271,7 @@ class FstestsManager:
                 cwd=self.fstests_path,
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
             )
             if result.returncode == 0:
                 return result.stdout.strip()
@@ -292,11 +293,7 @@ class FstestsManager:
         # Check for command-line tools
         for tool in required_tools:
             try:
-                subprocess.run(
-                    [tool, "--version"],
-                    capture_output=True,
-                    timeout=5
-                )
+                subprocess.run([tool, "--version"], capture_output=True, timeout=5)
             except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
                 missing.append(tool)
 
@@ -310,14 +307,14 @@ class FstestsManager:
 
         for header, package_info in required_headers.items():
             # Try to compile a simple test program that includes this header
-            test_program = f'#include <{header}>\nint main() {{ return 0; }}'
+            test_program = f"#include <{header}>\nint main() {{ return 0; }}"
             try:
                 result = subprocess.run(
                     ["gcc", "-x", "c", "-c", "-o", "/dev/null", "-"],
                     input=test_program,
                     capture_output=True,
                     text=True,
-                    timeout=5
+                    timeout=5,
                 )
                 if result.returncode != 0:
                     missing.append(f"{header} ({package_info})")
@@ -326,7 +323,9 @@ class FstestsManager:
 
         return (len(missing) == 0), missing
 
-    def install(self, git_url: Optional[str] = None, check_dependencies: bool = True) -> Tuple[bool, str]:
+    def install(
+        self, git_url: Optional[str] = None, check_dependencies: bool = True
+    ) -> Tuple[bool, str]:
         """Install fstests from git.
 
         Args:
@@ -358,7 +357,7 @@ class FstestsManager:
                 ["git", "clone", git_url, str(self.fstests_path)],
                 capture_output=True,
                 text=True,
-                timeout=300
+                timeout=300,
             )
             if result.returncode != 0:
                 return False, f"Git clone failed: {result.stderr}"
@@ -406,7 +405,7 @@ class FstestsManager:
                     cwd=self.fstests_path,
                     capture_output=True,
                     text=True,
-                    timeout=120
+                    timeout=120,
                 )
 
                 # Check if configure actually succeeded
@@ -451,7 +450,7 @@ class FstestsManager:
                 cwd=self.fstests_path,
                 capture_output=True,
                 text=True,
-                timeout=300
+                timeout=300,
             )
 
             if result.returncode != 0:
@@ -522,12 +521,12 @@ class FstestsManager:
         # Prefer reading from check.log file if available (cleaner output)
         if check_log and check_log.exists():
             try:
-                with open(check_log, 'r') as f:
+                with open(check_log, "r") as f:
                     full_log = f.read()
 
                 # check.log contains multiple test runs (append-only)
                 # Split by empty lines and take the last entry
-                entries = full_log.strip().split('\n\n')
+                entries = full_log.strip().split("\n\n")
                 if entries:
                     output = entries[-1]  # Use only the most recent run
             except Exception:
@@ -539,7 +538,7 @@ class FstestsManager:
         cleaned_lines = []
         for line in output.splitlines():
             # Remove kernel timestamps from the line
-            cleaned = re.sub(r'\[\s*\d+\.\d+\].*?(?=\S|$)', '', line)
+            cleaned = re.sub(r"\[\s*\d+\.\d+\].*?(?=\S|$)", "", line)
             cleaned_lines.append(cleaned.strip())
 
         # Join consecutive lines that might have been split by kernel messages
@@ -552,7 +551,7 @@ class FstestsManager:
             if i + 1 < len(cleaned_lines):
                 next_line = cleaned_lines[i + 1]
                 # If current line looks like a test name and next line is just "Xs"
-                if re.match(r'^\S+/\d+\s*$', line) and re.match(r'^\s*\d+s\s*$', next_line):
+                if re.match(r"^\S+/\d+\s*$", line) and re.match(r"^\s*\d+s\s*$", next_line):
                     merged_lines.append(f"{line} {next_line.strip()}")
                     i += 2
                     continue
@@ -571,34 +570,34 @@ class FstestsManager:
             # generic/003 - output mismatch (see generic/003.out.bad)
 
             # Passed test (allow for extra whitespace)
-            match = re.match(r'^(\S+)\s+(\d+)s$', line.strip())
+            match = re.match(r"^(\S+)\s+(\d+)s$", line.strip())
             if match:
                 test_name = match.group(1)
                 duration = float(match.group(2))
-                test_results.append(TestResult(
-                    test_name=test_name,
-                    status="passed",
-                    duration=duration
-                ))
+                test_results.append(
+                    TestResult(test_name=test_name, status="passed", duration=duration)
+                )
                 passed += 1
                 continue
 
             # Not run test
-            match = re.match(r'^(\S+)\s+\[not run\]\s*(.*)$', line.strip())
+            match = re.match(r"^(\S+)\s+\[not run\]\s*(.*)$", line.strip())
             if match:
                 test_name = match.group(1)
                 reason = match.group(2).strip()
-                test_results.append(TestResult(
-                    test_name=test_name,
-                    status="notrun",
-                    duration=0.0,
-                    failure_reason=reason if reason else None
-                ))
+                test_results.append(
+                    TestResult(
+                        test_name=test_name,
+                        status="notrun",
+                        duration=0.0,
+                        failure_reason=reason if reason else None,
+                    )
+                )
                 notrun += 1
                 continue
 
             # Failed test
-            match = re.match(r'^(\S+)\s+-\s+(.*)$', line.strip())
+            match = re.match(r"^(\S+)\s+-\s+(.*)$", line.strip())
             if match:
                 test_name = match.group(1)
                 reason = match.group(2).strip()
@@ -607,17 +606,19 @@ class FstestsManager:
                 output_file = None
                 if "see" in reason:
                     # Extract filename from "see XXX.out.bad"
-                    file_match = re.search(r'see (\S+\.out\.bad)', reason)
+                    file_match = re.search(r"see (\S+\.out\.bad)", reason)
                     if file_match:
                         output_file = self.fstests_path / "results" / file_match.group(1)
 
-                test_results.append(TestResult(
-                    test_name=test_name,
-                    status="failed",
-                    duration=0.0,
-                    failure_reason=reason,
-                    output_file=output_file if output_file and output_file.exists() else None
-                ))
+                test_results.append(
+                    TestResult(
+                        test_name=test_name,
+                        status="failed",
+                        duration=0.0,
+                        failure_reason=reason,
+                        output_file=output_file if output_file and output_file.exists() else None,
+                    )
+                )
                 failed += 1
                 continue
 
@@ -625,80 +626,88 @@ class FstestsManager:
         # This handles cases where kernel messages completely obscured the detailed results
         if len(test_results) == 0:
             # Look for "Ran: test/name test/name2 ..." or "Ran: test/name"
-            ran_match = re.search(r'Ran:\s+(.+)', output)
+            ran_match = re.search(r"Ran:\s+(.+)", output)
             if ran_match:
                 test_names_line = ran_match.group(1).strip()
                 # Remove "tests in Xs" suffix if present
-                test_names_line = re.sub(r'\s+tests?\s+in\s+\d+s.*$', '', test_names_line)
+                test_names_line = re.sub(r"\s+tests?\s+in\s+\d+s.*$", "", test_names_line)
                 # Split by whitespace to get individual test names
-                test_names = [name for name in test_names_line.split() if '/' in name]
+                test_names = [name for name in test_names_line.split() if "/" in name]
 
                 # Look for "Not run: test/name" lines first
                 notrun_tests = set()
                 for line in output.splitlines():
-                    notrun_match = re.match(r'Not run:\s+(.+)', line.strip())
+                    notrun_match = re.match(r"Not run:\s+(.+)", line.strip())
                     if notrun_match:
-                        notrun_names = [name for name in notrun_match.group(1).split() if '/' in name]
+                        notrun_names = [
+                            name for name in notrun_match.group(1).split() if "/" in name
+                        ]
                         notrun_tests.update(notrun_names)
 
                 # Look for "Failures: test/name" line
                 failed_tests = set()
                 for line in output.splitlines():
-                    failed_match = re.match(r'Failures:\s+(.+)', line.strip())
+                    failed_match = re.match(r"Failures:\s+(.+)", line.strip())
                     if failed_match:
-                        failed_names = [name for name in failed_match.group(1).split() if '/' in name]
+                        failed_names = [
+                            name for name in failed_match.group(1).split() if "/" in name
+                        ]
                         failed_tests.update(failed_names)
 
                 # Process each test based on its status
                 for test_name in test_names:
                     if test_name in notrun_tests:
-                        test_results.append(TestResult(
-                            test_name=test_name,
-                            status="notrun",
-                            duration=0.0,
-                            failure_reason="Test not run (check requirements)"
-                        ))
+                        test_results.append(
+                            TestResult(
+                                test_name=test_name,
+                                status="notrun",
+                                duration=0.0,
+                                failure_reason="Test not run (check requirements)",
+                            )
+                        )
                         notrun += 1
                     elif test_name in failed_tests:
-                        test_results.append(TestResult(
-                            test_name=test_name,
-                            status="failed",
-                            duration=0.0,
-                            failure_reason="Test failed (see logs for details)"
-                        ))
+                        test_results.append(
+                            TestResult(
+                                test_name=test_name,
+                                status="failed",
+                                duration=0.0,
+                                failure_reason="Test failed (see logs for details)",
+                            )
+                        )
                         failed += 1
                     else:
                         # Assume passed if not in notrun or failed lists
-                        test_results.append(TestResult(
-                            test_name=test_name,
-                            status="passed",
-                            duration=0.0
-                        ))
+                        test_results.append(
+                            TestResult(test_name=test_name, status="passed", duration=0.0)
+                        )
                         passed += 1
 
         total_tests = len(test_results)
 
         # Extract total duration if available
         # Matches "Ran: 4 tests in 15s" or "Ran: 4 in 15s"
-        duration_match = re.search(r'Ran:\s+.*?\s+in\s+(\d+)s', output)
+        duration_match = re.search(r"Ran:\s+.*?\s+in\s+(\d+)s", output)
         total_duration = float(duration_match.group(1)) if duration_match else 0.0
 
         # Check for error messages that indicate command failure
         # These should mark the run as failed even if no individual test failures were detected
         error_patterns = [
             r'Group\s+"[^"]+"\s+is empty or not defined',  # Invalid group name
-            r'Usage:.*check',  # Usage message (invalid arguments)
-            r'check:\s+invalid option',  # Invalid option
-            r'ERROR:',  # Generic error
+            r"Usage:.*check",  # Usage message (invalid arguments)
+            r"check:\s+invalid option",  # Invalid option
+            r"ERROR:",  # Generic error
         ]
 
-        has_error_message = any(re.search(pattern, output, re.IGNORECASE) for pattern in error_patterns)
+        has_error_message = any(
+            re.search(pattern, output, re.IGNORECASE) for pattern in error_patterns
+        )
 
         # If we found error messages and no tests ran, this is a command failure
         if has_error_message and total_tests == 0:
             success = False
         else:
-            success = (failed == 0)
+            success = failed == 0
 
         return FstestsRunResult(
             success=success,
@@ -708,7 +717,7 @@ class FstestsManager:
             notrun=notrun,
             test_results=test_results,
             duration=total_duration,
-            check_log=check_log
+            check_log=check_log,
         )
 
     def run_tests(
@@ -717,7 +726,7 @@ class FstestsManager:
         exclude_file: Optional[Path] = None,
         randomize: bool = False,
         iterations: int = 1,
-        timeout: Optional[int] = None
+        timeout: Optional[int] = None,
     ) -> FstestsRunResult:
         """Run fstests.
 
@@ -747,7 +756,7 @@ class FstestsManager:
                     failed=0,
                     notrun=0,
                     test_results=[],
-                    duration=0.0
+                    duration=0.0,
                 )
 
         if not self.check_installed():
@@ -760,7 +769,7 @@ class FstestsManager:
                 failed=0,
                 notrun=0,
                 test_results=[],
-                duration=0.0
+                duration=0.0,
             )
 
         # Build check command
@@ -796,18 +805,16 @@ class FstestsManager:
 
         try:
             result = subprocess.run(
-                cmd,
-                cwd=self.fstests_path,
-                capture_output=True,
-                text=True,
-                timeout=timeout
+                cmd, cwd=self.fstests_path, capture_output=True, text=True, timeout=timeout
             )
 
             duration = time.time() - start_time
 
             # Parse output
             check_log = self.fstests_path / "results" / "check.log"
-            fstests_result = self.parse_check_output(result.stdout, check_log if check_log.exists() else None)
+            fstests_result = self.parse_check_output(
+                result.stdout, check_log if check_log.exists() else None
+            )
             fstests_result.duration = duration
 
             # Log results
@@ -815,8 +822,10 @@ class FstestsManager:
                 logger.info(f"✓ fstests completed in {duration:.1f}s")
             else:
                 logger.error(f"✗ fstests completed with failures in {duration:.1f}s")
-            logger.info(f"  Total: {fstests_result.total_tests}, Passed: {fstests_result.passed}, "
-                       f"Failed: {fstests_result.failed}, Not run: {fstests_result.notrun}")
+            logger.info(
+                f"  Total: {fstests_result.total_tests}, Passed: {fstests_result.passed}, "
+                f"Failed: {fstests_result.failed}, Not run: {fstests_result.notrun}"
+            )
             # Log first few failures
             failed_tests = [t for t in fstests_result.test_results if t.status == "failed"]
             for i, test in enumerate(failed_tests[:3]):
@@ -850,7 +859,7 @@ class FstestsManager:
                 failed=0,
                 notrun=0,
                 test_results=[],
-                duration=time.time() - start_time
+                duration=time.time() - start_time,
             )
 
     def get_test_failure_details(self, test_name: str) -> Optional[str]:
@@ -867,7 +876,9 @@ class FstestsManager:
         if not out_bad.exists():
             # Try with filesystem type prefix
             for fstype in ["btrfs", "ext4", "xfs", "generic"]:
-                out_bad = self.fstests_path / "results" / fstype / f"{test_name.split('/')[-1]}.out.bad"
+                out_bad = (
+                    self.fstests_path / "results" / fstype / f"{test_name.split('/')[-1]}.out.bad"
+                )
                 if out_bad.exists():
                     break
             else:

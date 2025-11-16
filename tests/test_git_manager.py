@@ -1,6 +1,7 @@
 """
 Unit tests for git_manager module.
 """
+
 import json
 import subprocess
 import tempfile
@@ -21,19 +22,19 @@ def temp_git_repo(tmp_path):
     subprocess.run(["git", "init"], cwd=repo_path, check=True, capture_output=True)
     subprocess.run(
         ["git", "config", "user.email", "test@example.com"],
-        cwd=repo_path, check=True, capture_output=True
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=repo_path, check=True, capture_output=True
+        ["git", "config", "user.name", "Test User"], cwd=repo_path, check=True, capture_output=True
     )
 
     # Create initial commit
     (repo_path / "README.md").write_text("# Test Repo\n")
     subprocess.run(["git", "add", "README.md"], cwd=repo_path, check=True, capture_output=True)
     subprocess.run(
-        ["git", "commit", "-m", "Initial commit"],
-        cwd=repo_path, check=True, capture_output=True
+        ["git", "commit", "-m", "Initial commit"], cwd=repo_path, check=True, capture_output=True
     )
 
     return repo_path
@@ -45,7 +46,9 @@ def sample_test_results():
     test_results = [
         TestResult(test_name="generic/001", status="passed", duration=5.2),
         TestResult(test_name="generic/002", status="passed", duration=3.1),
-        TestResult(test_name="generic/003", status="failed", duration=10.5, failure_reason="Timeout"),
+        TestResult(
+            test_name="generic/003", status="failed", duration=10.5, failure_reason="Timeout"
+        ),
         TestResult(test_name="generic/004", status="notrun", duration=0.0),
     ]
 
@@ -56,7 +59,7 @@ def sample_test_results():
         failed=1,
         notrun=1,
         test_results=test_results,
-        duration=18.8
+        duration=18.8,
     )
 
 
@@ -83,7 +86,7 @@ class TestGitManager:
 
         assert commit_sha is not None
         assert len(commit_sha) == 40  # Full SHA
-        assert all(c in '0123456789abcdef' for c in commit_sha)
+        assert all(c in "0123456789abcdef" for c in commit_sha)
 
     def test_get_current_branch(self, temp_git_repo):
         """Test getting current branch name."""
@@ -102,10 +105,7 @@ class TestGitManager:
 
         # Checkout detached HEAD
         subprocess.run(
-            ["git", "checkout", commit_sha],
-            cwd=temp_git_repo,
-            check=True,
-            capture_output=True
+            ["git", "checkout", commit_sha], cwd=temp_git_repo, check=True, capture_output=True
         )
 
         # Should return None for detached HEAD
@@ -135,7 +135,7 @@ class TestGitManager:
             target="branch",
             kernel_version="6.8.0",
             fstype="ext4",
-            test_selection="-g quick"
+            test_selection="-g quick",
         )
 
         assert success is True
@@ -163,7 +163,7 @@ class TestGitManager:
             commit_sha=commit_sha,
             kernel_version="6.8.0",
             fstype="btrfs",
-            test_selection="generic/001"
+            test_selection="generic/001",
         )
 
         assert success is True
@@ -185,7 +185,7 @@ class TestGitManager:
             target="branch",
             kernel_version="6.8.0",
             fstype="ext4",
-            test_selection="-g quick"
+            test_selection="-g quick",
         )
 
         # Load as FstestsRunResult
@@ -223,7 +223,7 @@ class TestGitManager:
             target="branch",
             kernel_version="6.7.0",
             fstype="ext4",
-            test_selection="-g quick"
+            test_selection="-g quick",
         )
 
         # Create new results
@@ -237,7 +237,7 @@ class TestGitManager:
                 TestResult(test_name="generic/001", status="passed", duration=5.2),
                 TestResult(test_name="generic/002", status="passed", duration=3.1),
             ],
-            duration=8.3
+            duration=8.3,
         )
 
         # Overwrite with new results
@@ -246,7 +246,7 @@ class TestGitManager:
             target="branch",
             kernel_version="6.8.0",
             fstype="ext4",
-            test_selection="-g quick"
+            test_selection="-g quick",
         )
 
         assert success is True
@@ -275,17 +275,19 @@ class TestGitManager:
             target="commit",
             kernel_version="6.8.0",
             fstype="ext4",
-            test_selection="-g quick"
+            test_selection="-g quick",
         )
 
         # Create another commit
         (temp_git_repo / "file.txt").write_text("test")
-        subprocess.run(["git", "add", "file.txt"], cwd=temp_git_repo, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "add", "file.txt"], cwd=temp_git_repo, check=True, capture_output=True
+        )
         subprocess.run(
             ["git", "commit", "-m", "Second commit"],
             cwd=temp_git_repo,
             check=True,
-            capture_output=True
+            capture_output=True,
         )
 
         # Add results to new commit
@@ -294,7 +296,7 @@ class TestGitManager:
             target="commit",
             kernel_version="6.9.0",
             fstype="btrfs",
-            test_selection="-g auto"
+            test_selection="-g auto",
         )
 
         # List results
@@ -315,7 +317,7 @@ class TestGitManager:
             target="branch",
             kernel_version="6.8.0",
             fstype="ext4",
-            test_selection="-g quick"
+            test_selection="-g quick",
         )
 
         # Verify they exist
@@ -346,7 +348,7 @@ class TestGitManager:
             ["git", "checkout", "-b", "test-branch"],
             cwd=temp_git_repo,
             check=True,
-            capture_output=True
+            capture_output=True,
         )
 
         # Save to this branch explicitly
@@ -356,7 +358,7 @@ class TestGitManager:
             branch_name="test-branch",
             kernel_version="6.8.0",
             fstype="ext4",
-            test_selection="-g quick"
+            test_selection="-g quick",
         )
 
         assert success is True
@@ -374,16 +376,13 @@ class TestGitManager:
         for i in range(5):
             (temp_git_repo / f"file{i}.txt").write_text(f"test {i}")
             subprocess.run(
-                ["git", "add", f"file{i}.txt"],
-                cwd=temp_git_repo,
-                check=True,
-                capture_output=True
+                ["git", "add", f"file{i}.txt"], cwd=temp_git_repo, check=True, capture_output=True
             )
             subprocess.run(
                 ["git", "commit", "-m", f"Commit {i}"],
                 cwd=temp_git_repo,
                 check=True,
-                capture_output=True
+                capture_output=True,
             )
 
             git_mgr.save_fstests_results(
@@ -391,7 +390,7 @@ class TestGitManager:
                 target="commit",
                 kernel_version=f"6.{i}.0",
                 fstype="ext4",
-                test_selection="-g quick"
+                test_selection="-g quick",
             )
 
         # List with max_count

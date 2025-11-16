@@ -6,6 +6,7 @@ Tests ensure that:
 2. Auto-detection logic doesn't exist (regression test for bug)
 3. Success detection checks actual test results, not just VM boot
 """
+
 import inspect
 import re
 from pathlib import Path
@@ -28,17 +29,18 @@ class TestBootFstestsFilesystemType:
         sig = inspect.signature(BootManager.boot_with_fstests)
 
         # Check fstype parameter exists
-        assert "fstype" in sig.parameters, \
-            "boot_with_fstests must have 'fstype' parameter"
+        assert "fstype" in sig.parameters, "boot_with_fstests must have 'fstype' parameter"
 
         # Check it has a default value
         param = sig.parameters["fstype"]
-        assert param.default != inspect.Parameter.empty, \
+        assert param.default != inspect.Parameter.empty, (
             "fstype parameter should have a default value"
+        )
 
         # Default should be a reasonable filesystem
-        assert param.default in ("ext4", "btrfs", "xfs"), \
+        assert param.default in ("ext4", "btrfs", "xfs"), (
             f"fstype default '{param.default}' should be a common filesystem"
+        )
 
     def test_no_filesystem_auto_detection_in_boot_with_fstests(self):
         """
@@ -57,15 +59,16 @@ class TestBootFstestsFilesystemType:
         problematic_patterns = [
             r'if.*"btrfs".*in.*test',  # if "btrfs" in tests
             r'fstype\s*=\s*"ext4"\s*\n.*if.*btrfs',  # fstype = "ext4" followed by btrfs check
-            r'any\(.*btrfs.*for.*in.*test',  # any("btrfs" ... for ... in tests)
+            r"any\(.*btrfs.*for.*in.*test",  # any("btrfs" ... for ... in tests)
         ]
 
         for pattern in problematic_patterns:
             matches = re.findall(pattern, source, re.IGNORECASE)
-            assert not matches, \
-                f"Found filesystem auto-detection code (pattern: {pattern}). " \
-                f"Filesystem type should be an explicit parameter, not auto-detected. " \
+            assert not matches, (
+                f"Found filesystem auto-detection code (pattern: {pattern}). "
+                f"Filesystem type should be an explicit parameter, not auto-detected. "
                 f"Matches: {matches}"
+            )
 
     def test_boot_with_fstests_docstring_mentions_fstype(self):
         """
@@ -77,8 +80,7 @@ class TestBootFstestsFilesystemType:
         assert docstring is not None, "boot_with_fstests should have documentation"
 
         # Check that fstype is documented
-        assert "fstype" in docstring.lower(), \
-            "Documentation should mention 'fstype' parameter"
+        assert "fstype" in docstring.lower(), "Documentation should mention 'fstype' parameter"
 
     def test_mcp_tool_has_fstype_in_schema(self):
         """
@@ -91,11 +93,12 @@ class TestBootFstestsFilesystemType:
 
         # Find the fstests_vm_boot_and_run tool definition
         # Look for Tool(...name="fstests_vm_boot_and_run"...)
-        assert 'name="fstests_vm_boot_and_run"' in source, \
+        assert 'name="fstests_vm_boot_and_run"' in source, (
             "fstests_vm_boot_and_run tool should be defined"
+        )
 
         # Extract the tool definition section
-        lines = source.split('\n')
+        lines = source.split("\n")
         tool_start = None
         for i, line in enumerate(lines):
             if 'name="fstests_vm_boot_and_run"' in line:
@@ -105,16 +108,18 @@ class TestBootFstestsFilesystemType:
         assert tool_start is not None, "Could not find tool definition"
 
         # Get next ~100 lines (the tool schema - increased to cover longer descriptions)
-        tool_def = '\n'.join(lines[tool_start:tool_start + 100])
+        tool_def = "\n".join(lines[tool_start : tool_start + 100])
 
         # Check that fstype is in the schema
-        assert '"fstype"' in tool_def or "'fstype'" in tool_def, \
+        assert '"fstype"' in tool_def or "'fstype'" in tool_def, (
             "Tool schema should include 'fstype' property"
+        )
 
         # Check it has a description
         # The fstype property should be followed by a description
-        assert 'filesystem' in tool_def.lower(), \
+        assert "filesystem" in tool_def.lower(), (
             "Tool schema should describe fstype as filesystem-related"
+        )
 
 
 class TestBootFstestsBasicFunctionality:
@@ -140,7 +145,7 @@ class TestBootFstestsBasicFunctionality:
             boot_mgr = BootManager(kernel_path)
 
             # Verify the method exists and is callable
-            assert hasattr(boot_mgr, 'boot_with_fstests')
+            assert hasattr(boot_mgr, "boot_with_fstests")
             assert callable(boot_mgr.boot_with_fstests)
 
             # Get the method to ensure no NameError or scoping issues
@@ -166,25 +171,24 @@ class TestBootFstestsSuccessDetection:
 
         # Find the fstests_vm_boot_and_run handler section
         # Look for the section after "elif name == 'fstests_vm_boot_and_run'"
-        lines = source.split('\n')
+        lines = source.split("\n")
         handler_start = None
         for i, line in enumerate(lines):
-            if 'fstests_vm_boot_and_run' in line and 'elif name' in line:
+            if "fstests_vm_boot_and_run" in line and "elif name" in line:
                 handler_start = i
                 break
 
-        assert handler_start is not None, \
-            "Could not find fstests_vm_boot_and_run handler"
+        assert handler_start is not None, "Could not find fstests_vm_boot_and_run handler"
 
         # Get next ~100 lines (the handler code)
-        handler_code = '\n'.join(lines[handler_start:handler_start + 100])
+        handler_code = "\n".join(lines[handler_start : handler_start + 100])
 
         # Check that we check fstests_result.success
         # This ensures we don't just report success because VM booted
         success_check_patterns = [
-            r'fstests_result\.success',
-            r'not.*fstests_result\.success',
-            r'if.*success',  # General success check
+            r"fstests_result\.success",
+            r"not.*fstests_result\.success",
+            r"if.*success",  # General success check
         ]
 
         found_success_check = False
@@ -193,9 +197,10 @@ class TestBootFstestsSuccessDetection:
                 found_success_check = True
                 break
 
-        assert found_success_check, \
-            "Handler should check fstests_result.success, not just if results exist. " \
+        assert found_success_check, (
+            "Handler should check fstests_result.success, not just if results exist. "
             "This ensures we detect when tests fail even if VM boots successfully."
+        )
 
 
 if __name__ == "__main__":

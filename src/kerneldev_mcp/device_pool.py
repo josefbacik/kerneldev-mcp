@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 class ValidationLevel(Enum):
     """Severity level for validation results."""
+
     OK = "ok"
     WARNING = "warning"
     ERROR = "error"
@@ -41,6 +42,7 @@ class ValidationLevel(Enum):
 @dataclass
 class ValidationResult:
     """Result from device safety validation."""
+
     level: ValidationLevel
     message: str
     details: Optional[Dict[str, Any]] = None
@@ -59,10 +61,11 @@ class ValidationResult:
 @dataclass
 class VolumeConfig:
     """Configuration for a single volume in the pool."""
-    name: str              # Volume name (e.g., "test", "pool1")
-    size: str              # Size string (e.g., "10G")
+
+    name: str  # Volume name (e.g., "test", "pool1")
+    size: str  # Size string (e.g., "10G")
     path: Optional[str] = None  # Device path (optional - set after LV creation)
-    order: int = 0         # Order for device attachment (0=first)
+    order: int = 0  # Order for device attachment (0=first)
     env_var: Optional[str] = None  # Environment variable name (e.g., "TEST_DEV")
     partition_number: Optional[int] = None  # For partition strategy
 
@@ -70,9 +73,10 @@ class VolumeConfig:
 @dataclass
 class LVMPoolConfig:
     """Configuration specific to LVM-based pools."""
-    pv: str                           # Physical volume path
-    vg_name: str                      # Volume group name
-    lv_prefix: str = "kdev"          # Prefix for logical volume names
+
+    pv: str  # Physical volume path
+    vg_name: str  # Volume group name
+    lv_prefix: str = "kdev"  # Prefix for logical volume names
     thin_provisioning: bool = False  # Enable thin provisioning
 
 
@@ -87,10 +91,11 @@ class PoolConfig:
     All LVM operations use sudo - no special permissions needed.
     VG name is persistent across reboots (LVM auto-discovers VGs).
     """
+
     pool_name: str
-    device: str                # Physical device path (can be /dev/disk/by-id/ for persistence)
-    created_at: str            # ISO timestamp
-    created_by: str            # Username
+    device: str  # Physical device path (can be /dev/disk/by-id/ for persistence)
+    created_at: str  # ISO timestamp
+    created_by: str  # Username
     lvm_config: Optional[LVMPoolConfig] = None
     # Note: volumes field removed - LVs are ephemeral, created on-demand
     # Note: permissions field removed - all operations use sudo
@@ -100,17 +105,17 @@ class PoolConfig:
         return asdict(self)
 
     @staticmethod
-    def from_dict(data: Dict[str, Any]) -> 'PoolConfig':
+    def from_dict(data: Dict[str, Any]) -> "PoolConfig":
         """Create PoolConfig from dictionary."""
         # Remove old fields if present (backward compatibility)
-        if 'volumes' in data:
-            del data['volumes']
-        if 'permissions' in data:
-            del data['permissions']
+        if "volumes" in data:
+            del data["volumes"]
+        if "permissions" in data:
+            del data["permissions"]
 
         # Convert LVM config
-        if 'lvm_config' in data and data['lvm_config']:
-            data['lvm_config'] = LVMPoolConfig(**data['lvm_config'])
+        if "lvm_config" in data and data["lvm_config"]:
+            data["lvm_config"] = LVMPoolConfig(**data["lvm_config"])
 
         return PoolConfig(**data)
 
@@ -118,14 +123,15 @@ class PoolConfig:
 @dataclass
 class VolumeAllocation:
     """Tracks an active LV allocation."""
-    lv_path: str               # Full LV path (e.g., /dev/vg/kdev-xxx-test)
-    lv_name: str               # LV name only (e.g., kdev-xxx-test)
-    pool_name: str             # Pool name
-    vg_name: str               # Volume group name
+
+    lv_path: str  # Full LV path (e.g., /dev/vg/kdev-xxx-test)
+    lv_name: str  # LV name only (e.g., kdev-xxx-test)
+    pool_name: str  # Pool name
+    vg_name: str  # Volume group name
     volume_spec: VolumeConfig  # Original volume specification
-    pid: int                   # Process ID that allocated this
-    allocated_at: str          # ISO timestamp
-    session_id: str            # Unique session identifier
+    pid: int  # Process ID that allocated this
+    allocated_at: str  # ISO timestamp
+    session_id: str  # Unique session identifier
 
 
 class VolumeStateManager:
@@ -153,7 +159,7 @@ class VolumeStateManager:
             return {"allocations": []}
 
         # Open with shared lock for reading
-        with open(self.state_file, 'r') as f:
+        with open(self.state_file, "r") as f:
             fcntl.flock(f.fileno(), fcntl.LOCK_SH)
             try:
                 data = json.load(f)
@@ -167,8 +173,8 @@ class VolumeStateManager:
         import fcntl
 
         # Write atomically with exclusive lock
-        tmp_file = self.state_file.with_suffix('.tmp')
-        with open(tmp_file, 'w') as f:
+        tmp_file = self.state_file.with_suffix(".tmp")
+        with open(tmp_file, "w") as f:
             fcntl.flock(f.fileno(), fcntl.LOCK_EX)
             try:
                 json.dump(state, f, indent=2)
@@ -184,21 +190,23 @@ class VolumeStateManager:
         state = self._load_state()
 
         allocations = state.get("allocations", [])
-        allocations.append({
-            "lv_path": allocation.lv_path,
-            "lv_name": allocation.lv_name,
-            "pool_name": allocation.pool_name,
-            "vg_name": allocation.vg_name,
-            "volume_spec": {
-                "name": allocation.volume_spec.name,
-                "size": allocation.volume_spec.size,
-                "env_var": allocation.volume_spec.env_var,
-                "order": allocation.volume_spec.order
-            },
-            "pid": allocation.pid,
-            "allocated_at": allocation.allocated_at,
-            "session_id": allocation.session_id
-        })
+        allocations.append(
+            {
+                "lv_path": allocation.lv_path,
+                "lv_name": allocation.lv_name,
+                "pool_name": allocation.pool_name,
+                "vg_name": allocation.vg_name,
+                "volume_spec": {
+                    "name": allocation.volume_spec.name,
+                    "size": allocation.volume_spec.size,
+                    "env_var": allocation.volume_spec.env_var,
+                    "order": allocation.volume_spec.order,
+                },
+                "pid": allocation.pid,
+                "allocated_at": allocation.allocated_at,
+                "session_id": allocation.session_id,
+            }
+        )
 
         state["allocations"] = allocations
         self._save_state(state)
@@ -254,9 +262,7 @@ class VolumeStateManager:
 
                 try:
                     subprocess.run(
-                        ["sudo", "lvremove", "-f", lv_path],
-                        capture_output=True,
-                        timeout=30
+                        ["sudo", "lvremove", "-f", lv_path], capture_output=True, timeout=30
                     )
                     cleaned.append(alloc["lv_name"])
                 except Exception as e:
@@ -307,16 +313,16 @@ class ConfigManager:
             return {}
 
         try:
-            with open(self.config_file, 'r') as f:
+            with open(self.config_file, "r") as f:
                 data = json.load(f)
 
-            version = data.get('version', '1.0')
-            if version != '1.0':
+            version = data.get("version", "1.0")
+            if version != "1.0":
                 logger.warning(f"Unknown config version: {version}")
 
             pools = {}
-            for name, pool_data in data.get('pools', {}).items():
-                pool_data['pool_name'] = name
+            for name, pool_data in data.get("pools", {}).items():
+                pool_data["pool_name"] = name
                 pools[name] = PoolConfig.from_dict(pool_data)
 
             logger.info(f"Loaded {len(pools)} pool(s) from {self.config_file}")
@@ -340,15 +346,12 @@ class ConfigManager:
         pools[pool.pool_name] = pool
 
         # Save all pools
-        data = {
-            'version': '1.0',
-            'pools': {name: pool.to_dict() for name, pool in pools.items()}
-        }
+        data = {"version": "1.0", "pools": {name: pool.to_dict() for name, pool in pools.items()}}
 
         # Write atomically using a temporary file
-        tmp_file = self.config_file.with_suffix('.tmp')
+        tmp_file = self.config_file.with_suffix(".tmp")
         try:
-            with open(tmp_file, 'w') as f:
+            with open(tmp_file, "w") as f:
                 json.dump(data, f, indent=2)
             tmp_file.replace(self.config_file)
             logger.info(f"Saved pool '{pool.pool_name}' to {self.config_file}")
@@ -390,12 +393,9 @@ class ConfigManager:
         del pools[pool_name]
 
         # Save updated pools
-        data = {
-            'version': '1.0',
-            'pools': {name: pool.to_dict() for name, pool in pools.items()}
-        }
+        data = {"version": "1.0", "pools": {name: pool.to_dict() for name, pool in pools.items()}}
 
-        with open(self.config_file, 'w') as f:
+        with open(self.config_file, "w") as f:
             json.dump(data, f, indent=2)
 
         logger.info(f"Deleted pool '{pool_name}'")
@@ -464,8 +464,7 @@ class SafetyValidator:
             except Exception as e:
                 logger.error(f"Check '{check_name}' failed with exception: {e}")
                 details[check_name] = ValidationResult(
-                    ValidationLevel.ERROR,
-                    f"Check failed: {str(e)}"
+                    ValidationLevel.ERROR, f"Check failed: {str(e)}"
                 )
                 highest_level = ValidationLevel.ERROR
                 messages.append(f"❌ {check_name}: Check failed ({e})")
@@ -479,33 +478,21 @@ class SafetyValidator:
         else:
             message = f"Device {device} passed all safety checks:\n{summary}"
 
-        return ValidationResult(
-            level=highest_level,
-            message=message,
-            details=details
-        )
+        return ValidationResult(level=highest_level, message=message, details=details)
 
     def _check_exists_and_is_block_device(self, device: str) -> ValidationResult:
         """Check if device exists and is a block device."""
         if not os.path.exists(device):
-            return ValidationResult(
-                ValidationLevel.ERROR,
-                f"Device {device} does not exist"
-            )
+            return ValidationResult(ValidationLevel.ERROR, f"Device {device} does not exist")
 
         import stat
+
         try:
             st = os.stat(device)
             if not stat.S_ISBLK(st.st_mode):
-                return ValidationResult(
-                    ValidationLevel.ERROR,
-                    f"{device} is not a block device"
-                )
+                return ValidationResult(ValidationLevel.ERROR, f"{device} is not a block device")
         except Exception as e:
-            return ValidationResult(
-                ValidationLevel.ERROR,
-                f"Failed to stat device: {e}"
-            )
+            return ValidationResult(ValidationLevel.ERROR, f"Failed to stat device: {e}")
 
         return ValidationResult(ValidationLevel.OK, "Device exists and is a block device")
 
@@ -517,27 +504,23 @@ class SafetyValidator:
                 ["findmnt", "-n", "-o", "TARGET", "-S", device],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
             )
 
             if result.returncode == 0 and result.stdout.strip():
-                mountpoints = result.stdout.strip().split('\n')
+                mountpoints = result.stdout.strip().split("\n")
                 return ValidationResult(
-                    ValidationLevel.ERROR,
-                    f"Device is mounted at: {', '.join(mountpoints)}"
+                    ValidationLevel.ERROR, f"Device is mounted at: {', '.join(mountpoints)}"
                 )
 
             # Check for partitions (e.g., /dev/sda1, /dev/nvme0n1p1)
             device_base = os.path.basename(device)
             result = subprocess.run(
-                ["findmnt", "-n", "-o", "SOURCE,TARGET"],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ["findmnt", "-n", "-o", "SOURCE,TARGET"], capture_output=True, text=True, timeout=5
             )
 
             if result.returncode == 0:
-                for line in result.stdout.strip().split('\n'):
+                for line in result.stdout.strip().split("\n"):
                     if not line:
                         continue
                     parts = line.split(None, 1)
@@ -546,27 +529,20 @@ class SafetyValidator:
                         # Check if source is a partition of our device
                         if source.startswith(device) or device_base in source:
                             return ValidationResult(
-                                ValidationLevel.ERROR,
-                                f"Partition {source} is mounted at {target}"
+                                ValidationLevel.ERROR, f"Partition {source} is mounted at {target}"
                             )
 
             return ValidationResult(ValidationLevel.OK, "Device is not mounted")
 
         except subprocess.TimeoutExpired:
-            return ValidationResult(
-                ValidationLevel.ERROR,
-                "Timeout checking mount status"
-            )
+            return ValidationResult(ValidationLevel.ERROR, "Timeout checking mount status")
         except Exception as e:
-            return ValidationResult(
-                ValidationLevel.WARNING,
-                f"Could not verify mount status: {e}"
-            )
+            return ValidationResult(ValidationLevel.WARNING, f"Could not verify mount status: {e}")
 
     def _check_not_in_fstab(self, device: str) -> ValidationResult:
         """Check if device is referenced in /etc/fstab."""
         try:
-            with open("/etc/fstab", 'r') as f:
+            with open("/etc/fstab", "r") as f:
                 fstab_content = f.read()
 
             device_base = os.path.basename(device)
@@ -574,8 +550,7 @@ class SafetyValidator:
             # Check for direct device path or basename
             if device in fstab_content or device_base in fstab_content:
                 return ValidationResult(
-                    ValidationLevel.ERROR,
-                    f"Device is referenced in /etc/fstab"
+                    ValidationLevel.ERROR, f"Device is referenced in /etc/fstab"
                 )
 
             # Check for UUID or LABEL references
@@ -584,15 +559,15 @@ class SafetyValidator:
                     ["blkid", "-s", "UUID", "-s", "LABEL", "-o", "value", device],
                     capture_output=True,
                     text=True,
-                    timeout=5
+                    timeout=5,
                 )
 
                 if result.returncode == 0:
-                    for identifier in result.stdout.strip().split('\n'):
+                    for identifier in result.stdout.strip().split("\n"):
                         if identifier and identifier in fstab_content:
                             return ValidationResult(
                                 ValidationLevel.ERROR,
-                                f"Device identifier '{identifier}' found in /etc/fstab"
+                                f"Device identifier '{identifier}' found in /etc/fstab",
                             )
             except Exception:
                 pass  # blkid may fail if device has no filesystem
@@ -600,15 +575,9 @@ class SafetyValidator:
             return ValidationResult(ValidationLevel.OK, "Device not in /etc/fstab")
 
         except FileNotFoundError:
-            return ValidationResult(
-                ValidationLevel.WARNING,
-                "/etc/fstab not found"
-            )
+            return ValidationResult(ValidationLevel.WARNING, "/etc/fstab not found")
         except Exception as e:
-            return ValidationResult(
-                ValidationLevel.WARNING,
-                f"Could not check /etc/fstab: {e}"
-            )
+            return ValidationResult(ValidationLevel.WARNING, f"Could not check /etc/fstab: {e}")
 
     def _check_not_system_disk(self, device: str) -> ValidationResult:
         """Check if device contains system partitions."""
@@ -620,7 +589,7 @@ class SafetyValidator:
                     ["findmnt", "-n", "-o", "SOURCE", mount],
                     capture_output=True,
                     text=True,
-                    timeout=5
+                    timeout=5,
                 )
 
                 if result.returncode == 0:
@@ -628,16 +597,14 @@ class SafetyValidator:
                     # Check if source is on our device
                     if source.startswith(device):
                         return ValidationResult(
-                            ValidationLevel.ERROR,
-                            f"Device contains system partition for {mount}"
+                            ValidationLevel.ERROR, f"Device contains system partition for {mount}"
                         )
 
             return ValidationResult(ValidationLevel.OK, "Device is not a system disk")
 
         except Exception as e:
             return ValidationResult(
-                ValidationLevel.WARNING,
-                f"Could not verify system disk status: {e}"
+                ValidationLevel.WARNING, f"Could not verify system disk status: {e}"
             )
 
     def _check_not_raid_member(self, device: str) -> ValidationResult:
@@ -645,46 +612,32 @@ class SafetyValidator:
         try:
             # Check using mdadm
             result = subprocess.run(
-                ["mdadm", "--examine", device],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ["mdadm", "--examine", device], capture_output=True, text=True, timeout=5
             )
 
             if result.returncode == 0:
-                return ValidationResult(
-                    ValidationLevel.ERROR,
-                    f"Device is a RAID member"
-                )
+                return ValidationResult(ValidationLevel.ERROR, f"Device is a RAID member")
 
             return ValidationResult(ValidationLevel.OK, "Device is not a RAID member")
 
         except FileNotFoundError:
             # mdadm not installed, skip check
             return ValidationResult(
-                ValidationLevel.WARNING,
-                "mdadm not found, cannot verify RAID status"
+                ValidationLevel.WARNING, "mdadm not found, cannot verify RAID status"
             )
         except Exception as e:
-            return ValidationResult(
-                ValidationLevel.WARNING,
-                f"Could not check RAID status: {e}"
-            )
+            return ValidationResult(ValidationLevel.WARNING, f"Could not check RAID status: {e}")
 
     def _check_not_lvm_pv(self, device: str) -> ValidationResult:
         """Check if device is an LVM physical volume."""
         try:
             result = subprocess.run(
-                ["pvdisplay", device],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ["pvdisplay", device], capture_output=True, text=True, timeout=5
             )
 
             if result.returncode == 0:
                 return ValidationResult(
-                    ValidationLevel.ERROR,
-                    f"Device is already an LVM physical volume"
+                    ValidationLevel.ERROR, f"Device is already an LVM physical volume"
                 )
 
             return ValidationResult(ValidationLevel.OK, "Device is not an LVM PV")
@@ -692,59 +645,41 @@ class SafetyValidator:
         except FileNotFoundError:
             # LVM tools not installed
             return ValidationResult(
-                ValidationLevel.WARNING,
-                "LVM tools not found, cannot verify PV status"
+                ValidationLevel.WARNING, "LVM tools not found, cannot verify PV status"
             )
         except Exception as e:
-            return ValidationResult(
-                ValidationLevel.WARNING,
-                f"Could not check LVM PV status: {e}"
-            )
+            return ValidationResult(ValidationLevel.WARNING, f"Could not check LVM PV status: {e}")
 
     def _check_not_encrypted(self, device: str) -> ValidationResult:
         """Check if device is encrypted."""
         try:
             result = subprocess.run(
-                ["cryptsetup", "isLuks", device],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ["cryptsetup", "isLuks", device], capture_output=True, text=True, timeout=5
             )
 
             if result.returncode == 0:
-                return ValidationResult(
-                    ValidationLevel.ERROR,
-                    f"Device is LUKS encrypted"
-                )
+                return ValidationResult(ValidationLevel.ERROR, f"Device is LUKS encrypted")
 
             return ValidationResult(ValidationLevel.OK, "Device is not encrypted")
 
         except FileNotFoundError:
             # cryptsetup not installed
             return ValidationResult(
-                ValidationLevel.WARNING,
-                "cryptsetup not found, cannot verify encryption status"
+                ValidationLevel.WARNING, "cryptsetup not found, cannot verify encryption status"
             )
         except Exception as e:
             return ValidationResult(
-                ValidationLevel.WARNING,
-                f"Could not check encryption status: {e}"
+                ValidationLevel.WARNING, f"Could not check encryption status: {e}"
             )
 
     def _check_no_open_handles(self, device: str) -> ValidationResult:
         """Check if device has open file handles."""
         try:
-            result = subprocess.run(
-                ["lsof", device],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
+            result = subprocess.run(["lsof", device], capture_output=True, text=True, timeout=5)
 
             if result.stdout.strip():
                 return ValidationResult(
-                    ValidationLevel.ERROR,
-                    f"Device has open file handles:\n{result.stdout}"
+                    ValidationLevel.ERROR, f"Device has open file handles:\n{result.stdout}"
                 )
 
             return ValidationResult(ValidationLevel.OK, "No open file handles")
@@ -752,42 +687,33 @@ class SafetyValidator:
         except FileNotFoundError:
             # lsof not installed
             return ValidationResult(
-                ValidationLevel.WARNING,
-                "lsof not found, cannot verify open handles"
+                ValidationLevel.WARNING, "lsof not found, cannot verify open handles"
             )
         except Exception as e:
-            return ValidationResult(
-                ValidationLevel.WARNING,
-                f"Could not check open handles: {e}"
-            )
+            return ValidationResult(ValidationLevel.WARNING, f"Could not check open handles: {e}")
 
     def _check_filesystem_signatures(self, device: str) -> ValidationResult:
         """Check for filesystem signatures (data will be destroyed)."""
         try:
             result = subprocess.run(
-                ["blkid", "-p", device],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ["blkid", "-p", device], capture_output=True, text=True, timeout=5
             )
 
             if result.returncode == 0 and result.stdout.strip():
                 return ValidationResult(
                     ValidationLevel.WARNING,
-                    f"Device has filesystem/partition signatures (will be destroyed): {result.stdout.strip()}"
+                    f"Device has filesystem/partition signatures (will be destroyed): {result.stdout.strip()}",
                 )
 
             return ValidationResult(ValidationLevel.OK, "No filesystem signatures detected")
 
         except FileNotFoundError:
             return ValidationResult(
-                ValidationLevel.WARNING,
-                "blkid not found, cannot check filesystem signatures"
+                ValidationLevel.WARNING, "blkid not found, cannot check filesystem signatures"
             )
         except Exception as e:
             return ValidationResult(
-                ValidationLevel.WARNING,
-                f"Could not check filesystem signatures: {e}"
+                ValidationLevel.WARNING, f"Could not check filesystem signatures: {e}"
             )
 
     def _check_partition_table(self, device: str) -> ValidationResult:
@@ -795,17 +721,14 @@ class SafetyValidator:
         try:
             # Use sgdisk to check for GPT
             result = subprocess.run(
-                ["sgdisk", "-p", device],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ["sgdisk", "-p", device], capture_output=True, text=True, timeout=5
             )
 
             if result.returncode == 0:
                 # Has partition table
                 return ValidationResult(
                     ValidationLevel.WARNING,
-                    "Device has existing partition table (will be destroyed)"
+                    "Device has existing partition table (will be destroyed)",
                 )
 
             return ValidationResult(ValidationLevel.OK, "No partition table detected")
@@ -814,35 +737,29 @@ class SafetyValidator:
             # sgdisk not installed, try parted
             try:
                 result = subprocess.run(
-                    ["parted", "-s", device, "print"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5
+                    ["parted", "-s", device, "print"], capture_output=True, text=True, timeout=5
                 )
 
                 if "Partition Table:" in result.stdout:
                     return ValidationResult(
                         ValidationLevel.WARNING,
-                        "Device has existing partition table (will be destroyed)"
+                        "Device has existing partition table (will be destroyed)",
                     )
 
                 return ValidationResult(ValidationLevel.OK, "No partition table detected")
 
             except FileNotFoundError:
                 return ValidationResult(
-                    ValidationLevel.WARNING,
-                    "sgdisk/parted not found, cannot check partition table"
+                    ValidationLevel.WARNING, "sgdisk/parted not found, cannot check partition table"
                 )
             except Exception as e:
                 return ValidationResult(
-                    ValidationLevel.WARNING,
-                    f"Could not check partition table: {e}"
+                    ValidationLevel.WARNING, f"Could not check partition table: {e}"
                 )
 
         except Exception as e:
             return ValidationResult(
-                ValidationLevel.WARNING,
-                f"Could not check partition table: {e}"
+                ValidationLevel.WARNING, f"Could not check partition table: {e}"
             )
 
 
@@ -871,7 +788,7 @@ class TransactionalDeviceSetup:
         self.created_lvs: List[str] = []
         self.operations: List[str] = []
 
-    def __enter__(self) -> 'TransactionalDeviceSetup':
+    def __enter__(self) -> "TransactionalDeviceSetup":
         """Enter transaction context."""
         logger.info(f"Starting transactional setup for {self.device}")
 
@@ -900,7 +817,7 @@ class TransactionalDeviceSetup:
             result = subprocess.run(
                 ["sudo", "sgdisk", "--backup=/dev/stdout", self.device],
                 capture_output=True,
-                timeout=10
+                timeout=10,
             )
 
             if result.returncode == 0:
@@ -919,6 +836,7 @@ class TransactionalDeviceSetup:
         try:
             # Write backup to temporary file
             import tempfile
+
             with tempfile.NamedTemporaryFile(delete=False) as f:
                 f.write(self.backup_partition_table)
                 backup_file = f.name
@@ -928,7 +846,7 @@ class TransactionalDeviceSetup:
                 ["sudo", "sgdisk", f"--load-backup={backup_file}", self.device],
                 capture_output=True,
                 timeout=10,
-                check=True
+                check=True,
             )
 
             os.unlink(backup_file)
@@ -944,11 +862,7 @@ class TransactionalDeviceSetup:
         # Remove logical volumes (in reverse order)
         for lv in reversed(self.created_lvs):
             try:
-                subprocess.run(
-                    ["sudo", "lvremove", "-f", lv],
-                    capture_output=True,
-                    timeout=10
-                )
+                subprocess.run(["sudo", "lvremove", "-f", lv], capture_output=True, timeout=10)
                 logger.info(f"Removed LV: {lv}")
             except Exception as e:
                 logger.error(f"Failed to remove LV {lv}: {e}")
@@ -956,11 +870,7 @@ class TransactionalDeviceSetup:
         # Remove volume groups (in reverse order)
         for vg in reversed(self.created_vgs):
             try:
-                subprocess.run(
-                    ["sudo", "vgremove", "-f", vg],
-                    capture_output=True,
-                    timeout=10
-                )
+                subprocess.run(["sudo", "vgremove", "-f", vg], capture_output=True, timeout=10)
                 logger.info(f"Removed VG: {vg}")
             except Exception as e:
                 logger.error(f"Failed to remove VG {vg}: {e}")
@@ -968,11 +878,7 @@ class TransactionalDeviceSetup:
         # Remove physical volumes (in reverse order)
         for pv in reversed(self.created_pvs):
             try:
-                subprocess.run(
-                    ["sudo", "pvremove", "-f", pv],
-                    capture_output=True,
-                    timeout=10
-                )
+                subprocess.run(["sudo", "pvremove", "-f", pv], capture_output=True, timeout=10)
                 logger.info(f"Removed PV: {pv}")
             except Exception as e:
                 logger.error(f"Failed to remove PV {pv}: {e}")
@@ -1014,12 +920,7 @@ class DevicePoolManager(ABC):
         self.safety_validator = SafetyValidator()
 
     @abstractmethod
-    def setup_pool(
-        self,
-        device: str,
-        pool_name: str,
-        **options
-    ) -> PoolConfig:
+    def setup_pool(self, device: str, pool_name: str, **options) -> PoolConfig:
         """
         Create a new device pool (PV + VG only, no LVs).
 
@@ -1049,10 +950,7 @@ class DevicePoolManager(ABC):
 
     @abstractmethod
     def allocate_volumes(
-        self,
-        pool_name: str,
-        volume_specs: List[VolumeConfig],
-        session_id: str
+        self, pool_name: str, volume_specs: List[VolumeConfig], session_id: str
     ) -> List[VolumeAllocation]:
         """
         Allocate (create) volumes with unique names for a session.
@@ -1068,12 +966,7 @@ class DevicePoolManager(ABC):
         pass
 
     @abstractmethod
-    def release_volumes(
-        self,
-        pool_name: str,
-        session_id: str,
-        keep_volumes: bool = False
-    ) -> bool:
+    def release_volumes(self, pool_name: str, session_id: str, keep_volumes: bool = False) -> bool:
         """
         Release (delete) volumes allocated for a session.
 
@@ -1100,15 +993,11 @@ class DevicePoolManager(ABC):
         pool = self.config_manager.get_pool(pool_name)
 
         if pool is None:
-            return ValidationResult(
-                ValidationLevel.ERROR,
-                f"Pool '{pool_name}' not found"
-            )
+            return ValidationResult(ValidationLevel.ERROR, f"Pool '{pool_name}' not found")
 
         if pool.lvm_config is None:
             return ValidationResult(
-                ValidationLevel.ERROR,
-                f"Pool '{pool_name}' has no LVM configuration"
+                ValidationLevel.ERROR, f"Pool '{pool_name}' has no LVM configuration"
             )
 
         vg_name = pool.lvm_config.vg_name
@@ -1119,25 +1008,18 @@ class DevicePoolManager(ABC):
                 ["vgs", "--noheadings", "-o", "vg_name", vg_name],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
             )
 
             if result.returncode != 0:
                 return ValidationResult(
-                    ValidationLevel.ERROR,
-                    f"Volume group '{vg_name}' does not exist"
+                    ValidationLevel.ERROR, f"Volume group '{vg_name}' does not exist"
                 )
 
         except Exception as e:
-            return ValidationResult(
-                ValidationLevel.ERROR,
-                f"Failed to check VG status: {e}"
-            )
+            return ValidationResult(ValidationLevel.ERROR, f"Failed to check VG status: {e}")
 
-        return ValidationResult(
-            ValidationLevel.OK,
-            f"Pool '{pool_name}' VG '{vg_name}' is healthy"
-        )
+        return ValidationResult(ValidationLevel.OK, f"Pool '{pool_name}' VG '{vg_name}' is healthy")
 
 
 def _grant_user_lv_access(lv_path: str) -> bool:
@@ -1155,9 +1037,9 @@ def _grant_user_lv_access(lv_path: str) -> bool:
     import pwd
 
     # Get username safely (check SUDO_USER first, then USER, then fallback to getpwuid)
-    username = (os.environ.get('SUDO_USER') or
-                os.environ.get('USER') or
-                pwd.getpwuid(os.getuid()).pw_name)
+    username = (
+        os.environ.get("SUDO_USER") or os.environ.get("USER") or pwd.getpwuid(os.getuid()).pw_name
+    )
 
     # Wait for device to appear and settle (udev processing)
     device_path = Path(lv_path)
@@ -1175,7 +1057,7 @@ def _grant_user_lv_access(lv_path: str) -> bool:
             ["sudo", "udevadm", "settle", "--timeout=5"],
             capture_output=True,
             check=True,
-            timeout=10
+            timeout=10,
         )
     except subprocess.CalledProcessError:
         # Non-fatal - proceed anyway
@@ -1195,7 +1077,7 @@ def _grant_user_lv_access(lv_path: str) -> bool:
             ["sudo", "chown", f"{username}:disk", str(actual_path)],
             capture_output=True,
             check=True,
-            timeout=5
+            timeout=5,
         )
         # Also chown the symlink if different
         if actual_path != device_path:
@@ -1203,7 +1085,7 @@ def _grant_user_lv_access(lv_path: str) -> bool:
                 ["sudo", "chown", "-h", f"{username}:disk", lv_path],
                 capture_output=True,
                 check=True,
-                timeout=5
+                timeout=5,
             )
         logger.debug(f"Changed ownership of {lv_path} to {username}:disk")
     except subprocess.CalledProcessError as e:
@@ -1213,10 +1095,7 @@ def _grant_user_lv_access(lv_path: str) -> bool:
     # Ensure permissions are correct (660)
     try:
         subprocess.run(
-            ["sudo", "chmod", "660", str(actual_path)],
-            capture_output=True,
-            check=True,
-            timeout=5
+            ["sudo", "chmod", "660", str(actual_path)], capture_output=True, check=True, timeout=5
         )
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed to chmod {lv_path}: {e.stderr.decode()}")
@@ -1225,8 +1104,10 @@ def _grant_user_lv_access(lv_path: str) -> bool:
     # Log actual permissions for debugging
     try:
         stat_info = os.stat(lv_path)
-        logger.debug(f"Device {lv_path}: uid={stat_info.st_uid}, "
-                    f"gid={stat_info.st_gid}, mode={oct(stat_info.st_mode)}")
+        logger.debug(
+            f"Device {lv_path}: uid={stat_info.st_uid}, "
+            f"gid={stat_info.st_gid}, mode={oct(stat_info.st_mode)}"
+        )
     except Exception as e:
         logger.debug(f"Could not stat {lv_path}: {e}")
 
@@ -1264,12 +1145,7 @@ class LVMPoolManager(DevicePoolManager):
         super().__init__(config_manager)
         self.state_manager = VolumeStateManager()
 
-    def setup_pool(
-        self,
-        device: str,
-        pool_name: str,
-        **options
-    ) -> PoolConfig:
+    def setup_pool(self, device: str, pool_name: str, **options) -> PoolConfig:
         """
         Create LVM-based pool (PV + VG only, no LVs).
 
@@ -1293,29 +1169,23 @@ class LVMPoolManager(DevicePoolManager):
             raise RuntimeError(f"Device validation failed: {validation.message}")
 
         # Get options
-        vg_name = options.get('vg_name', f'kerneldev-{pool_name}-vg')
-        lv_prefix = options.get('lv_prefix', 'kdev')
-        user = options.get('user', pwd.getpwuid(os.getuid()).pw_name)
+        vg_name = options.get("vg_name", f"kerneldev-{pool_name}-vg")
+        lv_prefix = options.get("lv_prefix", "kdev")
+        user = options.get("user", pwd.getpwuid(os.getuid()).pw_name)
 
         # Create pool using transactional setup
         with TransactionalDeviceSetup(device) as txn:
             # Create physical volume
             logger.info(f"Creating physical volume on {device}...")
             subprocess.run(
-                ["sudo", "pvcreate", "-f", device],
-                capture_output=True,
-                check=True,
-                timeout=30
+                ["sudo", "pvcreate", "-f", device], capture_output=True, check=True, timeout=30
             )
             txn.record_pv(device)
 
             # Create volume group
             logger.info(f"Creating volume group '{vg_name}'...")
             subprocess.run(
-                ["sudo", "vgcreate", vg_name, device],
-                capture_output=True,
-                check=True,
-                timeout=30
+                ["sudo", "vgcreate", vg_name, device], capture_output=True, check=True, timeout=30
             )
             txn.record_vg(vg_name)
 
@@ -1324,7 +1194,7 @@ class LVMPoolManager(DevicePoolManager):
                 pv=device,
                 vg_name=vg_name,
                 lv_prefix=lv_prefix,
-                thin_provisioning=False  # Not yet implemented
+                thin_provisioning=False,  # Not yet implemented
             )
 
             # Create pool config (no volumes - they're created on-demand)
@@ -1334,7 +1204,7 @@ class LVMPoolManager(DevicePoolManager):
                 device=device,
                 created_at=datetime.now().isoformat(),
                 created_by=user,
-                lvm_config=lvm_config
+                lvm_config=lvm_config,
             )
 
             # Save configuration
@@ -1379,10 +1249,7 @@ class LVMPoolManager(DevicePoolManager):
         # Remove volume group (will fail if active LVs exist)
         logger.info(f"Removing volume group '{vg_name}'...")
         result = subprocess.run(
-            ["sudo", "vgremove", "-f", vg_name],
-            capture_output=True,
-            text=True,
-            timeout=30
+            ["sudo", "vgremove", "-f", vg_name], capture_output=True, text=True, timeout=30
         )
 
         if result.returncode != 0:
@@ -1393,10 +1260,7 @@ class LVMPoolManager(DevicePoolManager):
         # Remove physical volume
         logger.info(f"Removing physical volume on {pool.device}...")
         subprocess.run(
-            ["sudo", "pvremove", "-f", pool.device],
-            capture_output=True,
-            check=True,
-            timeout=30
+            ["sudo", "pvremove", "-f", pool.device], capture_output=True, check=True, timeout=30
         )
 
         # Optionally wipe data
@@ -1405,7 +1269,7 @@ class LVMPoolManager(DevicePoolManager):
             subprocess.run(
                 ["sudo", "dd", "if=/dev/zero", f"of={pool.device}", "bs=1M", "count=100"],
                 capture_output=True,
-                timeout=300
+                timeout=300,
             )
 
         # Delete pool configuration
@@ -1415,10 +1279,7 @@ class LVMPoolManager(DevicePoolManager):
         return True
 
     def allocate_volumes(
-        self,
-        pool_name: str,
-        volume_specs: List[VolumeConfig],
-        session_id: str
+        self, pool_name: str, volume_specs: List[VolumeConfig], session_id: str
     ) -> List[VolumeAllocation]:
         """
         Allocate (create) volumes with unique names for this session.
@@ -1467,7 +1328,7 @@ class LVMPoolManager(DevicePoolManager):
                     ["sudo", "lvcreate", "-y", "-L", vol_spec.size, "-n", lv_name, vg_name],
                     capture_output=True,
                     check=True,
-                    timeout=30
+                    timeout=30,
                 )
 
                 # Grant user access to LV device
@@ -1484,7 +1345,7 @@ class LVMPoolManager(DevicePoolManager):
                     volume_spec=vol_spec,
                     pid=pid,
                     allocated_at=datetime.now().isoformat(),
-                    session_id=session_id
+                    session_id=session_id,
                 )
 
                 allocations.append(allocation)
@@ -1501,21 +1362,14 @@ class LVMPoolManager(DevicePoolManager):
             for alloc in allocations:
                 try:
                     subprocess.run(
-                        ["sudo", "lvremove", "-f", alloc.lv_path],
-                        capture_output=True,
-                        timeout=30
+                        ["sudo", "lvremove", "-f", alloc.lv_path], capture_output=True, timeout=30
                     )
                     self.state_manager.unregister_allocation(alloc.lv_name)
                 except Exception:
                     pass
             raise
 
-    def release_volumes(
-        self,
-        pool_name: str,
-        session_id: str,
-        keep_volumes: bool = False
-    ) -> bool:
+    def release_volumes(self, pool_name: str, session_id: str, keep_volumes: bool = False) -> bool:
         """
         Release (delete) volumes allocated for a session.
 
@@ -1542,16 +1396,16 @@ class LVMPoolManager(DevicePoolManager):
                 try:
                     logger.info(f"Removing LV {alloc['lv_name']}...")
                     subprocess.run(
-                        ["sudo", "lvremove", "-f", alloc['lv_path']],
+                        ["sudo", "lvremove", "-f", alloc["lv_path"]],
                         capture_output=True,
-                        timeout=30
+                        timeout=30,
                     )
                 except Exception as e:
                     logger.error(f"Failed to remove LV {alloc['lv_name']}: {e}")
 
         # Unregister from state (even if keep_volumes - no longer tracked)
         for alloc in allocations:
-            self.state_manager.unregister_allocation(alloc['lv_name'])
+            self.state_manager.unregister_allocation(alloc["lv_name"])
 
         if keep_volumes:
             logger.info(f"Kept {len(allocations)} volume(s) for debugging")
@@ -1605,18 +1459,14 @@ class LVMPoolManager(DevicePoolManager):
             ["sudo", "lvresize", "-L", new_size, lv_path],
             capture_output=True,
             check=True,
-            timeout=60
+            timeout=60,
         )
 
         logger.info(f"LV '{lv_name}' resized successfully")
         return True
 
     def create_snapshot(
-        self,
-        pool_name: str,
-        lv_name: str,
-        snapshot_name: str,
-        snapshot_size: str = "1G"
+        self, pool_name: str, lv_name: str, snapshot_name: str, snapshot_size: str = "1G"
     ) -> bool:
         """
         Create LVM snapshot of a volume.
@@ -1651,7 +1501,7 @@ class LVMPoolManager(DevicePoolManager):
             ["sudo", "lvcreate", "-L", snapshot_size, "-s", "-n", snapshot_name, lv_path],
             capture_output=True,
             check=True,
-            timeout=30
+            timeout=30,
         )
 
         logger.info(f"Snapshot '{snapshot_name}' created successfully")
@@ -1686,10 +1536,7 @@ class LVMPoolManager(DevicePoolManager):
         # Delete snapshot
         logger.info(f"Deleting snapshot {snapshot_path}...")
         subprocess.run(
-            ["sudo", "lvremove", "-f", snapshot_path],
-            capture_output=True,
-            check=True,
-            timeout=30
+            ["sudo", "lvremove", "-f", snapshot_path], capture_output=True, check=True, timeout=30
         )
 
         logger.info(f"Snapshot '{snapshot_name}' deleted successfully")
@@ -1700,7 +1547,7 @@ def allocate_pool_volumes(
     pool_name: str,
     volume_specs: List[VolumeConfig],
     session_id: str,
-    config_dir: Optional[Path] = None
+    config_dir: Optional[Path] = None,
 ) -> Optional[List[Any]]:
     """
     Allocate volumes from a pool and convert to DeviceSpec objects.
@@ -1749,19 +1596,18 @@ def allocate_pool_volumes(
             name=alloc.volume_spec.name,
             order=alloc.volume_spec.order,
             env_var=alloc.volume_spec.env_var,
-            readonly=False  # Device pool volumes are always read-write
+            readonly=False,  # Device pool volumes are always read-write
         )
         device_specs.append(spec)
 
-    logger.info(f"Allocated {len(device_specs)} volume(s) from pool '{pool_name}' for session {session_id}")
+    logger.info(
+        f"Allocated {len(device_specs)} volume(s) from pool '{pool_name}' for session {session_id}"
+    )
     return device_specs
 
 
 def release_pool_volumes(
-    pool_name: str,
-    session_id: str,
-    keep_volumes: bool = False,
-    config_dir: Optional[Path] = None
+    pool_name: str, session_id: str, keep_volumes: bool = False, config_dir: Optional[Path] = None
 ) -> bool:
     """
     Release volumes allocated for a session.

@@ -4,6 +4,7 @@ Git operations manager for storing and retrieving fstests results as git notes.
 Git notes allow storing metadata attached to commits without modifying the commit itself.
 We use a custom notes ref 'refs/notes/fstests' to store test results.
 """
+
 import json
 import logging
 import subprocess
@@ -61,7 +62,7 @@ class GitManager:
                 cwd=self.repo_path,
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
             )
             return result.returncode == 0
         except (subprocess.SubprocessError, OSError):
@@ -80,7 +81,7 @@ class GitManager:
                 capture_output=True,
                 text=True,
                 timeout=5,
-                check=True
+                check=True,
             )
             return result.stdout.strip()
         except (subprocess.SubprocessError, OSError) as e:
@@ -100,7 +101,7 @@ class GitManager:
                 capture_output=True,
                 text=True,
                 timeout=5,
-                check=True
+                check=True,
             )
             branch = result.stdout.strip()
             # 'HEAD' means detached
@@ -125,7 +126,7 @@ class GitManager:
                 capture_output=True,
                 text=True,
                 timeout=5,
-                check=True
+                check=True,
             )
             return result.stdout.strip()
         except (subprocess.SubprocessError, OSError) as e:
@@ -140,7 +141,7 @@ class GitManager:
         commit_sha: Optional[str] = None,
         kernel_version: Optional[str] = None,
         fstype: str = "ext4",
-        test_selection: str = "-g quick"
+        test_selection: str = "-g quick",
     ) -> bool:
         """Save fstests results as a git note.
 
@@ -189,7 +190,7 @@ class GitManager:
                 "kernel_version": kernel_version,
                 "fstype": fstype,
                 "test_selection": test_selection,
-                "created_at": datetime.now().isoformat()
+                "created_at": datetime.now().isoformat(),
             },
             "results": {
                 "success": results.success,
@@ -203,11 +204,11 @@ class GitManager:
                         "test_name": t.test_name,
                         "status": t.status,
                         "duration": t.duration,
-                        "failure_reason": t.failure_reason
+                        "failure_reason": t.failure_reason,
                     }
                     for t in results.test_results
-                ]
-            }
+                ],
+            },
         }
 
         # Convert to JSON
@@ -217,11 +218,21 @@ class GitManager:
         try:
             # Use git notes add with --force to overwrite existing notes
             process = subprocess.run(
-                ["git", "notes", "--ref", FSTESTS_NOTES_REF, "add", "-f", "-m", note_content, target_commit],
+                [
+                    "git",
+                    "notes",
+                    "--ref",
+                    FSTESTS_NOTES_REF,
+                    "add",
+                    "-f",
+                    "-m",
+                    note_content,
+                    target_commit,
+                ],
                 cwd=self.repo_path,
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=10,
             )
 
             if process.returncode != 0:
@@ -239,9 +250,7 @@ class GitManager:
             return False
 
     def load_fstests_results(
-        self,
-        branch_name: Optional[str] = None,
-        commit_sha: Optional[str] = None
+        self, branch_name: Optional[str] = None, commit_sha: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """Load fstests results from a git note.
 
@@ -273,7 +282,7 @@ class GitManager:
                 cwd=self.repo_path,
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=10,
             )
 
             if result.returncode != 0:
@@ -290,9 +299,7 @@ class GitManager:
             return None
 
     def load_fstests_run_result(
-        self,
-        branch_name: Optional[str] = None,
-        commit_sha: Optional[str] = None
+        self, branch_name: Optional[str] = None, commit_sha: Optional[str] = None
     ) -> Optional[FstestsRunResult]:
         """Load fstests results as FstestsRunResult object.
 
@@ -316,7 +323,7 @@ class GitManager:
                     test_name=t["test_name"],
                     status=t["status"],
                     duration=t["duration"],
-                    failure_reason=t.get("failure_reason")
+                    failure_reason=t.get("failure_reason"),
                 )
                 for t in results_data["test_results"]
             ]
@@ -328,7 +335,7 @@ class GitManager:
                 failed=results_data["failed"],
                 notrun=results_data["notrun"],
                 test_results=test_results,
-                duration=results_data["duration"]
+                duration=results_data["duration"],
             )
         except (KeyError, TypeError) as e:
             logger.error(f"Invalid note data format: {e}")
@@ -350,7 +357,7 @@ class GitManager:
                 cwd=self.repo_path,
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=10,
             )
 
             if result.returncode != 0:
@@ -359,7 +366,7 @@ class GitManager:
             metadata_list = []
 
             # Each line is: <note-sha> <object-sha>
-            for line in result.stdout.strip().split('\n'):
+            for line in result.stdout.strip().split("\n"):
                 if not line:
                     continue
 
@@ -373,14 +380,16 @@ class GitManager:
                 note_data = self.load_fstests_results(commit_sha=commit_sha)
                 if note_data and "metadata" in note_data:
                     meta = note_data["metadata"]
-                    metadata_list.append(GitNoteMetadata(
-                        commit_sha=meta["commit_sha"],
-                        branch_name=meta.get("branch_name"),
-                        kernel_version=meta.get("kernel_version"),
-                        fstype=meta["fstype"],
-                        test_selection=meta["test_selection"],
-                        created_at=meta["created_at"]
-                    ))
+                    metadata_list.append(
+                        GitNoteMetadata(
+                            commit_sha=meta["commit_sha"],
+                            branch_name=meta.get("branch_name"),
+                            kernel_version=meta.get("kernel_version"),
+                            fstype=meta["fstype"],
+                            test_selection=meta["test_selection"],
+                            created_at=meta["created_at"],
+                        )
+                    )
 
                 if len(metadata_list) >= max_count:
                     break
@@ -392,9 +401,7 @@ class GitManager:
             return []
 
     def delete_fstests_results(
-        self,
-        branch_name: Optional[str] = None,
-        commit_sha: Optional[str] = None
+        self, branch_name: Optional[str] = None, commit_sha: Optional[str] = None
     ) -> bool:
         """Delete fstests results for a commit.
 
@@ -423,7 +430,7 @@ class GitManager:
                 cwd=self.repo_path,
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=10,
             )
 
             return result.returncode == 0

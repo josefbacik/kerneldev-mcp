@@ -9,11 +9,7 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 from pathlib import Path
 
-from kerneldev_mcp.device_pool import (
-    LVMPoolManager,
-    ConfigManager,
-    ValidationLevel
-)
+from kerneldev_mcp.device_pool import LVMPoolManager, ConfigManager, ValidationLevel
 
 
 @pytest.fixture
@@ -46,7 +42,7 @@ class TestLVMPoolManager:
 class TestPoolManagerValidation:
     """Test validation methods for LVM manager."""
 
-    @patch.object(ConfigManager, 'get_pool')
+    @patch.object(ConfigManager, "get_pool")
     def test_validate_pool_not_found(self, mock_get_pool, lvm_manager):
         """Test validation fails for nonexistent pool."""
         mock_get_pool.return_value = None
@@ -56,8 +52,8 @@ class TestPoolManagerValidation:
         assert result.level == ValidationLevel.ERROR
         assert "not found" in result.message.lower()
 
-    @patch('subprocess.run')
-    @patch.object(ConfigManager, 'get_pool')
+    @patch("subprocess.run")
+    @patch.object(ConfigManager, "get_pool")
     def test_validate_pool_vg_missing(self, mock_get_pool, mock_run, lvm_manager):
         """Test validation fails when VG doesn't exist."""
         from kerneldev_mcp.device_pool import PoolConfig, LVMPoolConfig
@@ -70,7 +66,7 @@ class TestPoolManagerValidation:
             device="/dev/sdb",
             created_at=datetime.now().isoformat(),
             created_by="testuser",
-            lvm_config=lvm_config
+            lvm_config=lvm_config,
         )
 
         mock_get_pool.return_value = pool
@@ -85,8 +81,8 @@ class TestPoolManagerValidation:
         assert result.level == ValidationLevel.ERROR
         assert "does not exist" in result.message.lower()
 
-    @patch('subprocess.run')
-    @patch.object(ConfigManager, 'get_pool')
+    @patch("subprocess.run")
+    @patch.object(ConfigManager, "get_pool")
     def test_validate_pool_success(self, mock_get_pool, mock_run, lvm_manager):
         """Test validation succeeds when VG exists."""
         from kerneldev_mcp.device_pool import PoolConfig, LVMPoolConfig
@@ -99,7 +95,7 @@ class TestPoolManagerValidation:
             device="/dev/sdb",
             created_at=datetime.now().isoformat(),
             created_by="testuser",
-            lvm_config=lvm_config
+            lvm_config=lvm_config,
         )
 
         mock_get_pool.return_value = pool

@@ -1,6 +1,7 @@
 """
 Kernel configuration management - generation, merging, and manipulation.
 """
+
 import logging
 import os
 import re
@@ -211,7 +212,7 @@ class ConfigManager:
         debug_level: str = "basic",
         architecture: str = "x86_64",
         additional_options: Optional[Dict[str, Optional[str]]] = None,
-        fragments: Optional[List[str]] = None
+        fragments: Optional[List[str]] = None,
     ) -> KernelConfig:
         """Generate a complete kernel configuration.
 
@@ -274,7 +275,7 @@ class ConfigManager:
         self,
         base: Union[str, Path, KernelConfig],
         fragments: List[Union[str, Path]],
-        output: Optional[Path] = None
+        output: Optional[Path] = None,
     ) -> KernelConfig:
         """Merge multiple configuration fragments.
 
@@ -336,7 +337,7 @@ class ConfigManager:
         kernel_path: Optional[Path] = None,
         merge_with_existing: bool = False,
         cross_compile: Optional[CrossCompileConfig] = None,
-        enable_virtme: bool = False
+        enable_virtme: bool = False,
     ) -> bool:
         """Apply configuration to kernel source tree.
 
@@ -396,13 +397,7 @@ class ConfigManager:
             if cross_compile:
                 cmd.extend(cross_compile.to_make_args())
 
-            subprocess.run(
-                cmd,
-                cwd=kernel_path,
-                check=True,
-                capture_output=True,
-                text=True
-            )
+            subprocess.run(cmd, cwd=kernel_path, check=True, capture_output=True, text=True)
             logger.info("  ✓ olddefconfig completed")
         except subprocess.CalledProcessError as e:
             logger.error(f"  ✗ olddefconfig failed: {e.stderr}")
@@ -421,9 +416,7 @@ class ConfigManager:
         return True
 
     def apply_virtme_requirements(
-        self,
-        kernel_path: Path,
-        cross_compile: Optional[CrossCompileConfig] = None
+        self, kernel_path: Path, cross_compile: Optional[CrossCompileConfig] = None
     ) -> bool:
         """Apply virtme-ng configuration requirements to existing .config.
 
@@ -450,11 +443,7 @@ class ConfigManager:
             # We just need to run it in the kernel directory
 
             result = subprocess.run(
-                cmd,
-                cwd=kernel_path,
-                capture_output=True,
-                text=True,
-                timeout=60
+                cmd, cwd=kernel_path, capture_output=True, text=True, timeout=60
             )
 
             # vng --kconfig may print warnings but still succeed
@@ -482,7 +471,7 @@ class ConfigManager:
         self,
         kernel_path: Path,
         options: Dict[str, Optional[str]],
-        cross_compile: Optional[CrossCompileConfig] = None
+        cross_compile: Optional[CrossCompileConfig] = None,
     ) -> Dict[str, any]:
         """Modify specific config options in existing .config file.
 
@@ -500,15 +489,13 @@ class ConfigManager:
         kernel_path = Path(kernel_path)
         config_path = kernel_path / ".config"
 
-        result = {
-            "success": False,
-            "changes": [],
-            "errors": []
-        }
+        result = {"success": False, "changes": [], "errors": []}
 
         # Check if .config exists
         if not config_path.exists():
-            result["errors"].append(f"No .config found at {config_path}. Run defconfig or apply a configuration first.")
+            result["errors"].append(
+                f"No .config found at {config_path}. Run defconfig or apply a configuration first."
+            )
             return result
 
         # Read current config
@@ -562,13 +549,7 @@ class ConfigManager:
             if cross_compile:
                 cmd.extend(cross_compile.to_make_args())
 
-            subprocess.run(
-                cmd,
-                cwd=kernel_path,
-                check=True,
-                capture_output=True,
-                text=True
-            )
+            subprocess.run(cmd, cwd=kernel_path, check=True, capture_output=True, text=True)
         except subprocess.CalledProcessError as e:
             result["errors"].append(f"make olddefconfig failed: {e.stderr}")
             return result
@@ -591,15 +572,15 @@ class ConfigManager:
         except Exception as e:
             result["errors"].append(f"Failed to verify final config: {e}")
 
-        result["success"] = len(result["errors"]) == 0 or all("Warning:" in e for e in result["errors"])
+        result["success"] = len(result["errors"]) == 0 or all(
+            "Warning:" in e for e in result["errors"]
+        )
         result["changes"] = changes
 
         return result
 
     def search_config_options(
-        self,
-        query: str,
-        kernel_path: Optional[Path] = None
+        self, query: str, kernel_path: Optional[Path] = None
     ) -> List[Dict[str, str]]:
         """Search for config options in Kconfig files.
 
@@ -627,19 +608,27 @@ class ConfigManager:
                 for match in re.finditer(
                     rf"config\s+(\w+).*?(?=\nconfig\s|\nendmenu|\nmenu\s|\Z)",
                     content,
-                    re.DOTALL | re.IGNORECASE
+                    re.DOTALL | re.IGNORECASE,
                 ):
                     config_name = match.group(1)
                     if query.lower() in config_name.lower():
                         # Extract help text if available
-                        help_match = re.search(r"help\n\s+(.*?)(?=\n\S|\Z)", match.group(0), re.DOTALL)
-                        help_text = help_match.group(1).strip() if help_match else "No description available"
+                        help_match = re.search(
+                            r"help\n\s+(.*?)(?=\n\S|\Z)", match.group(0), re.DOTALL
+                        )
+                        help_text = (
+                            help_match.group(1).strip()
+                            if help_match
+                            else "No description available"
+                        )
 
-                        results.append({
-                            "name": f"CONFIG_{config_name}",
-                            "description": help_text[:200],  # Limit description length
-                            "file": str(kconfig_file.relative_to(kernel_path))
-                        })
+                        results.append(
+                            {
+                                "name": f"CONFIG_{config_name}",
+                                "description": help_text[:200],  # Limit description length
+                                "file": str(kconfig_file.relative_to(kernel_path)),
+                            }
+                        )
             except Exception:
                 continue
 

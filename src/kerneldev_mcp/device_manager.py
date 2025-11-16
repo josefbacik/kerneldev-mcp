@@ -1,6 +1,7 @@
 """
 Device management for fstests - handles loop devices, filesystem creation, and mounting.
 """
+
 import os
 import subprocess
 import tempfile
@@ -58,17 +59,14 @@ class DeviceManager:
             Path to free loop device or None if none available
         """
         try:
-            result = subprocess.run(
-                ["losetup", "-f"],
-                capture_output=True,
-                text=True,
-                check=True
-            )
+            result = subprocess.run(["losetup", "-f"], capture_output=True, text=True, check=True)
             return result.stdout.strip()
         except subprocess.CalledProcessError:
             return None
 
-    def create_loop_device(self, size: str, name: str = "device") -> Tuple[Optional[str], Optional[Path]]:
+    def create_loop_device(
+        self, size: str, name: str = "device"
+    ) -> Tuple[Optional[str], Optional[Path]]:
         """Create a loop device from an image file.
 
         Args:
@@ -84,9 +82,7 @@ class DeviceManager:
         try:
             # Create sparse file
             subprocess.run(
-                ["truncate", "-s", size, str(backing_file)],
-                check=True,
-                capture_output=True
+                ["truncate", "-s", size, str(backing_file)], check=True, capture_output=True
             )
 
             # Find free loop device
@@ -96,9 +92,7 @@ class DeviceManager:
 
             # Setup loop device
             subprocess.run(
-                ["sudo", "losetup", loop_dev, str(backing_file)],
-                check=True,
-                capture_output=True
+                ["sudo", "losetup", loop_dev, str(backing_file)], check=True, capture_output=True
             )
 
             # Track for cleanup
@@ -129,10 +123,7 @@ class DeviceManager:
 
         # Check if it's a block device
         try:
-            result = subprocess.run(
-                ["test", "-b", device_path],
-                capture_output=True
-            )
+            result = subprocess.run(["test", "-b", device_path], capture_output=True)
             return result.returncode == 0
         except subprocess.CalledProcessError:
             return False
@@ -151,13 +142,15 @@ class DeviceManager:
                 ["sudo", "blockdev", "--getsize64", device_path],
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
             )
             return int(result.stdout.strip())
         except (subprocess.CalledProcessError, ValueError):
             return None
 
-    def create_filesystem(self, device_path: str, fstype: str, mkfs_options: Optional[str] = None) -> bool:
+    def create_filesystem(
+        self, device_path: str, fstype: str, mkfs_options: Optional[str] = None
+    ) -> bool:
         """Create a filesystem on a device.
 
         Args:
@@ -186,17 +179,14 @@ class DeviceManager:
         cmd.append(device_path)
 
         try:
-            subprocess.run(
-                cmd,
-                check=True,
-                capture_output=True,
-                text=True
-            )
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
             return True
         except subprocess.CalledProcessError as e:
             return False
 
-    def mount_device(self, device_path: str, mount_point: Path, mount_options: Optional[str] = None) -> bool:
+    def mount_device(
+        self, device_path: str, mount_point: Path, mount_options: Optional[str] = None
+    ) -> bool:
         """Mount a device.
 
         Args:
@@ -219,11 +209,7 @@ class DeviceManager:
         cmd.extend([device_path, str(mount_point)])
 
         try:
-            subprocess.run(
-                cmd,
-                check=True,
-                capture_output=True
-            )
+            subprocess.run(cmd, check=True, capture_output=True)
 
             # Track for cleanup
             self._created_mounts.append(mount_point)
@@ -242,11 +228,7 @@ class DeviceManager:
             True if successful
         """
         try:
-            subprocess.run(
-                ["sudo", "umount", str(mount_point)],
-                check=True,
-                capture_output=True
-            )
+            subprocess.run(["sudo", "umount", str(mount_point)], check=True, capture_output=True)
 
             # Remove from tracking
             if mount_point in self._created_mounts:
@@ -266,11 +248,7 @@ class DeviceManager:
             True if successful
         """
         try:
-            subprocess.run(
-                ["sudo", "losetup", "-d", loop_device],
-                check=True,
-                capture_output=True
-            )
+            subprocess.run(["sudo", "losetup", "-d", loop_device], check=True, capture_output=True)
 
             # Remove from tracking
             if loop_device in self._created_loop_devices:
@@ -290,7 +268,7 @@ class DeviceManager:
         mkfs_options: Optional[str] = None,
         mount_options: Optional[str] = None,
         pool_count: int = 0,
-        pool_size: str = "10G"
+        pool_size: str = "10G",
     ) -> DeviceSetupResult:
         """Setup test and scratch devices using loop devices, optionally with pool devices.
 
@@ -314,36 +292,26 @@ class DeviceManager:
         # Create test device
         test_dev, test_backing = self.create_loop_device(test_size, "test")
         if not test_dev:
-            return DeviceSetupResult(
-                success=False,
-                message="Failed to create test loop device"
-            )
+            return DeviceSetupResult(success=False, message="Failed to create test loop device")
 
         # Create scratch device
         scratch_dev, scratch_backing = self.create_loop_device(scratch_size, "scratch")
         if not scratch_dev:
             # Cleanup test device
             self.detach_loop_device(test_dev)
-            return DeviceSetupResult(
-                success=False,
-                message="Failed to create scratch loop device"
-            )
+            return DeviceSetupResult(success=False, message="Failed to create scratch loop device")
 
         # Format test device
         if not self.create_filesystem(test_dev, fstype, mkfs_options):
             self.cleanup_all()
             return DeviceSetupResult(
-                success=False,
-                message=f"Failed to create {fstype} filesystem on test device"
+                success=False, message=f"Failed to create {fstype} filesystem on test device"
             )
 
         # Mount test device
         if not self.mount_device(test_dev, test_mount, mount_options):
             self.cleanup_all()
-            return DeviceSetupResult(
-                success=False,
-                message="Failed to mount test device"
-            )
+            return DeviceSetupResult(success=False, message="Failed to mount test device")
 
         # Note: We don't format or mount scratch device - fstests does that
 
@@ -355,7 +323,7 @@ class DeviceManager:
             mount_options=mount_options,
             mkfs_options=mkfs_options,
             is_loop_device=True,
-            backing_file=test_backing
+            backing_file=test_backing,
         )
 
         scratch_config = DeviceConfig(
@@ -366,19 +334,18 @@ class DeviceManager:
             mount_options=mount_options,
             mkfs_options=mkfs_options,
             is_loop_device=True,
-            backing_file=scratch_backing
+            backing_file=scratch_backing,
         )
 
         # Create pool devices if requested
         pool_configs = []
         if pool_count > 0:
             for i in range(pool_count):
-                pool_dev, pool_backing = self.create_loop_device(pool_size, f"pool{i+1}")
+                pool_dev, pool_backing = self.create_loop_device(pool_size, f"pool{i + 1}")
                 if not pool_dev:
                     self.cleanup_all()
                     return DeviceSetupResult(
-                        success=False,
-                        message=f"Failed to create pool device {i+1}/{pool_count}"
+                        success=False, message=f"Failed to create pool device {i + 1}/{pool_count}"
                     )
 
                 # Pool devices are NOT formatted - tests format them as needed
@@ -390,7 +357,7 @@ class DeviceManager:
                     mount_options=mount_options,
                     mkfs_options=mkfs_options,
                     is_loop_device=True,
-                    backing_file=pool_backing
+                    backing_file=pool_backing,
                 )
                 pool_configs.append(pool_config)
 
@@ -405,7 +372,7 @@ class DeviceManager:
             scratch_device=scratch_config,
             pool_devices=pool_configs if pool_configs else None,
             message=message,
-            cleanup_needed=True
+            cleanup_needed=True,
         )
 
     def setup_existing_devices(
@@ -418,7 +385,7 @@ class DeviceManager:
         format_test: bool = True,
         mkfs_options: Optional[str] = None,
         mount_options: Optional[str] = None,
-        pool_devs: Optional[List[str]] = None
+        pool_devs: Optional[List[str]] = None,
     ) -> DeviceSetupResult:
         """Setup test and scratch devices using existing devices, optionally with pool devices.
 
@@ -442,31 +409,25 @@ class DeviceManager:
         # Validate test device
         if not self.validate_device(test_dev):
             return DeviceSetupResult(
-                success=False,
-                message=f"Test device {test_dev} is not valid or doesn't exist"
+                success=False, message=f"Test device {test_dev} is not valid or doesn't exist"
             )
 
         # Validate scratch device
         if not self.validate_device(scratch_dev):
             return DeviceSetupResult(
-                success=False,
-                message=f"Scratch device {scratch_dev} is not valid or doesn't exist"
+                success=False, message=f"Scratch device {scratch_dev} is not valid or doesn't exist"
             )
 
         # Format test device if requested
         if format_test:
             if not self.create_filesystem(test_dev, fstype, mkfs_options):
                 return DeviceSetupResult(
-                    success=False,
-                    message=f"Failed to create {fstype} filesystem on test device"
+                    success=False, message=f"Failed to create {fstype} filesystem on test device"
                 )
 
         # Mount test device
         if not self.mount_device(test_dev, test_mount, mount_options):
-            return DeviceSetupResult(
-                success=False,
-                message="Failed to mount test device"
-            )
+            return DeviceSetupResult(success=False, message="Failed to mount test device")
 
         test_config = DeviceConfig(
             device_path=test_dev,
@@ -474,7 +435,7 @@ class DeviceManager:
             filesystem_type=fstype,
             mount_options=mount_options,
             mkfs_options=mkfs_options,
-            is_loop_device=False
+            is_loop_device=False,
         )
 
         scratch_config = DeviceConfig(
@@ -483,7 +444,7 @@ class DeviceManager:
             filesystem_type=fstype,
             mount_options=mount_options,
             mkfs_options=mkfs_options,
-            is_loop_device=False
+            is_loop_device=False,
         )
 
         # Validate and setup pool devices if provided
@@ -493,7 +454,7 @@ class DeviceManager:
                 if not self.validate_device(pool_dev):
                     return DeviceSetupResult(
                         success=False,
-                        message=f"Pool device {pool_dev} is not valid or doesn't exist"
+                        message=f"Pool device {pool_dev} is not valid or doesn't exist",
                     )
 
                 # Pool devices are not formatted or mounted
@@ -503,7 +464,7 @@ class DeviceManager:
                     filesystem_type=fstype,
                     mount_options=mount_options,
                     mkfs_options=mkfs_options,
-                    is_loop_device=False
+                    is_loop_device=False,
                 )
                 pool_configs.append(pool_config)
 
@@ -518,7 +479,7 @@ class DeviceManager:
             scratch_device=scratch_config,
             pool_devices=pool_configs if pool_configs else None,
             message=message,
-            cleanup_needed=False
+            cleanup_needed=False,
         )
 
     def cleanup_all(self):

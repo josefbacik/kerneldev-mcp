@@ -1,6 +1,7 @@
 """
 Unit tests for fstests_manager module.
 """
+
 import pytest
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
@@ -11,7 +12,7 @@ from kerneldev_mcp.fstests_manager import (
     FstestsConfig,
     TestResult,
     FstestsRunResult,
-    format_fstests_result
+    format_fstests_result,
 )
 
 
@@ -41,7 +42,7 @@ def fstests_config():
         test_dir=Path("/mnt/test"),
         scratch_dev="/dev/loop1",
         scratch_dir=Path("/mnt/scratch"),
-        fstype="ext4"
+        fstype="ext4",
     )
 
 
@@ -56,7 +57,7 @@ class TestFstestsConfig:
             test_dir=Path("/mnt/test"),
             scratch_dev="/dev/loop1",
             scratch_dir=Path("/mnt/scratch"),
-            fstype="ext4"
+            fstype="ext4",
         )
 
         assert config.test_dev == "/dev/loop0"
@@ -82,7 +83,7 @@ class TestFstestsConfig:
             scratch_dir=Path("/mnt/scratch"),
             fstype="btrfs",
             mount_options="compress=zstd",
-            mkfs_options="-L TEST"
+            mkfs_options="-L TEST",
         )
 
         text = config.to_config_text()
@@ -99,7 +100,7 @@ class TestFstestsConfig:
             scratch_dev="/dev/loop1",
             scratch_dir=Path("/mnt/scratch"),
             fstype="ext4",
-            additional_vars={"CUSTOM_VAR": "value"}
+            additional_vars={"CUSTOM_VAR": "value"},
         )
 
         text = config.to_config_text()
@@ -112,11 +113,7 @@ class TestTestResult:
 
     def test_passed_result(self):
         """Test passed test result."""
-        result = TestResult(
-            test_name="generic/001",
-            status="passed",
-            duration=5.0
-        )
+        result = TestResult(test_name="generic/001", status="passed", duration=5.0)
 
         assert result.test_name == "generic/001"
         assert result.status == "passed"
@@ -125,10 +122,7 @@ class TestTestResult:
     def test_failed_result(self):
         """Test failed test result."""
         result = TestResult(
-            test_name="generic/003",
-            status="failed",
-            duration=0.0,
-            failure_reason="output mismatch"
+            test_name="generic/003", status="failed", duration=0.0, failure_reason="output mismatch"
         )
 
         assert result.status == "failed"
@@ -140,7 +134,7 @@ class TestTestResult:
             test_name="generic/002",
             status="notrun",
             duration=0.0,
-            failure_reason="requires feature XYZ"
+            failure_reason="requires feature XYZ",
         )
 
         assert result.status == "notrun"
@@ -152,12 +146,7 @@ class TestFstestsRunResult:
     def test_run_result_creation(self):
         """Test creating FstestsRunResult."""
         result = FstestsRunResult(
-            success=True,
-            total_tests=10,
-            passed=8,
-            failed=1,
-            notrun=1,
-            duration=100.0
+            success=True, total_tests=10, passed=8, failed=1, notrun=1, duration=100.0
         )
 
         assert result.success
@@ -168,37 +157,20 @@ class TestFstestsRunResult:
 
     def test_pass_rate(self):
         """Test pass rate calculation."""
-        result = FstestsRunResult(
-            success=True,
-            total_tests=10,
-            passed=8,
-            failed=2,
-            notrun=0
-        )
+        result = FstestsRunResult(success=True, total_tests=10, passed=8, failed=2, notrun=0)
 
         assert result.pass_rate == 80.0
 
     def test_pass_rate_zero_tests(self):
         """Test pass rate with zero tests."""
-        result = FstestsRunResult(
-            success=True,
-            total_tests=0,
-            passed=0,
-            failed=0,
-            notrun=0
-        )
+        result = FstestsRunResult(success=True, total_tests=0, passed=0, failed=0, notrun=0)
 
         assert result.pass_rate == 0.0
 
     def test_summary_all_passed(self):
         """Test summary with all tests passed."""
         result = FstestsRunResult(
-            success=True,
-            total_tests=10,
-            passed=10,
-            failed=0,
-            notrun=0,
-            duration=50.0
+            success=True, total_tests=10, passed=10, failed=0, notrun=0, duration=50.0
         )
 
         summary = result.summary()
@@ -210,12 +182,7 @@ class TestFstestsRunResult:
     def test_summary_with_failures(self):
         """Test summary with failures."""
         result = FstestsRunResult(
-            success=False,
-            total_tests=10,
-            passed=7,
-            failed=2,
-            notrun=1,
-            duration=50.0
+            success=False, total_tests=10, passed=7, failed=2, notrun=1, duration=50.0
         )
 
         summary = result.summary()
@@ -280,11 +247,9 @@ class TestFstestsManager:
         src_dir.mkdir()
         (src_dir / "fsstress").touch()
 
-        with patch('kerneldev_mcp.fstests_manager.subprocess.run') as mock_run:
+        with patch("kerneldev_mcp.fstests_manager.subprocess.run") as mock_run:
             mock_run.return_value = Mock(
-                returncode=0,
-                stdout="v2024.01.01-123-gabcdef\n",
-                stderr=""
+                returncode=0, stdout="v2024.01.01-123-gabcdef\n", stderr=""
             )
 
             version = fstests_manager.get_version()
@@ -293,7 +258,7 @@ class TestFstestsManager:
 
     def test_check_build_dependencies_success(self, fstests_manager):
         """Test checking build dependencies when all present."""
-        with patch('kerneldev_mcp.fstests_manager.subprocess.run') as mock_run:
+        with patch("kerneldev_mcp.fstests_manager.subprocess.run") as mock_run:
             # All tools and headers are available
             mock_run.return_value = Mock(returncode=0)
 
@@ -304,15 +269,15 @@ class TestFstestsManager:
 
     def test_check_build_dependencies_missing_tools(self, fstests_manager):
         """Test checking build dependencies when tools are missing."""
-        with patch('kerneldev_mcp.fstests_manager.subprocess.run') as mock_run:
+        with patch("kerneldev_mcp.fstests_manager.subprocess.run") as mock_run:
             # First call (make --version) fails, rest succeed
             mock_run.side_effect = [
                 FileNotFoundError(),  # make missing
-                Mock(returncode=0),   # gcc present
-                Mock(returncode=0),   # git present
-                Mock(returncode=0),   # xfs/xfs.h present
-                Mock(returncode=0),   # sys/acl.h present
-                Mock(returncode=0),   # attr/xattr.h present
+                Mock(returncode=0),  # gcc present
+                Mock(returncode=0),  # git present
+                Mock(returncode=0),  # xfs/xfs.h present
+                Mock(returncode=0),  # sys/acl.h present
+                Mock(returncode=0),  # attr/xattr.h present
             ]
 
             deps_ok, missing = fstests_manager.check_build_dependencies()
@@ -322,16 +287,20 @@ class TestFstestsManager:
 
     def test_check_build_dependencies_missing_headers(self, fstests_manager):
         """Test checking build dependencies when headers are missing."""
-        with patch('kerneldev_mcp.fstests_manager.subprocess.run') as mock_run:
+        with patch("kerneldev_mcp.fstests_manager.subprocess.run") as mock_run:
             # Tools present, but one header missing
             def run_side_effect(cmd, *args, **kwargs):
-                if cmd == ["make", "--version"] or cmd == ["gcc", "--version"] or cmd == ["git", "--version"]:
+                if (
+                    cmd == ["make", "--version"]
+                    or cmd == ["gcc", "--version"]
+                    or cmd == ["git", "--version"]
+                ):
                     return Mock(returncode=0)
                 # gcc compilation test for headers
                 if cmd[0] == "gcc" and "-x" in cmd:
                     # Check which header is being tested based on input
-                    input_data = kwargs.get('input', '')
-                    if 'sys/acl.h' in input_data:
+                    input_data = kwargs.get("input", "")
+                    if "sys/acl.h" in input_data:
                         return Mock(returncode=1)  # acl.h missing
                     return Mock(returncode=0)  # others present
                 return Mock(returncode=0)
@@ -345,15 +314,19 @@ class TestFstestsManager:
 
     def test_install_success(self, fstests_manager):
         """Test successful installation."""
-        with patch('kerneldev_mcp.fstests_manager.subprocess.run') as mock_run:
+        with patch("kerneldev_mcp.fstests_manager.subprocess.run") as mock_run:
             # Mock successful git clone and make
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
 
             # Mock check_installed to return True after build
-            with patch.object(fstests_manager, 'check_installed', return_value=True):
-                with patch.object(fstests_manager, 'check_build_dependencies', return_value=(True, [])):
+            with patch.object(fstests_manager, "check_installed", return_value=True):
+                with patch.object(
+                    fstests_manager, "check_build_dependencies", return_value=(True, [])
+                ):
                     # Mock build() to return success
-                    with patch.object(fstests_manager, 'build', return_value=(True, "Build successful")):
+                    with patch.object(
+                        fstests_manager, "build", return_value=(True, "Build successful")
+                    ):
                         success, message = fstests_manager.install()
 
                         assert success
@@ -361,7 +334,9 @@ class TestFstestsManager:
 
     def test_install_missing_dependencies(self, fstests_manager):
         """Test installation with missing dependencies."""
-        with patch.object(fstests_manager, 'check_build_dependencies', return_value=(False, ['gcc', 'make'])):
+        with patch.object(
+            fstests_manager, "check_build_dependencies", return_value=(False, ["gcc", "make"])
+        ):
             success, message = fstests_manager.install()
 
             assert not success
@@ -370,8 +345,8 @@ class TestFstestsManager:
 
     def test_install_clone_failure(self, fstests_manager):
         """Test installation when git clone fails."""
-        with patch.object(fstests_manager, 'check_build_dependencies', return_value=(True, [])):
-            with patch('kerneldev_mcp.fstests_manager.subprocess.run') as mock_run:
+        with patch.object(fstests_manager, "check_build_dependencies", return_value=(True, [])):
+            with patch("kerneldev_mcp.fstests_manager.subprocess.run") as mock_run:
                 mock_run.return_value = Mock(returncode=1, stderr="clone failed")
 
                 success, message = fstests_manager.install()
@@ -381,8 +356,8 @@ class TestFstestsManager:
 
     def test_install_timeout(self, fstests_manager):
         """Test installation timeout."""
-        with patch.object(fstests_manager, 'check_build_dependencies', return_value=(True, [])):
-            with patch('kerneldev_mcp.fstests_manager.subprocess.run') as mock_run:
+        with patch.object(fstests_manager, "check_build_dependencies", return_value=(True, [])):
+            with patch("kerneldev_mcp.fstests_manager.subprocess.run") as mock_run:
                 mock_run.side_effect = subprocess.TimeoutExpired("git", 300)
 
                 success, message = fstests_manager.install()
@@ -404,7 +379,7 @@ class TestFstestsManager:
         fsstress.touch(mode=0o755)
         aio_dio.touch(mode=0o755)
 
-        with patch('kerneldev_mcp.fstests_manager.subprocess.run') as mock_run:
+        with patch("kerneldev_mcp.fstests_manager.subprocess.run") as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
 
             success, message = fstests_manager.build()
@@ -431,7 +406,7 @@ class TestFstestsManager:
         fsstress.touch(mode=0o755)
         aio_dio.touch(mode=0o755)
 
-        with patch('kerneldev_mcp.fstests_manager.subprocess.run') as mock_run:
+        with patch("kerneldev_mcp.fstests_manager.subprocess.run") as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
 
             success, message = fstests_manager.build()
@@ -451,7 +426,7 @@ class TestFstestsManager:
         """Test build failure."""
         fstests_manager.fstests_path.mkdir(parents=True)
 
-        with patch('kerneldev_mcp.fstests_manager.subprocess.run') as mock_run:
+        with patch("kerneldev_mcp.fstests_manager.subprocess.run") as mock_run:
             mock_run.return_value = Mock(returncode=1, stdout="", stderr="build error")
 
             success, message = fstests_manager.build()
@@ -465,12 +440,10 @@ class TestFstestsManager:
         fstests_manager.fstests_path.mkdir(parents=True)
         (fstests_manager.fstests_path / "configure").touch()
 
-        with patch('kerneldev_mcp.fstests_manager.subprocess.run') as mock_run:
+        with patch("kerneldev_mcp.fstests_manager.subprocess.run") as mock_run:
             # Configure returns error
             mock_run.return_value = Mock(
-                returncode=1,
-                stdout="FATAL ERROR: cannot find xfs/xfs.h",
-                stderr=""
+                returncode=1, stdout="FATAL ERROR: cannot find xfs/xfs.h", stderr=""
             )
 
             success, message = fstests_manager.build()
@@ -485,7 +458,7 @@ class TestFstestsManager:
         (fstests_manager.fstests_path / "configure").touch()
         (fstests_manager.fstests_path / "include").mkdir(parents=True)
 
-        with patch('kerneldev_mcp.fstests_manager.subprocess.run') as mock_run:
+        with patch("kerneldev_mcp.fstests_manager.subprocess.run") as mock_run:
             # Configure returns success but doesn't create builddefs
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
 
@@ -502,7 +475,7 @@ class TestFstestsManager:
         (fstests_manager.fstests_path / "ltp").mkdir(parents=True)
         (fstests_manager.fstests_path / "src").mkdir(parents=True)
 
-        with patch('kerneldev_mcp.fstests_manager.subprocess.run') as mock_run:
+        with patch("kerneldev_mcp.fstests_manager.subprocess.run") as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
 
             success, message = fstests_manager.build()
@@ -763,12 +736,8 @@ Failed 2 of 3 tests
         src_dir.mkdir()
         (src_dir / "fsstress").touch()
 
-        with patch('kerneldev_mcp.fstests_manager.subprocess.run') as mock_run:
-            mock_run.return_value = Mock(
-                returncode=0,
-                stdout=sample_check_output,
-                stderr=""
-            )
+        with patch("kerneldev_mcp.fstests_manager.subprocess.run") as mock_run:
+            mock_run.return_value = Mock(returncode=0, stdout=sample_check_output, stderr="")
 
             result = fstests_manager.run_tests(tests=["-g", "quick"])
 
@@ -785,10 +754,8 @@ Failed 2 of 3 tests
         src_dir.mkdir()
         (src_dir / "fsstress").touch()
 
-        with patch('kerneldev_mcp.fstests_manager.subprocess.run') as mock_run:
-            mock_run.side_effect = subprocess.TimeoutExpired(
-                "check", 300, output=b"partial output"
-            )
+        with patch("kerneldev_mcp.fstests_manager.subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.TimeoutExpired("check", 300, output=b"partial output")
 
             result = fstests_manager.run_tests(timeout=300)
 
@@ -806,7 +773,7 @@ Failed 2 of 3 tests
         exclude_file = tmp_path / "exclude.txt"
         exclude_file.write_text("generic/001\n")
 
-        with patch('kerneldev_mcp.fstests_manager.subprocess.run') as mock_run:
+        with patch("kerneldev_mcp.fstests_manager.subprocess.run") as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
 
             fstests_manager.run_tests(exclude_file=exclude_file)
@@ -825,7 +792,7 @@ Failed 2 of 3 tests
         src_dir.mkdir()
         (src_dir / "fsstress").touch()
 
-        with patch('kerneldev_mcp.fstests_manager.subprocess.run') as mock_run:
+        with patch("kerneldev_mcp.fstests_manager.subprocess.run") as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
 
             fstests_manager.run_tests(randomize=True)
@@ -842,7 +809,7 @@ Failed 2 of 3 tests
         src_dir.mkdir()
         (src_dir / "fsstress").touch()
 
-        with patch('kerneldev_mcp.fstests_manager.subprocess.run') as mock_run:
+        with patch("kerneldev_mcp.fstests_manager.subprocess.run") as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
 
             fstests_manager.run_tests(iterations=5)
@@ -885,12 +852,7 @@ class TestFormatFstestsResult:
     def test_format_basic(self):
         """Test basic formatting."""
         result = FstestsRunResult(
-            success=True,
-            total_tests=10,
-            passed=10,
-            failed=0,
-            notrun=0,
-            duration=50.0
+            success=True, total_tests=10, passed=10, failed=0, notrun=0, duration=50.0
         )
 
         formatted = format_fstests_result(result)
@@ -910,7 +872,7 @@ class TestFormatFstestsResult:
                 TestResult("generic/001", "failed", 0.0, "error 1"),
                 TestResult("generic/002", "failed", 0.0, "error 2"),
             ],
-            duration=50.0
+            duration=50.0,
         )
 
         formatted = format_fstests_result(result, max_failures=10)
@@ -922,8 +884,7 @@ class TestFormatFstestsResult:
     def test_format_limits_failures(self):
         """Test that formatting limits number of failures shown."""
         failures = [
-            TestResult(f"generic/{i:03d}", "failed", 0.0, f"error {i}")
-            for i in range(1, 21)
+            TestResult(f"generic/{i:03d}", "failed", 0.0, f"error {i}") for i in range(1, 21)
         ]
 
         result = FstestsRunResult(
@@ -933,7 +894,7 @@ class TestFormatFstestsResult:
             failed=20,
             notrun=0,
             test_results=failures,
-            duration=100.0
+            duration=100.0,
         )
 
         formatted = format_fstests_result(result, max_failures=5)

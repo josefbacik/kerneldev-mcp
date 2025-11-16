@@ -1,6 +1,7 @@
 """
 Kernel build management - building kernels and handling build errors.
 """
+
 import logging
 import os
 import re
@@ -93,9 +94,9 @@ class BuildOutputParser:
         for line in output.splitlines():
             parsed = BuildOutputParser._parse_line(line)
             if parsed:
-                if parsed.error_type in ('error', 'fatal', 'fatal error'):
+                if parsed.error_type in ("error", "fatal", "fatal error"):
                     errors.append(parsed)
-                elif parsed.error_type == 'warning':
+                elif parsed.error_type == "warning":
                     warnings.append(parsed)
 
         return errors, warnings
@@ -123,11 +124,11 @@ class BuildOutputParser:
                         line=line_num,
                         column=col_num,
                         error_type=error_type,
-                        message=message
+                        message=message,
                     )
 
                 # Linker errors (3 groups: file, line, message)
-                elif len(groups) == 3 and 'undefined reference' in line:
+                elif len(groups) == 3 and "undefined reference" in line:
                     file_path = groups[0]
                     line_num = int(groups[1]) if groups[1].isdigit() else None
                     message = groups[2]
@@ -136,18 +137,18 @@ class BuildOutputParser:
                         file=file_path,
                         line=line_num,
                         column=None,
-                        error_type='error',
-                        message=message
+                        error_type="error",
+                        message=message,
                     )
 
                 # Make errors
-                elif len(groups) >= 2 and 'make' in line:
+                elif len(groups) >= 2 and "make" in line:
                     return BuildError(
                         file=groups[0] if groups[0] else "Makefile",
                         line=None,
                         column=None,
-                        error_type='error',
-                        message=f"Make error (exit {groups[1]})"
+                        error_type="error",
+                        message=f"Make error (exit {groups[1]})",
                     )
 
         return None
@@ -182,7 +183,7 @@ class KernelBuilder:
         cross_compile: Optional["CrossCompileConfig"] = None,
         extra_host_cflags: Optional[str] = None,
         extra_kernel_cflags: Optional[str] = None,
-        c_std: Optional[str] = None
+        c_std: Optional[str] = None,
     ) -> BuildResult:
         """Build the kernel.
 
@@ -227,7 +228,7 @@ class KernelBuilder:
             elif cross_compile and cross_compile.prefix:
                 cc = f"{cross_compile.prefix}gcc"
             else:
-                cc = os.environ.get('CC', 'gcc')
+                cc = os.environ.get("CC", "gcc")
 
             # Override CC with standard flag
             cmd.append(f"CC={cc} -std={c_std}")
@@ -243,7 +244,7 @@ class KernelBuilder:
         # that hardcodes -Werror before including EXTRA_CFLAGS
         if extra_host_cflags:
             # Get existing EXTRA_CFLAGS from environment if any
-            existing_flags = os.environ.get('EXTRA_CFLAGS', '')
+            existing_flags = os.environ.get("EXTRA_CFLAGS", "")
             if existing_flags:
                 # Append to existing flags
                 cmd.append(f"EXTRA_CFLAGS={existing_flags} {extra_host_cflags}")
@@ -293,7 +294,7 @@ class KernelBuilder:
                 capture_output=True,
                 text=True,
                 stdin=subprocess.DEVNULL,  # Prevent hanging on interactive config prompts
-                timeout=timeout
+                timeout=timeout,
             )
 
             duration = time.time() - start_time
@@ -312,7 +313,7 @@ class KernelBuilder:
                 logger.error(f"  Exit code: {result.returncode}")
                 # Log first few errors
                 for i, err in enumerate(errors[:3]):
-                    logger.error(f"  Error {i+1}: {err}")
+                    logger.error(f"  Error {i + 1}: {err}")
             logger.info("=" * 60)
 
             return BuildResult(
@@ -321,7 +322,7 @@ class KernelBuilder:
                 errors=errors,
                 warnings=warnings,
                 output=combined_output,
-                exit_code=result.returncode
+                exit_code=result.returncode,
             )
 
         except subprocess.TimeoutExpired as e:
@@ -336,13 +337,15 @@ class KernelBuilder:
                 output += e.stderr.decode() if isinstance(e.stderr, bytes) else e.stderr
 
             errors, warnings = BuildOutputParser.parse_output(output)
-            errors.append(BuildError(
-                file="<build>",
-                line=None,
-                column=None,
-                error_type="fatal",
-                message=f"Build timeout after {timeout}s"
-            ))
+            errors.append(
+                BuildError(
+                    file="<build>",
+                    line=None,
+                    column=None,
+                    error_type="fatal",
+                    message=f"Build timeout after {timeout}s",
+                )
+            )
 
             return BuildResult(
                 success=False,
@@ -350,7 +353,7 @@ class KernelBuilder:
                 errors=errors,
                 warnings=warnings,
                 output=output,
-                exit_code=-1
+                exit_code=-1,
             )
 
         except Exception as e:
@@ -361,23 +364,21 @@ class KernelBuilder:
             return BuildResult(
                 success=False,
                 duration=duration,
-                errors=[BuildError(
-                    file="<build>",
-                    line=None,
-                    column=None,
-                    error_type="fatal",
-                    message=str(e)
-                )],
+                errors=[
+                    BuildError(
+                        file="<build>", line=None, column=None, error_type="fatal", message=str(e)
+                    )
+                ],
                 warnings=[],
                 output="",
-                exit_code=-1
+                exit_code=-1,
             )
 
     def clean(
         self,
         target: str = "clean",
         build_dir: Optional[Path] = None,
-        cross_compile: Optional["CrossCompileConfig"] = None
+        cross_compile: Optional["CrossCompileConfig"] = None,
     ) -> bool:
         """Clean build artifacts.
 
@@ -410,7 +411,7 @@ class KernelBuilder:
                 cwd=self.kernel_path,
                 check=True,
                 capture_output=True,
-                stdin=subprocess.DEVNULL  # Prevent hanging on interactive prompts
+                stdin=subprocess.DEVNULL,  # Prevent hanging on interactive prompts
             )
             logger.info(f"✓ Clean completed: make {target}")
             return True
@@ -431,7 +432,7 @@ class KernelBuilder:
                 capture_output=True,
                 text=True,
                 stdin=subprocess.DEVNULL,
-                check=True
+                check=True,
             )
             return result.stdout.strip()
         except subprocess.CalledProcessError:
@@ -457,7 +458,7 @@ class KernelBuilder:
                 cwd=self.kernel_path,
                 check=True,
                 capture_output=True,
-                stdin=subprocess.DEVNULL  # Prevent hanging on interactive prompts
+                stdin=subprocess.DEVNULL,  # Prevent hanging on interactive prompts
             )
             return True
         except subprocess.CalledProcessError:

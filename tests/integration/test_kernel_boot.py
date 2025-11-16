@@ -5,6 +5,7 @@ Integration test for kernel boot validation with virtme-ng.
 This test validates that the boot_manager can successfully boot a kernel
 using virtme-ng and capture/analyze the dmesg output.
 """
+
 import sys
 from pathlib import Path
 from kerneldev_mcp.boot_manager import BootManager, format_boot_result
@@ -54,12 +55,7 @@ def test_kernel_boot():
     print("  CPUs: 2")
     print("")
 
-    result = boot_manager.boot_test(
-        timeout=90,
-        memory="2G",
-        cpus=2,
-        use_host_kernel=use_host
-    )
+    result = boot_manager.boot_test(timeout=90, memory="2G", cpus=2, use_host_kernel=use_host)
 
     # Display results
     print("=" * 80)

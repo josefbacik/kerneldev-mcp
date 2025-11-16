@@ -1,6 +1,7 @@
 """
 Baseline management for fstests - tracking, comparison, and regression detection.
 """
+
 import json
 import shutil
 from pathlib import Path
@@ -52,11 +53,11 @@ class Baseline:
                         "test_name": t.test_name,
                         "status": t.status,
                         "duration": t.duration,
-                        "failure_reason": t.failure_reason
+                        "failure_reason": t.failure_reason,
                     }
                     for t in self.results.test_results
-                ]
-            }
+                ],
+            },
         }
 
     @staticmethod
@@ -78,7 +79,7 @@ class Baseline:
                 test_name=t["test_name"],
                 status=t["status"],
                 duration=t["duration"],
-                failure_reason=t.get("failure_reason")
+                failure_reason=t.get("failure_reason"),
             )
             for t in data["results"]["test_results"]
         ]
@@ -90,7 +91,7 @@ class Baseline:
             failed=data["results"]["failed"],
             notrun=data["results"]["notrun"],
             test_results=test_results,
-            duration=data["results"]["duration"]
+            duration=data["results"]["duration"],
         )
 
         return Baseline(metadata=metadata, results=results, baseline_dir=baseline_dir)
@@ -184,7 +185,7 @@ class BaselineManager:
         config_hash: Optional[str] = None,
         fstype: str = "ext4",
         description: Optional[str] = None,
-        test_selection: Optional[str] = None
+        test_selection: Optional[str] = None,
     ) -> Baseline:
         """Save a baseline.
 
@@ -212,7 +213,7 @@ class BaselineManager:
             config_hash=config_hash,
             fstype=fstype,
             description=description,
-            test_selection=test_selection
+            test_selection=test_selection,
         )
 
         baseline = Baseline(metadata=metadata, results=results, baseline_dir=baseline_dir)
@@ -304,9 +305,7 @@ class BaselineManager:
             return False
 
     def compare_results(
-        self,
-        current_results: FstestsRunResult,
-        baseline: Baseline
+        self, current_results: FstestsRunResult, baseline: Baseline
     ) -> ComparisonResult:
         """Compare current results against a baseline.
 
@@ -318,9 +317,7 @@ class BaselineManager:
             ComparisonResult with detailed comparison
         """
         # Build test name -> result maps
-        current_map: Dict[str, TestResult] = {
-            t.test_name: t for t in current_results.test_results
-        }
+        current_map: Dict[str, TestResult] = {t.test_name: t for t in current_results.test_results}
         baseline_map: Dict[str, TestResult] = {
             t.test_name: t for t in baseline.results.test_results
         }
@@ -373,7 +370,7 @@ class BaselineManager:
             new_passes=new_passes,
             still_failing=still_failing,
             still_passing=still_passing,
-            new_notrun=new_notrun
+            new_notrun=new_notrun,
         )
 
     def generate_exclude_list(self, baseline: Baseline, output_file: Path) -> int:
@@ -389,10 +386,7 @@ class BaselineManager:
         Returns:
             Number of tests added to exclude list
         """
-        failed_tests = [
-            t.test_name for t in baseline.results.test_results
-            if t.status == "failed"
-        ]
+        failed_tests = [t.test_name for t in baseline.results.test_results if t.status == "failed"]
 
         try:
             with output_file.open("w") as f:
@@ -411,9 +405,7 @@ class BaselineManager:
 
 
 def format_comparison_result(
-    comparison: ComparisonResult,
-    baseline_name: str,
-    max_shown: int = 20
+    comparison: ComparisonResult, baseline_name: str, max_shown: int = 20
 ) -> str:
     """Format comparison result for display.
 

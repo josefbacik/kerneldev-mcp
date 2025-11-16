@@ -5,10 +5,12 @@ Test cross-compilation for arm64.
 This test validates that the kerneldev-mcp can correctly cross-compile
 the Linux kernel for arm64 architecture.
 """
+
 import os
 from pathlib import Path
 from kerneldev_mcp.config_manager import ConfigManager, KernelConfig, CrossCompileConfig
 from kerneldev_mcp.build_manager import KernelBuilder
+
 
 def test_arm64_defconfig():
     """Test applying arm64 defconfig with cross-compilation."""
@@ -42,9 +44,7 @@ def test_arm64_defconfig():
     config_manager = ConfigManager()
     print("\nApplying configuration...")
     success = config_manager.apply_config(
-        config=config,
-        kernel_path=kernel_path,
-        cross_compile=cross_compile
+        config=config, kernel_path=kernel_path, cross_compile=cross_compile
     )
 
     if not success:
@@ -75,6 +75,7 @@ def test_arm64_defconfig():
     builder = KernelBuilder(kernel_path)
 
     import subprocess
+
     try:
         # Test with 'prepare' target which is more standard
         cmd = ["make"]
@@ -87,7 +88,7 @@ def test_arm64_defconfig():
             cwd=kernel_path,
             capture_output=True,
             text=True,
-            timeout=300  # Give it more time
+            timeout=300,  # Give it more time
         )
 
         if result.returncode != 0:

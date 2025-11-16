@@ -10,11 +10,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 from datetime import datetime
 
-from kerneldev_mcp.device_pool import (
-    VolumeStateManager,
-    VolumeAllocation,
-    VolumeConfig
-)
+from kerneldev_mcp.device_pool import VolumeStateManager, VolumeAllocation, VolumeConfig
 
 
 @pytest.fixture
@@ -33,11 +29,7 @@ def state_manager(temp_state_dir):
 def sample_allocation():
     """Create sample VolumeAllocation."""
     vol_spec = VolumeConfig(
-        name="test",
-        size="10G",
-        path="/dev/test-vg/kdev-123-test",
-        order=0,
-        env_var="TEST_DEV"
+        name="test", size="10G", path="/dev/test-vg/kdev-123-test", order=0, env_var="TEST_DEV"
     )
 
     return VolumeAllocation(
@@ -48,7 +40,7 @@ def sample_allocation():
         volume_spec=vol_spec,
         pid=os.getpid(),
         allocated_at=datetime.now().isoformat(),
-        session_id="session-a3f9d2"
+        session_id="session-a3f9d2",
     )
 
 
@@ -87,7 +79,9 @@ class TestVolumeStateManager:
         state_manager.register_allocation(sample_allocation)
 
         # Create second allocation
-        vol_spec2 = VolumeConfig(name="pool1", size="10G", path="/dev/test-vg/kdev-123-pool1", order=1)
+        vol_spec2 = VolumeConfig(
+            name="pool1", size="10G", path="/dev/test-vg/kdev-123-pool1", order=1
+        )
         alloc2 = VolumeAllocation(
             lv_path="/dev/test-vg/kdev-20251115103045-a3f9d2-pool1",
             lv_name="kdev-20251115103045-a3f9d2-pool1",
@@ -96,7 +90,7 @@ class TestVolumeStateManager:
             volume_spec=vol_spec2,
             pid=os.getpid(),
             allocated_at=datetime.now().isoformat(),
-            session_id="session-a3f9d2"
+            session_id="session-a3f9d2",
         )
 
         state_manager.register_allocation(alloc2)
@@ -127,7 +121,9 @@ class TestVolumeStateManager:
         state_manager.register_allocation(sample_allocation)
 
         # Create allocation for different session
-        vol_spec2 = VolumeConfig(name="test", size="10G", path="/dev/test-vg/kdev-456-test", order=0)
+        vol_spec2 = VolumeConfig(
+            name="test", size="10G", path="/dev/test-vg/kdev-456-test", order=0
+        )
         alloc2 = VolumeAllocation(
             lv_path="/dev/test-vg/kdev-20251115104523-b7e4c1-test",
             lv_name="kdev-20251115104523-b7e4c1-test",
@@ -136,7 +132,7 @@ class TestVolumeStateManager:
             volume_spec=vol_spec2,
             pid=os.getpid(),
             allocated_at=datetime.now().isoformat(),
-            session_id="session-b7e4c1"  # Different session
+            session_id="session-b7e4c1",  # Different session
         )
         state_manager.register_allocation(alloc2)
 
@@ -161,8 +157,10 @@ class TestVolumeStateManager:
         # PID 99999 should not exist
         assert state_manager._is_process_alive(99999) is False
 
-    @patch('subprocess.run')
-    def test_cleanup_orphaned_volumes_alive_process(self, mock_run, state_manager, sample_allocation):
+    @patch("subprocess.run")
+    def test_cleanup_orphaned_volumes_alive_process(
+        self, mock_run, state_manager, sample_allocation
+    ):
         """Test cleanup doesn't remove LVs from alive processes."""
         # Register allocation
         state_manager.register_allocation(sample_allocation)
@@ -179,9 +177,11 @@ class TestVolumeStateManager:
         # Verify lvremove was NOT called
         mock_run.assert_not_called()
 
-    @patch('subprocess.run')
-    @patch.object(VolumeStateManager, '_is_process_alive')
-    def test_cleanup_orphaned_volumes_dead_process(self, mock_alive, mock_run, state_manager, sample_allocation):
+    @patch("subprocess.run")
+    @patch.object(VolumeStateManager, "_is_process_alive")
+    def test_cleanup_orphaned_volumes_dead_process(
+        self, mock_alive, mock_run, state_manager, sample_allocation
+    ):
         """Test cleanup removes LVs from dead processes."""
         # Register allocation
         state_manager.register_allocation(sample_allocation)
@@ -209,9 +209,11 @@ class TestVolumeStateManager:
         assert "lvremove" in str(mock_run.call_args)
         assert sample_allocation.lv_path in str(mock_run.call_args)
 
-    @patch('subprocess.run')
-    @patch.object(VolumeStateManager, '_is_process_alive')
-    def test_cleanup_orphaned_volumes_wrong_pool(self, mock_alive, mock_run, state_manager, sample_allocation):
+    @patch("subprocess.run")
+    @patch.object(VolumeStateManager, "_is_process_alive")
+    def test_cleanup_orphaned_volumes_wrong_pool(
+        self, mock_alive, mock_run, state_manager, sample_allocation
+    ):
         """Test cleanup only affects specified pool."""
         # Register allocation
         state_manager.register_allocation(sample_allocation)
@@ -231,9 +233,11 @@ class TestVolumeStateManager:
         # Verify lvremove was NOT called
         mock_run.assert_not_called()
 
-    @patch('subprocess.run')
-    @patch.object(VolumeStateManager, '_is_process_alive')
-    def test_cleanup_orphaned_volumes_lvremove_fails(self, mock_alive, mock_run, state_manager, sample_allocation):
+    @patch("subprocess.run")
+    @patch.object(VolumeStateManager, "_is_process_alive")
+    def test_cleanup_orphaned_volumes_lvremove_fails(
+        self, mock_alive, mock_run, state_manager, sample_allocation
+    ):
         """Test cleanup handles lvremove failures gracefully."""
         # Register allocation
         state_manager.register_allocation(sample_allocation)
@@ -274,7 +278,7 @@ class TestVolumeStateManager:
         state_manager.register_allocation(sample_allocation)
 
         # Verify no .tmp file left behind
-        tmp_file = state_manager.state_file.with_suffix('.tmp')
+        tmp_file = state_manager.state_file.with_suffix(".tmp")
         assert not tmp_file.exists()
 
         # Verify state file exists and is valid
@@ -298,8 +302,14 @@ class TestVolumeAllocation:
     def test_volume_allocation_has_all_fields(self, sample_allocation):
         """Test VolumeAllocation has all required fields."""
         required_fields = [
-            'lv_path', 'lv_name', 'pool_name', 'vg_name',
-            'volume_spec', 'pid', 'allocated_at', 'session_id'
+            "lv_path",
+            "lv_name",
+            "pool_name",
+            "vg_name",
+            "volume_spec",
+            "pid",
+            "allocated_at",
+            "session_id",
         ]
 
         for field in required_fields:

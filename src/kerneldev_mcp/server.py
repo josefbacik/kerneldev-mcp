@@ -1,6 +1,7 @@
 """
 MCP server for kernel development configuration management.
 """
+
 import atexit
 import json
 import logging
@@ -22,16 +23,23 @@ from mcp.types import (
 from .config_manager import ConfigManager, KernelConfig, CrossCompileConfig
 from .templates import TemplateManager
 from .build_manager import KernelBuilder, BuildResult, format_build_errors
-from .boot_manager import BootManager, BootResult, format_boot_result, DeviceSpec, DeviceProfile, VMDeviceManager
+from .boot_manager import (
+    BootManager,
+    BootResult,
+    format_boot_result,
+    DeviceSpec,
+    DeviceProfile,
+    VMDeviceManager,
+)
 from .device_manager import DeviceManager, DeviceConfig, DeviceSetupResult
 from .fstests_manager import (
-    FstestsManager, FstestsConfig, FstestsRunResult, TestResult,
-    format_fstests_result
+    FstestsManager,
+    FstestsConfig,
+    FstestsRunResult,
+    TestResult,
+    format_fstests_result,
 )
-from .baseline_manager import (
-    BaselineManager, Baseline, ComparisonResult,
-    format_comparison_result
-)
+from .baseline_manager import BaselineManager, Baseline, ComparisonResult, format_comparison_result
 from .git_manager import GitManager, GitNoteMetadata
 from . import device_pool_tools
 
@@ -41,11 +49,11 @@ from . import device_pool_tools
 log_file = Path("/tmp/kerneldev-mcp.log")
 logging.basicConfig(
     level=logging.INFO,
-    format='[%(asctime)s] %(name)s - %(levelname)s - %(message)s',
+    format="[%(asctime)s] %(name)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler(log_file, mode='a'),  # Append mode
-        logging.StreamHandler()  # stderr - may show in MCP client
-    ]
+        logging.FileHandler(log_file, mode="a"),  # Append mode
+        logging.StreamHandler(),  # stderr - may show in MCP client
+    ],
 )
 logger = logging.getLogger(__name__)
 logger.info("=" * 80)
@@ -60,15 +68,18 @@ app = Server("kerneldev-mcp")
 # Initialize managers
 template_manager = TemplateManager()
 
+
 # Register cleanup handler to remove tracking file on exit
 def _cleanup_on_exit():
     """Clean up VM tracking file when server exits."""
     from .boot_manager import VM_PID_TRACKING_FILE
+
     try:
         if VM_PID_TRACKING_FILE.exists():
             VM_PID_TRACKING_FILE.unlink()
     except Exception:
         pass  # Ignore cleanup errors
+
 
 atexit.register(_cleanup_on_exit)
 config_manager = ConfigManager()
@@ -88,7 +99,7 @@ async def list_resources() -> list[Resource]:
             uri="config://presets",
             name="Configuration Presets",
             mimeType="application/json",
-            description="List of all available configuration presets"
+            description="List of all available configuration presets",
         )
     )
 
@@ -103,7 +114,7 @@ async def list_resources() -> list[Resource]:
                 uri=uri,
                 name=f"{category.capitalize()}: {name}",
                 mimeType="text/plain",
-                description=preset["description"]
+                description=preset["description"],
             )
         )
 
@@ -143,10 +154,10 @@ async def list_tools() -> list[Tool]:
                     "category": {
                         "type": "string",
                         "enum": ["target", "debug", "fragment"],
-                        "description": "Optional category filter"
+                        "description": "Optional category filter",
                     }
-                }
-            }
+                },
+            },
         ),
         Tool(
             name="get_config_template",
@@ -157,36 +168,33 @@ async def list_tools() -> list[Tool]:
                     "target": {
                         "type": "string",
                         "description": "Target use case",
-                        "enum": template_manager.get_targets()
+                        "enum": template_manager.get_targets(),
                     },
                     "debug_level": {
                         "type": "string",
                         "description": "Debug level",
                         "enum": template_manager.get_debug_levels(),
-                        "default": "basic"
+                        "default": "basic",
                     },
                     "architecture": {
                         "type": "string",
                         "description": "Target architecture",
                         "enum": ["x86_64", "arm64", "arm", "riscv"],
-                        "default": "x86_64"
+                        "default": "x86_64",
                     },
                     "additional_options": {
                         "type": "object",
                         "description": "Additional CONFIG options to set",
-                        "additionalProperties": {"type": ["string", "null"]}
+                        "additionalProperties": {"type": ["string", "null"]},
                     },
                     "fragments": {
                         "type": "array",
                         "description": "Additional fragments to merge",
-                        "items": {
-                            "type": "string",
-                            "enum": template_manager.get_fragments()
-                        }
-                    }
+                        "items": {"type": "string", "enum": template_manager.get_fragments()},
+                    },
                 },
-                "required": ["target"]
-            }
+                "required": ["target"],
+            },
         ),
         Tool(
             name="create_config_fragment",
@@ -194,22 +202,16 @@ async def list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Fragment name"
-                    },
+                    "name": {"type": "string", "description": "Fragment name"},
                     "options": {
                         "type": "object",
                         "description": "CONFIG options and their values",
-                        "additionalProperties": {"type": ["string", "null"]}
+                        "additionalProperties": {"type": ["string", "null"]},
                     },
-                    "description": {
-                        "type": "string",
-                        "description": "Human-readable description"
-                    }
+                    "description": {"type": "string", "description": "Human-readable description"},
                 },
-                "required": ["name", "options"]
-            }
+                "required": ["name", "options"],
+            },
         ),
         Tool(
             name="merge_configs",
@@ -219,20 +221,17 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "base": {
                         "type": "string",
-                        "description": "Base configuration (template name like 'target/networking' or file path)"
+                        "description": "Base configuration (template name like 'target/networking' or file path)",
                     },
                     "fragments": {
                         "type": "array",
                         "description": "List of fragment names or file paths to merge",
-                        "items": {"type": "string"}
+                        "items": {"type": "string"},
                     },
-                    "output": {
-                        "type": "string",
-                        "description": "Output file path (optional)"
-                    }
+                    "output": {"type": "string", "description": "Output file path (optional)"},
                 },
-                "required": ["base", "fragments"]
-            }
+                "required": ["base", "fragments"],
+            },
         ),
         Tool(
             name="apply_config",
@@ -242,43 +241,43 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "kernel_path": {
                         "type": "string",
-                        "description": "Path to kernel source directory"
+                        "description": "Path to kernel source directory",
                     },
                     "config_source": {
                         "type": "string",
-                        "description": "Configuration source (template name, file path, or 'inline')"
+                        "description": "Configuration source (template name, file path, or 'inline')",
                     },
                     "config_content": {
                         "type": "string",
-                        "description": "Inline configuration content (if config_source is 'inline')"
+                        "description": "Inline configuration content (if config_source is 'inline')",
                     },
                     "merge_with_existing": {
                         "type": "boolean",
                         "description": "Merge with existing .config",
-                        "default": False
+                        "default": False,
                     },
                     "cross_compile_arch": {
                         "type": "string",
                         "description": "Target architecture for cross-compilation (arm64, arm, riscv, etc.)",
-                        "enum": ["x86_64", "x86", "arm64", "arm", "riscv", "powerpc", "mips"]
+                        "enum": ["x86_64", "x86", "arm64", "arm", "riscv", "powerpc", "mips"],
                     },
                     "cross_compile_prefix": {
                         "type": "string",
-                        "description": "Cross-compiler prefix (e.g., 'aarch64-linux-gnu-'). Auto-detected if not specified."
+                        "description": "Cross-compiler prefix (e.g., 'aarch64-linux-gnu-'). Auto-detected if not specified.",
                     },
                     "use_llvm": {
                         "type": "boolean",
                         "description": "Use LLVM toolchain for cross-compilation",
-                        "default": False
+                        "default": False,
                     },
                     "enable_virtme": {
                         "type": "boolean",
                         "description": "Add virtme-ng requirements via 'vng --kconfig' (recommended for configs that will be tested with boot_kernel_test)",
-                        "default": True
-                    }
+                        "default": True,
+                    },
                 },
-                "required": ["kernel_path", "config_source"]
-            }
+                "required": ["kernel_path", "config_source"],
+            },
         ),
         Tool(
             name="validate_config",
@@ -286,17 +285,14 @@ async def list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "config_path": {
-                        "type": "string",
-                        "description": "Path to .config file"
-                    },
+                    "config_path": {"type": "string", "description": "Path to .config file"},
                     "kernel_path": {
                         "type": "string",
-                        "description": "Path to kernel source (for Kconfig validation)"
-                    }
+                        "description": "Path to kernel source (for Kconfig validation)",
+                    },
                 },
-                "required": ["config_path"]
-            }
+                "required": ["config_path"],
+            },
         ),
         Tool(
             name="search_config_options",
@@ -306,20 +302,17 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Search term (e.g., 'KASAN', 'filesystem', 'debug')"
+                        "description": "Search term (e.g., 'KASAN', 'filesystem', 'debug')",
                     },
-                    "kernel_path": {
-                        "type": "string",
-                        "description": "Path to kernel source"
-                    },
+                    "kernel_path": {"type": "string", "description": "Path to kernel source"},
                     "category": {
                         "type": "string",
                         "description": "Optional category filter",
-                        "enum": ["debugging", "networking", "filesystems", "drivers"]
-                    }
+                        "enum": ["debugging", "networking", "filesystems", "drivers"],
+                    },
                 },
-                "required": ["query"]
-            }
+                "required": ["query"],
+            },
         ),
         Tool(
             name="generate_build_config",
@@ -327,33 +320,23 @@ async def list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "target": {
-                        "type": "string",
-                        "description": "Testing target"
-                    },
+                    "target": {"type": "string", "description": "Testing target"},
                     "optimization": {
                         "type": "string",
                         "description": "Build optimization goal",
                         "enum": ["speed", "debug", "size"],
-                        "default": "speed"
+                        "default": "speed",
                     },
-                    "ccache": {
-                        "type": "boolean",
-                        "description": "Use ccache",
-                        "default": True
-                    },
+                    "ccache": {"type": "boolean", "description": "Use ccache", "default": True},
                     "out_of_tree": {
                         "type": "boolean",
                         "description": "Use out-of-tree build",
-                        "default": True
+                        "default": True,
                     },
-                    "kernel_path": {
-                        "type": "string",
-                        "description": "Path to kernel source"
-                    }
+                    "kernel_path": {"type": "string", "description": "Path to kernel source"},
                 },
-                "required": ["target"]
-            }
+                "required": ["target"],
+            },
         ),
         Tool(
             name="build_kernel",
@@ -363,79 +346,90 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "kernel_path": {
                         "type": "string",
-                        "description": "Path to kernel source directory"
+                        "description": "Path to kernel source directory",
                     },
                     "jobs": {
                         "type": "integer",
                         "description": "Number of parallel jobs (default: CPU count)",
-                        "minimum": 1
+                        "minimum": 1,
                     },
                     "verbose": {
                         "type": "boolean",
                         "description": "Show detailed build output",
-                        "default": False
+                        "default": False,
                     },
                     "keep_going": {
                         "type": "boolean",
                         "description": "Continue building despite errors",
-                        "default": False
+                        "default": False,
                     },
                     "target": {
                         "type": "string",
                         "description": "Make target to build",
                         "default": "all",
-                        "enum": ["all", "vmlinux", "modules", "bzImage", "Image", "dtbs"]
+                        "enum": ["all", "vmlinux", "modules", "bzImage", "Image", "dtbs"],
                     },
                     "build_dir": {
                         "type": "string",
-                        "description": "Output directory for out-of-tree build"
+                        "description": "Output directory for out-of-tree build",
                     },
                     "timeout": {
                         "type": "integer",
                         "description": "Build timeout in seconds",
-                        "minimum": 60
+                        "minimum": 60,
                     },
                     "clean_first": {
                         "type": "boolean",
                         "description": "Clean before building",
-                        "default": False
+                        "default": False,
                     },
                     "clean_type": {
                         "type": "string",
                         "description": "Type of clean operation (only used if clean_first=true)",
                         "enum": ["clean", "mrproper", "distclean"],
-                        "default": "clean"
+                        "default": "clean",
                     },
                     "cross_compile_arch": {
                         "type": "string",
                         "description": "Target architecture for cross-compilation (arm64, arm, riscv, etc.)",
-                        "enum": ["x86_64", "x86", "arm64", "arm", "riscv", "powerpc", "mips"]
+                        "enum": ["x86_64", "x86", "arm64", "arm", "riscv", "powerpc", "mips"],
                     },
                     "cross_compile_prefix": {
                         "type": "string",
-                        "description": "Cross-compiler prefix (e.g., 'aarch64-linux-gnu-'). Auto-detected if not specified."
+                        "description": "Cross-compiler prefix (e.g., 'aarch64-linux-gnu-'). Auto-detected if not specified.",
                     },
                     "use_llvm": {
                         "type": "boolean",
                         "description": "Use LLVM toolchain for cross-compilation",
-                        "default": False
+                        "default": False,
                     },
                     "extra_host_cflags": {
                         "type": "string",
-                        "description": "Additional CFLAGS for host tools (e.g., '-Wno-error' to disable all warnings in objtool). Only affects build tools, not kernel code."
+                        "description": "Additional CFLAGS for host tools (e.g., '-Wno-error' to disable all warnings in objtool). Only affects build tools, not kernel code.",
                     },
                     "extra_kernel_cflags": {
                         "type": "string",
-                        "description": "Additional CFLAGS for kernel code compilation (e.g., '-Wno-error=stringop-overflow' for specific kernel warnings). Use sparingly - prefer fixing issues when possible."
+                        "description": "Additional CFLAGS for kernel code compilation (e.g., '-Wno-error=stringop-overflow' for specific kernel warnings). Use sparingly - prefer fixing issues when possible.",
                     },
                     "c_std": {
                         "type": "string",
                         "description": "C standard to use for compilation (e.g., 'gnu11'). Required for old kernels with GCC 15+ due to C23 bool/false/true keywords. Applies to ALL code: kernel, realmode, EFI stub, etc.",
-                        "enum": ["c89", "c99", "c11", "c17", "c23", "gnu89", "gnu99", "gnu11", "gnu17", "gnu23"]
-                    }
+                        "enum": [
+                            "c89",
+                            "c99",
+                            "c11",
+                            "c17",
+                            "c23",
+                            "gnu89",
+                            "gnu99",
+                            "gnu11",
+                            "gnu17",
+                            "gnu23",
+                        ],
+                    },
                 },
-                "required": ["kernel_path"]
-            }
+                "required": ["kernel_path"],
+            },
         ),
         Tool(
             name="check_build_requirements",
@@ -445,11 +439,11 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "kernel_path": {
                         "type": "string",
-                        "description": "Path to kernel source directory"
+                        "description": "Path to kernel source directory",
                     }
                 },
-                "required": ["kernel_path"]
-            }
+                "required": ["kernel_path"],
+            },
         ),
         Tool(
             name="clean_kernel_build",
@@ -459,35 +453,35 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "kernel_path": {
                         "type": "string",
-                        "description": "Path to kernel source directory"
+                        "description": "Path to kernel source directory",
                     },
                     "clean_type": {
                         "type": "string",
                         "description": "Type of clean operation",
                         "enum": ["clean", "mrproper", "distclean"],
-                        "default": "clean"
+                        "default": "clean",
                     },
                     "build_dir": {
                         "type": "string",
-                        "description": "Build directory for out-of-tree builds"
+                        "description": "Build directory for out-of-tree builds",
                     },
                     "cross_compile_arch": {
                         "type": "string",
                         "description": "Target architecture for cross-compilation (arm64, arm, riscv, etc.)",
-                        "enum": ["x86_64", "x86", "arm64", "arm", "riscv", "powerpc", "mips"]
+                        "enum": ["x86_64", "x86", "arm64", "arm", "riscv", "powerpc", "mips"],
                     },
                     "cross_compile_prefix": {
                         "type": "string",
-                        "description": "Cross-compiler prefix (e.g., 'aarch64-linux-gnu-'). Auto-detected if not specified."
+                        "description": "Cross-compiler prefix (e.g., 'aarch64-linux-gnu-'). Auto-detected if not specified.",
                     },
                     "use_llvm": {
                         "type": "boolean",
                         "description": "Use LLVM toolchain for cross-compilation",
-                        "default": False
-                    }
+                        "default": False,
+                    },
                 },
-                "required": ["kernel_path"]
-            }
+                "required": ["kernel_path"],
+            },
         ),
         Tool(
             name="boot_kernel_test",
@@ -497,34 +491,34 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "kernel_path": {
                         "type": "string",
-                        "description": "Path to kernel source directory"
+                        "description": "Path to kernel source directory",
                     },
                     "command": {
                         "type": "string",
-                        "description": "Optional shell command to execute for testing. If not specified and script_file is not specified, runs dmesg validation (default)."
+                        "description": "Optional shell command to execute for testing. If not specified and script_file is not specified, runs dmesg validation (default).",
                     },
                     "script_file": {
                         "type": "string",
-                        "description": "Optional path to local script file to upload and execute. Cannot be specified together with command."
+                        "description": "Optional path to local script file to upload and execute. Cannot be specified together with command.",
                     },
                     "timeout": {
                         "type": "integer",
                         "description": "Boot timeout in seconds",
                         "default": 60,
                         "minimum": 10,
-                        "maximum": 300
+                        "maximum": 300,
                     },
                     "memory": {
                         "type": "string",
                         "description": "Memory size for VM (e.g., '2G', '4G')",
-                        "default": "2G"
+                        "default": "2G",
                     },
                     "cpus": {
                         "type": "integer",
                         "description": "Number of CPUs for VM",
                         "default": 2,
                         "minimum": 1,
-                        "maximum": 32
+                        "maximum": 32,
                     },
                     "devices": {
                         "type": "array",
@@ -534,82 +528,79 @@ async def list_tools() -> list[Tool]:
                             "properties": {
                                 "path": {
                                     "type": "string",
-                                    "description": "Existing block device path (e.g., '/dev/nvme0n1p5'). Mutually exclusive with 'size'."
+                                    "description": "Existing block device path (e.g., '/dev/nvme0n1p5'). Mutually exclusive with 'size'.",
                                 },
                                 "size": {
                                     "type": "string",
-                                    "description": "Size for loop device creation (e.g., '10G', '512M'). Mutually exclusive with 'path'."
+                                    "description": "Size for loop device creation (e.g., '10G', '512M'). Mutually exclusive with 'path'.",
                                 },
                                 "name": {
                                     "type": "string",
-                                    "description": "Descriptive name for logging"
+                                    "description": "Descriptive name for logging",
                                 },
                                 "order": {
                                     "type": "integer",
                                     "description": "Device order (lower = earlier in device list). Devices appear as /dev/vda, /dev/vdb, etc. in order.",
-                                    "default": 0
+                                    "default": 0,
                                 },
                                 "use_tmpfs": {
                                     "type": "boolean",
                                     "description": "Use tmpfs backing for loop device (faster, uses RAM)",
-                                    "default": False
+                                    "default": False,
                                 },
                                 "env_var": {
                                     "type": "string",
-                                    "description": "Export device as environment variable in VM (e.g., 'TEST_DEV')"
+                                    "description": "Export device as environment variable in VM (e.g., 'TEST_DEV')",
                                 },
                                 "env_var_index": {
                                     "type": "integer",
-                                    "description": "Device index for env var (0=vda, 1=vdb, etc.). If not specified, uses device order."
+                                    "description": "Device index for env var (0=vda, 1=vdb, etc.). If not specified, uses device order.",
                                 },
                                 "readonly": {
                                     "type": "boolean",
                                     "description": "Attach as read-only device (recommended for existing devices)",
-                                    "default": False
+                                    "default": False,
                                 },
                                 "require_empty": {
                                     "type": "boolean",
                                     "description": "Fail if device has filesystem signature",
-                                    "default": False
-                                }
-                            }
-                        }
+                                    "default": False,
+                                },
+                            },
+                        },
                     },
                     "cross_compile_arch": {
                         "type": "string",
                         "description": "Target architecture for cross-compilation",
-                        "enum": ["x86_64", "x86", "arm64", "arm", "riscv", "powerpc", "mips"]
+                        "enum": ["x86_64", "x86", "arm64", "arm", "riscv", "powerpc", "mips"],
                     },
                     "cross_compile_prefix": {
                         "type": "string",
-                        "description": "Cross-compiler prefix. Auto-detected if not specified."
+                        "description": "Cross-compiler prefix. Auto-detected if not specified.",
                     },
                     "use_llvm": {
                         "type": "boolean",
                         "description": "Use LLVM toolchain for cross-compilation",
-                        "default": False
+                        "default": False,
                     },
                     "extra_args": {
                         "type": "array",
                         "description": "Additional arguments to pass to vng",
-                        "items": {"type": "string"}
+                        "items": {"type": "string"},
                     },
                     "use_host_kernel": {
                         "type": "boolean",
                         "description": "Use host kernel instead of building from kernel_path",
-                        "default": False
-                    }
+                        "default": False,
+                    },
                 },
-                "required": ["kernel_path"]
-            }
+                "required": ["kernel_path"],
+            },
         ),
         Tool(
             name="check_virtme_ng",
             description="Check if virtme-ng is installed and available",
-            inputSchema={
-                "type": "object",
-                "properties": {}
-            }
+            inputSchema={"type": "object", "properties": {}},
         ),
         Tool(
             name="kill_hanging_vms",
@@ -637,10 +628,10 @@ Each tracked VM shows: PID, description, and running time.""",
                     "force": {
                         "type": "boolean",
                         "description": "Use SIGKILL (-9) instead of SIGTERM for immediate termination",
-                        "default": False
+                        "default": False,
                     }
-                }
-            }
+                },
+            },
         ),
         Tool(
             name="modify_kernel_config",
@@ -650,30 +641,30 @@ Each tracked VM shows: PID, description, and running time.""",
                 "properties": {
                     "kernel_path": {
                         "type": "string",
-                        "description": "Path to kernel source directory"
+                        "description": "Path to kernel source directory",
                     },
                     "options": {
                         "type": "object",
                         "description": "CONFIG options to modify. Keys can be 'CONFIG_NAME' or just 'NAME'. Values: 'y' (enable), 'n' (disable), 'm' (module), string value, or null (unset)",
-                        "additionalProperties": {"type": ["string", "null"]}
+                        "additionalProperties": {"type": ["string", "null"]},
                     },
                     "cross_compile_arch": {
                         "type": "string",
                         "description": "Target architecture for cross-compilation",
-                        "enum": ["x86_64", "x86", "arm64", "arm", "riscv", "powerpc", "mips"]
+                        "enum": ["x86_64", "x86", "arm64", "arm", "riscv", "powerpc", "mips"],
                     },
                     "cross_compile_prefix": {
                         "type": "string",
-                        "description": "Cross-compiler prefix. Auto-detected if not specified."
+                        "description": "Cross-compiler prefix. Auto-detected if not specified.",
                     },
                     "use_llvm": {
                         "type": "boolean",
                         "description": "Use LLVM toolchain for cross-compilation",
-                        "default": False
-                    }
+                        "default": False,
+                    },
                 },
-                "required": ["kernel_path", "options"]
-            }
+                "required": ["kernel_path", "options"],
+            },
         ),
         Tool(
             name="fstests_setup_check",
@@ -688,10 +679,10 @@ For automatic VM-based testing without manual setup, use fstests_vm_boot_and_run
                 "properties": {
                     "fstests_path": {
                         "type": "string",
-                        "description": "Path to fstests installation (optional, default: ~/.kerneldev-mcp/fstests)"
+                        "description": "Path to fstests installation (optional, default: ~/.kerneldev-mcp/fstests)",
                     }
-                }
-            }
+                },
+            },
         ),
         Tool(
             name="fstests_setup_install",
@@ -704,14 +695,14 @@ Next steps: fstests_setup_devices, then fstests_setup_configure""",
                 "properties": {
                     "install_path": {
                         "type": "string",
-                        "description": "Where to install fstests (optional, default: ~/.kerneldev-mcp/fstests)"
+                        "description": "Where to install fstests (optional, default: ~/.kerneldev-mcp/fstests)",
                     },
                     "git_url": {
                         "type": "string",
-                        "description": "Git repository URL (optional, default: kernel.org)"
-                    }
-                }
-            }
+                        "description": "Git repository URL (optional, default: kernel.org)",
+                    },
+                },
+            },
         ),
         Tool(
             name="fstests_setup_devices",
@@ -729,59 +720,59 @@ Creates TEST_DEV, SCRATCH_DEV, and optionally SCRATCH_DEV_POOL (for RAID and mul
                         "type": "string",
                         "description": "Device setup mode",
                         "enum": ["loop", "existing"],
-                        "default": "loop"
+                        "default": "loop",
                     },
                     "test_dev": {
                         "type": "string",
-                        "description": "Test device path (for 'existing' mode)"
+                        "description": "Test device path (for 'existing' mode)",
                     },
                     "scratch_dev": {
                         "type": "string",
-                        "description": "Scratch device path (for 'existing' mode)"
+                        "description": "Scratch device path (for 'existing' mode)",
                     },
                     "pool_devs": {
                         "type": "array",
                         "description": "List of pool device paths for SCRATCH_DEV_POOL (for 'existing' mode)",
-                        "items": {"type": "string"}
+                        "items": {"type": "string"},
                     },
                     "test_size": {
                         "type": "string",
                         "description": "Test device size for loop mode (e.g., '10G')",
-                        "default": "10G"
+                        "default": "10G",
                     },
                     "scratch_size": {
                         "type": "string",
                         "description": "Scratch device size for loop mode (e.g., '10G')",
-                        "default": "10G"
+                        "default": "10G",
                     },
                     "pool_count": {
                         "type": "integer",
                         "description": "Number of SCRATCH_DEV_POOL devices to create (default: 4, set to 0 to disable). Required for RAID and multi-device filesystem tests.",
                         "default": 4,
                         "minimum": 0,
-                        "maximum": 10
+                        "maximum": 10,
                     },
                     "pool_size": {
                         "type": "string",
                         "description": "Size of each pool device (e.g., '10G'). Only used if pool_count > 0.",
-                        "default": "10G"
+                        "default": "10G",
                     },
                     "fstype": {
                         "type": "string",
                         "description": "Filesystem type",
                         "enum": ["ext4", "btrfs", "xfs", "f2fs"],
-                        "default": "ext4"
+                        "default": "ext4",
                     },
                     "mount_options": {
                         "type": "string",
-                        "description": "Mount options (e.g., '-o noatime')"
+                        "description": "Mount options (e.g., '-o noatime')",
                     },
                     "mkfs_options": {
                         "type": "string",
-                        "description": "mkfs options (e.g., '-b 4096')"
-                    }
-                }
-            }
+                        "description": "mkfs options (e.g., '-b 4096')",
+                    },
+                },
+            },
         ),
         Tool(
             name="fstests_setup_configure",
@@ -795,46 +786,31 @@ Next step: fstests_run to actually run tests""",
                 "properties": {
                     "fstests_path": {
                         "type": "string",
-                        "description": "Path to fstests installation"
+                        "description": "Path to fstests installation",
                     },
-                    "test_dev": {
-                        "type": "string",
-                        "description": "Test device path"
-                    },
+                    "test_dev": {"type": "string", "description": "Test device path"},
                     "test_dir": {
                         "type": "string",
                         "description": "Test mount point",
-                        "default": "/mnt/test"
+                        "default": "/mnt/test",
                     },
-                    "scratch_dev": {
-                        "type": "string",
-                        "description": "Scratch device path"
-                    },
+                    "scratch_dev": {"type": "string", "description": "Scratch device path"},
                     "scratch_dir": {
                         "type": "string",
                         "description": "Scratch mount point",
-                        "default": "/mnt/scratch"
+                        "default": "/mnt/scratch",
                     },
-                    "fstype": {
-                        "type": "string",
-                        "description": "Filesystem type"
-                    },
-                    "mount_options": {
-                        "type": "string",
-                        "description": "Mount options"
-                    },
-                    "mkfs_options": {
-                        "type": "string",
-                        "description": "mkfs options"
-                    },
+                    "fstype": {"type": "string", "description": "Filesystem type"},
+                    "mount_options": {"type": "string", "description": "Mount options"},
+                    "mkfs_options": {"type": "string", "description": "mkfs options"},
                     "pool_devices": {
                         "type": "array",
                         "description": "List of pool device paths for SCRATCH_DEV_POOL (e.g., from fstests_setup_devices)",
-                        "items": {"type": "string"}
-                    }
+                        "items": {"type": "string"},
+                    },
                 },
-                "required": ["test_dev", "scratch_dev", "fstype"]
-            }
+                "required": ["test_dev", "scratch_dev", "fstype"],
+            },
         ),
         Tool(
             name="fstests_vm_boot_and_run",
@@ -859,11 +835,11 @@ Quick examples:
                 "properties": {
                     "kernel_path": {
                         "type": "string",
-                        "description": "Path to kernel source directory"
+                        "description": "Path to kernel source directory",
                     },
                     "fstests_path": {
                         "type": "string",
-                        "description": "Path to fstests installation"
+                        "description": "Path to fstests installation",
                     },
                     "tests": {
                         "type": "array",
@@ -883,40 +859,36 @@ Common mistake to avoid:
   ✓ RIGHT: ["-g", "quick"] (two separate elements)
 
 Use fstests_groups_list tool to see available test groups.""",
-                        "items": {"type": "string"}
+                        "items": {"type": "string"},
                     },
                     "fstype": {
                         "type": "string",
                         "description": "Filesystem type to test",
-                        "default": "ext4"
+                        "default": "ext4",
                     },
                     "timeout": {
                         "type": "integer",
                         "description": "Boot and test timeout in seconds",
                         "default": 300,
-                        "minimum": 60
+                        "minimum": 60,
                     },
-                    "memory": {
-                        "type": "string",
-                        "description": "VM memory size",
-                        "default": "4G"
-                    },
+                    "memory": {"type": "string", "description": "VM memory size", "default": "4G"},
                     "cpus": {
                         "type": "integer",
                         "description": "Number of CPUs",
                         "default": 4,
-                        "minimum": 1
+                        "minimum": 1,
                     },
                     "force_9p": {
                         "type": "boolean",
                         "description": "Force use of 9p filesystem instead of virtio-fs (required for old kernels < 5.14 that lack virtio-fs support)",
-                        "default": False
+                        "default": False,
                     },
                     "io_scheduler": {
                         "type": "string",
                         "description": "IO scheduler to use for block devices (default: mq-deadline). Valid values: mq-deadline, none, bfq, kyber",
                         "default": "mq-deadline",
-                        "enum": ["mq-deadline", "none", "bfq", "kyber"]
+                        "enum": ["mq-deadline", "none", "bfq", "kyber"],
                     },
                     "custom_devices": {
                         "type": "array",
@@ -926,60 +898,60 @@ Use fstests_groups_list tool to see available test groups.""",
                             "properties": {
                                 "path": {
                                     "type": "string",
-                                    "description": "Existing block device path (e.g., '/dev/nvme0n1p5'). Mutually exclusive with 'size'."
+                                    "description": "Existing block device path (e.g., '/dev/nvme0n1p5'). Mutually exclusive with 'size'.",
                                 },
                                 "size": {
                                     "type": "string",
-                                    "description": "Size for loop device creation (e.g., '10G', '512M'). Mutually exclusive with 'path'."
+                                    "description": "Size for loop device creation (e.g., '10G', '512M'). Mutually exclusive with 'path'.",
                                 },
                                 "name": {
                                     "type": "string",
-                                    "description": "Descriptive name for logging"
+                                    "description": "Descriptive name for logging",
                                 },
                                 "order": {
                                     "type": "integer",
                                     "description": "Device order (lower = earlier). Devices appear as /dev/vda, /dev/vdb, etc. in order.",
-                                    "default": 0
+                                    "default": 0,
                                 },
                                 "use_tmpfs": {
                                     "type": "boolean",
                                     "description": "Use tmpfs backing for loop device (faster, uses RAM)",
-                                    "default": False
+                                    "default": False,
                                 },
                                 "env_var": {
                                     "type": "string",
-                                    "description": "Export device as environment variable in VM (e.g., 'TEST_DEV')"
+                                    "description": "Export device as environment variable in VM (e.g., 'TEST_DEV')",
                                 },
                                 "env_var_index": {
                                     "type": "integer",
-                                    "description": "Device index for env var (0=vda, 1=vdb, etc.). If not specified, uses device order."
+                                    "description": "Device index for env var (0=vda, 1=vdb, etc.). If not specified, uses device order.",
                                 },
                                 "readonly": {
                                     "type": "boolean",
                                     "description": "Attach as read-only device (recommended for existing devices)",
-                                    "default": False
+                                    "default": False,
                                 },
                                 "require_empty": {
                                     "type": "boolean",
                                     "description": "Fail if device has filesystem signature",
-                                    "default": False
-                                }
-                            }
-                        }
+                                    "default": False,
+                                },
+                            },
+                        },
                     },
                     "use_default_devices": {
                         "type": "boolean",
                         "description": "Use default 7 fstests devices (ignored if custom_devices is specified). Default: true",
-                        "default": True
+                        "default": True,
                     },
                     "use_tmpfs": {
                         "type": "boolean",
                         "description": "Use tmpfs for default loop device backing files (only affects default devices, not custom_devices). Default: false",
-                        "default": False
-                    }
+                        "default": False,
+                    },
                 },
-                "required": ["kernel_path", "fstests_path"]
-            }
+                "required": ["kernel_path", "fstests_path"],
+            },
         ),
         Tool(
             name="fstests_vm_boot_custom",
@@ -1009,52 +981,48 @@ Usage modes:
                 "properties": {
                     "kernel_path": {
                         "type": "string",
-                        "description": "Path to kernel source directory"
+                        "description": "Path to kernel source directory",
                     },
                     "fstests_path": {
                         "type": "string",
-                        "description": "Path to fstests installation (for environment setup)"
+                        "description": "Path to fstests installation (for environment setup)",
                     },
                     "command": {
                         "type": "string",
-                        "description": "Shell command to run (optional, for interactive shell omit this and script_file)"
+                        "description": "Shell command to run (optional, for interactive shell omit this and script_file)",
                     },
                     "script_file": {
                         "type": "string",
-                        "description": "Path to local script file to upload and execute (optional)"
+                        "description": "Path to local script file to upload and execute (optional)",
                     },
                     "fstype": {
                         "type": "string",
                         "description": "Filesystem type to format devices with",
-                        "default": "ext4"
+                        "default": "ext4",
                     },
                     "timeout": {
                         "type": "integer",
                         "description": "Boot and execution timeout in seconds",
                         "default": 300,
-                        "minimum": 60
+                        "minimum": 60,
                     },
-                    "memory": {
-                        "type": "string",
-                        "description": "VM memory size",
-                        "default": "4G"
-                    },
+                    "memory": {"type": "string", "description": "VM memory size", "default": "4G"},
                     "cpus": {
                         "type": "integer",
                         "description": "Number of CPUs",
                         "default": 4,
-                        "minimum": 1
+                        "minimum": 1,
                     },
                     "force_9p": {
                         "type": "boolean",
                         "description": "Force use of 9p filesystem instead of virtio-fs",
-                        "default": False
+                        "default": False,
                     },
                     "io_scheduler": {
                         "type": "string",
                         "description": "IO scheduler to use for block devices",
                         "default": "mq-deadline",
-                        "enum": ["mq-deadline", "none", "bfq", "kyber"]
+                        "enum": ["mq-deadline", "none", "bfq", "kyber"],
                     },
                     "custom_devices": {
                         "type": "array",
@@ -1064,60 +1032,60 @@ Usage modes:
                             "properties": {
                                 "path": {
                                     "type": "string",
-                                    "description": "Existing block device path (e.g., '/dev/nvme0n1p5'). Mutually exclusive with 'size'."
+                                    "description": "Existing block device path (e.g., '/dev/nvme0n1p5'). Mutually exclusive with 'size'.",
                                 },
                                 "size": {
                                     "type": "string",
-                                    "description": "Size for loop device creation (e.g., '10G', '512M'). Mutually exclusive with 'path'."
+                                    "description": "Size for loop device creation (e.g., '10G', '512M'). Mutually exclusive with 'path'.",
                                 },
                                 "name": {
                                     "type": "string",
-                                    "description": "Descriptive name for logging"
+                                    "description": "Descriptive name for logging",
                                 },
                                 "order": {
                                     "type": "integer",
                                     "description": "Device order (lower = earlier). Devices appear as /dev/vda, /dev/vdb, etc. in order.",
-                                    "default": 0
+                                    "default": 0,
                                 },
                                 "use_tmpfs": {
                                     "type": "boolean",
                                     "description": "Use tmpfs backing for loop device (faster, uses RAM)",
-                                    "default": False
+                                    "default": False,
                                 },
                                 "env_var": {
                                     "type": "string",
-                                    "description": "Export device as environment variable in VM (e.g., 'TEST_DEV')"
+                                    "description": "Export device as environment variable in VM (e.g., 'TEST_DEV')",
                                 },
                                 "env_var_index": {
                                     "type": "integer",
-                                    "description": "Device index for env var (0=vda, 1=vdb, etc.). If not specified, uses device order."
+                                    "description": "Device index for env var (0=vda, 1=vdb, etc.). If not specified, uses device order.",
                                 },
                                 "readonly": {
                                     "type": "boolean",
                                     "description": "Attach as read-only device (recommended for existing devices)",
-                                    "default": False
+                                    "default": False,
                                 },
                                 "require_empty": {
                                     "type": "boolean",
                                     "description": "Fail if device has filesystem signature",
-                                    "default": False
-                                }
-                            }
-                        }
+                                    "default": False,
+                                },
+                            },
+                        },
                     },
                     "use_default_devices": {
                         "type": "boolean",
                         "description": "Use default 7 fstests devices (ignored if custom_devices is specified). Default: true",
-                        "default": True
+                        "default": True,
                     },
                     "use_tmpfs": {
                         "type": "boolean",
                         "description": "Use tmpfs for default loop device backing files (only affects default devices, not custom_devices). Default: false",
-                        "default": False
-                    }
+                        "default": False,
+                    },
                 },
-                "required": ["kernel_path", "fstests_path"]
-            }
+                "required": ["kernel_path", "fstests_path"],
+            },
         ),
         Tool(
             name="fstests_groups_list",
@@ -1132,10 +1100,7 @@ Groups are predefined sets of tests. Common groups:
 
 Use group names with the "-g" flag in test specifications:
   Example: tests=["-g", "quick"] to run all quick tests""",
-            inputSchema={
-                "type": "object",
-                "properties": {}
-            }
+            inputSchema={"type": "object", "properties": {}},
         ),
         Tool(
             name="fstests_baseline_get",
@@ -1145,11 +1110,11 @@ Use group names with the "-g" flag in test specifications:
                 "properties": {
                     "baseline_name": {
                         "type": "string",
-                        "description": "Name of baseline to retrieve"
+                        "description": "Name of baseline to retrieve",
                     }
                 },
-                "required": ["baseline_name"]
-            }
+                "required": ["baseline_name"],
+            },
         ),
         Tool(
             name="fstests_baseline_compare",
@@ -1162,35 +1127,32 @@ Current results can be loaded from git notes or a JSON file.""",
                 "properties": {
                     "baseline_name": {
                         "type": "string",
-                        "description": "Name of baseline to compare against"
+                        "description": "Name of baseline to compare against",
                     },
                     "kernel_path": {
                         "type": "string",
-                        "description": "Path to kernel source directory (git repository) to load results from git notes"
+                        "description": "Path to kernel source directory (git repository) to load results from git notes",
                     },
                     "branch_name": {
                         "type": "string",
-                        "description": "Branch name to load current results from (defaults to current branch)"
+                        "description": "Branch name to load current results from (defaults to current branch)",
                     },
                     "commit_sha": {
                         "type": "string",
-                        "description": "Commit SHA to load current results from (overrides branch_name)"
+                        "description": "Commit SHA to load current results from (overrides branch_name)",
                     },
                     "current_results_file": {
                         "type": "string",
-                        "description": "Path to current results JSON file (alternative to git notes)"
-                    }
+                        "description": "Path to current results JSON file (alternative to git notes)",
+                    },
                 },
-                "required": ["baseline_name"]
-            }
+                "required": ["baseline_name"],
+            },
         ),
         Tool(
             name="fstests_baseline_list",
             description="List all stored baselines with their metadata",
-            inputSchema={
-                "type": "object",
-                "properties": {}
-            }
+            inputSchema={"type": "object", "properties": {}},
         ),
         Tool(
             name="fstests_git_load",
@@ -1200,19 +1162,19 @@ Current results can be loaded from git notes or a JSON file.""",
                 "properties": {
                     "kernel_path": {
                         "type": "string",
-                        "description": "Path to kernel source directory (git repository)"
+                        "description": "Path to kernel source directory (git repository)",
                     },
                     "branch_name": {
                         "type": "string",
-                        "description": "Branch name to load from (defaults to current branch)"
+                        "description": "Branch name to load from (defaults to current branch)",
                     },
                     "commit_sha": {
                         "type": "string",
-                        "description": "Commit SHA to load from (overrides branch_name)"
-                    }
+                        "description": "Commit SHA to load from (overrides branch_name)",
+                    },
                 },
-                "required": ["kernel_path"]
-            }
+                "required": ["kernel_path"],
+            },
         ),
         Tool(
             name="fstests_git_list",
@@ -1222,18 +1184,18 @@ Current results can be loaded from git notes or a JSON file.""",
                 "properties": {
                     "kernel_path": {
                         "type": "string",
-                        "description": "Path to kernel source directory (git repository)"
+                        "description": "Path to kernel source directory (git repository)",
                     },
                     "max_count": {
                         "type": "integer",
                         "description": "Maximum number of results to return",
                         "default": 20,
                         "minimum": 1,
-                        "maximum": 100
-                    }
+                        "maximum": 100,
+                    },
                 },
-                "required": ["kernel_path"]
-            }
+                "required": ["kernel_path"],
+            },
         ),
         Tool(
             name="fstests_git_delete",
@@ -1243,19 +1205,13 @@ Current results can be loaded from git notes or a JSON file.""",
                 "properties": {
                     "kernel_path": {
                         "type": "string",
-                        "description": "Path to kernel source directory (git repository)"
+                        "description": "Path to kernel source directory (git repository)",
                     },
-                    "branch_name": {
-                        "type": "string",
-                        "description": "Branch name to delete from"
-                    },
-                    "commit_sha": {
-                        "type": "string",
-                        "description": "Commit SHA to delete from"
-                    }
+                    "branch_name": {"type": "string", "description": "Branch name to delete from"},
+                    "commit_sha": {"type": "string", "description": "Commit SHA to delete from"},
                 },
-                "required": ["kernel_path"]
-            }
+                "required": ["kernel_path"],
+            },
         ),
     ] + device_pool_tools.get_device_pool_tools()
 
@@ -1276,7 +1232,7 @@ def _parse_cross_compile_args(arguments: Dict[str, Any]) -> Optional[CrossCompil
     return CrossCompileConfig(
         arch=arch,
         cross_compile_prefix=arguments.get("cross_compile_prefix"),
-        use_llvm=arguments.get("use_llvm", False)
+        use_llvm=arguments.get("use_llvm", False),
     )
 
 
@@ -1311,7 +1267,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 debug_level=debug_level,
                 architecture=architecture,
                 additional_options=additional_options,
-                fragments=fragments
+                fragments=fragments,
             )
 
             return [TextContent(type="text", text=config.to_config_text())]
@@ -1330,10 +1286,12 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             fragment_text = config.to_config_text()
             save_path = Path.cwd() / f"{name}.conf"
 
-            return [TextContent(
-                type="text",
-                text=f"Created fragment:\n\n{fragment_text}\n\nSave to: {save_path}"
-            )]
+            return [
+                TextContent(
+                    type="text",
+                    text=f"Created fragment:\n\n{fragment_text}\n\nSave to: {save_path}",
+                )
+            ]
 
         elif name == "merge_configs":
             base = arguments["base"]
@@ -1341,14 +1299,14 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             output = arguments.get("output")
 
             merged = config_manager.merge_configs(
-                base=base,
-                fragments=fragments,
-                output=Path(output) if output else None
+                base=base, fragments=fragments, output=Path(output) if output else None
             )
 
             result_text = merged.to_config_text()
             if output:
-                result_text = f"Configuration merged and saved to {output}\n\n{result_text[:500]}..."
+                result_text = (
+                    f"Configuration merged and saved to {output}\n\n{result_text[:500]}..."
+                )
             return [TextContent(type="text", text=result_text)]
 
         elif name == "apply_config":
@@ -1375,7 +1333,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     if len(parts) == 2:
                         config = config_manager.generate_config(
                             target=parts[1] if parts[0] == "target" else "virtualization",
-                            debug_level=parts[1] if parts[0] == "debug" else "basic"
+                            debug_level=parts[1] if parts[0] == "debug" else "basic",
                         )
                     else:
                         raise ValueError(f"Invalid config_source: {config_source}")
@@ -1385,10 +1343,14 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 kernel_path=kernel_path,
                 merge_with_existing=merge_with_existing,
                 cross_compile=cross_compile,
-                enable_virtme=enable_virtme
+                enable_virtme=enable_virtme,
             )
 
-            result = "✓ Configuration applied successfully" if success else "⚠ Configuration applied with warnings"
+            result = (
+                "✓ Configuration applied successfully"
+                if success
+                else "⚠ Configuration applied with warnings"
+            )
             result += f"\n\nLocation: {kernel_path / '.config'}"
             if enable_virtme:
                 result += "\n✓ virtme-ng requirements added (vng --kconfig)"
@@ -1419,7 +1381,9 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             kernel_path = arguments.get("kernel_path")
 
             if not config_path.exists():
-                return [TextContent(type="text", text=f"Error: Config file not found: {config_path}")]
+                return [
+                    TextContent(type="text", text=f"Error: Config file not found: {config_path}")
+                ]
 
             # Load and parse config
             config = KernelConfig.from_file(config_path)
@@ -1445,8 +1409,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
             if kernel_path:
                 results = config_manager.search_config_options(
-                    query=query,
-                    kernel_path=Path(kernel_path)
+                    query=query, kernel_path=Path(kernel_path)
                 )
 
                 if results:
@@ -1518,13 +1481,22 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             cross_compile = _parse_cross_compile_args(arguments)
 
             if not kernel_path.exists():
-                return [TextContent(type="text", text=f"Error: Kernel path does not exist: {kernel_path}")]
+                return [
+                    TextContent(
+                        type="text", text=f"Error: Kernel path does not exist: {kernel_path}"
+                    )
+                ]
 
             builder = KernelBuilder(kernel_path)
 
             # Check if configured
             if not builder.check_config():
-                return [TextContent(type="text", text="Error: Kernel not configured. Run 'make defconfig' or apply a configuration first.")]
+                return [
+                    TextContent(
+                        type="text",
+                        text="Error: Kernel not configured. Run 'make defconfig' or apply a configuration first.",
+                    )
+                ]
 
             # Clean if requested
             if clean_first:
@@ -1542,7 +1514,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 builder.clean(
                     target=clean_type,
                     build_dir=Path(build_dir) if build_dir else None,
-                    cross_compile=cross_compile
+                    cross_compile=cross_compile,
                 )
 
                 # Restore and reconfigure if we did mrproper/distclean
@@ -1557,7 +1529,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                         cwd=kernel_path,
                         stdin=subprocess.DEVNULL,
                         capture_output=True,
-                        check=True
+                        check=True,
                     )
                     logger.info("Configuration updated with olddefconfig")
 
@@ -1565,31 +1537,39 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             warnings = []
             try:
                 gcc_result = subprocess.run(
-                    ["gcc", "--version"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5
+                    ["gcc", "--version"], capture_output=True, text=True, timeout=5
                 )
-                gcc_version_line = gcc_result.stdout.split('\n')[0]
+                gcc_version_line = gcc_result.stdout.split("\n")[0]
                 # Extract major version (e.g., "gcc (GCC) 15.2.1" -> 15)
                 import re
-                version_match = re.search(r'gcc.*?(\d+)\.\d+', gcc_version_line, re.IGNORECASE)
+
+                version_match = re.search(r"gcc.*?(\d+)\.\d+", gcc_version_line, re.IGNORECASE)
                 if version_match:
                     gcc_major = int(version_match.group(1))
                     if gcc_major >= 12 and not (extra_host_cflags or extra_kernel_cflags or c_std):
-                        warnings.append(f"⚠ Detected GCC {gcc_major} - older kernels may fail to build due to new warnings/C23 changes")
+                        warnings.append(
+                            f"⚠ Detected GCC {gcc_major} - older kernels may fail to build due to new warnings/C23 changes"
+                        )
                         warnings.append("  Suggestions if build fails:")
-                        warnings.append("    • extra_host_cflags=\"-Wno-error\" - Disable errors in build tools (objtool, etc.)")
-                        warnings.append("    • extra_kernel_cflags=\"-Wno-error=<warning>\" - Disable specific kernel code warnings")
+                        warnings.append(
+                            '    • extra_host_cflags="-Wno-error" - Disable errors in build tools (objtool, etc.)'
+                        )
+                        warnings.append(
+                            '    • extra_kernel_cflags="-Wno-error=<warning>" - Disable specific kernel code warnings'
+                        )
                         if gcc_major >= 15:
-                            warnings.append("    • c_std=\"gnu11\" - Force C11 (REQUIRED for kernels < 5.14 with GCC 15+)")
+                            warnings.append(
+                                '    • c_std="gnu11" - Force C11 (REQUIRED for kernels < 5.14 with GCC 15+)'
+                            )
                     else:
                         if c_std:
                             logger.info(f"Using C standard: {c_std}")
                             logger.info("Note: This applies to ALL compilation via CC override")
                         if extra_host_cflags:
                             logger.info(f"Applying extra host CFLAGS: {extra_host_cflags}")
-                            logger.info("Note: This only affects build tools (like objtool), not kernel code")
+                            logger.info(
+                                "Note: This only affects build tools (like objtool), not kernel code"
+                            )
                         if extra_kernel_cflags:
                             logger.info(f"Applying extra kernel CFLAGS: {extra_kernel_cflags}")
                             logger.info("Note: This affects kernel code compilation")
@@ -1611,7 +1591,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 cross_compile=cross_compile,
                 extra_host_cflags=extra_host_cflags,
                 extra_kernel_cflags=extra_kernel_cflags,
-                c_std=c_std
+                c_std=c_std,
             )
 
             # Format results
@@ -1647,7 +1627,11 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             kernel_path = Path(arguments["kernel_path"])
 
             if not kernel_path.exists():
-                return [TextContent(type="text", text=f"Error: Kernel path does not exist: {kernel_path}")]
+                return [
+                    TextContent(
+                        type="text", text=f"Error: Kernel path does not exist: {kernel_path}"
+                    )
+                ]
 
             builder = KernelBuilder(kernel_path)
 
@@ -1693,14 +1677,18 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             cross_compile = _parse_cross_compile_args(arguments)
 
             if not kernel_path.exists():
-                return [TextContent(type="text", text=f"Error: Kernel path does not exist: {kernel_path}")]
+                return [
+                    TextContent(
+                        type="text", text=f"Error: Kernel path does not exist: {kernel_path}"
+                    )
+                ]
 
             builder = KernelBuilder(kernel_path)
 
             success = builder.clean(
                 target=clean_type,
                 build_dir=Path(build_dir) if build_dir else None,
-                cross_compile=cross_compile
+                cross_compile=cross_compile,
             )
 
             if success:
@@ -1739,12 +1727,16 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                         env_var=device_dict.get("env_var"),
                         env_var_index=device_dict.get("env_var_index"),
                         readonly=device_dict.get("readonly", False),
-                        require_empty=device_dict.get("require_empty", False)
+                        require_empty=device_dict.get("require_empty", False),
                     )
                     devices.append(device)
 
             if not kernel_path.exists():
-                return [TextContent(type="text", text=f"Error: Kernel path does not exist: {kernel_path}")]
+                return [
+                    TextContent(
+                        type="text", text=f"Error: Kernel path does not exist: {kernel_path}"
+                    )
+                ]
 
             boot_manager = BootManager(kernel_path)
 
@@ -1770,7 +1762,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 devices=devices,
                 cross_compile=cross_compile,
                 extra_args=extra_args,
-                use_host_kernel=use_host_kernel
+                use_host_kernel=use_host_kernel,
             )
 
             # Format output
@@ -1790,7 +1782,9 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 dmesg_lines = result.dmesg_output.splitlines()
                 total_lines = len(dmesg_lines)
 
-                output += f"\n\nDmesg Output (showing {min(300, total_lines)} of {total_lines} lines):"
+                output += (
+                    f"\n\nDmesg Output (showing {min(300, total_lines)} of {total_lines} lines):"
+                )
                 output += f"\nFull log: {result.log_file_path}\n"
 
                 if total_lines <= 300:
@@ -1827,10 +1821,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             if vng_available:
                 try:
                     result = subprocess.run(
-                        ["vng", "--version"],
-                        capture_output=True,
-                        text=True,
-                        timeout=5
+                        ["vng", "--version"], capture_output=True, text=True, timeout=5
                     )
                     version_info = result.stdout.strip()
                     output_lines.append(f"✓ virtme-ng: {version_info}")
@@ -1866,12 +1857,18 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             if both_available:
                 output_lines.append("✓ All prerequisites are available - ready to boot kernels!")
             else:
-                output_lines.append("✗ Missing prerequisites - install the missing components above")
+                output_lines.append(
+                    "✗ Missing prerequisites - install the missing components above"
+                )
 
             return [TextContent(type="text", text="\n".join(output_lines))]
 
         elif name == "kill_hanging_vms":
-            from .boot_manager import _get_tracked_vm_processes, _cleanup_dead_tracked_processes, VM_PID_TRACKING_FILE
+            from .boot_manager import (
+                _get_tracked_vm_processes,
+                _cleanup_dead_tracked_processes,
+                VM_PID_TRACKING_FILE,
+            )
             import datetime
 
             force = arguments.get("force", False)
@@ -1902,10 +1899,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 # Check if there are any QEMU processes running at all to give better feedback
                 try:
                     qemu_check = subprocess.run(
-                        ["pgrep", "-a", "qemu"],
-                        capture_output=True,
-                        timeout=1,
-                        text=True
+                        ["pgrep", "-a", "qemu"], capture_output=True, timeout=1, text=True
                     )
                     qemu_running = qemu_check.returncode == 0 and qemu_check.stdout.strip()
                 except Exception:
@@ -1924,7 +1918,9 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     output_lines.append("To see all QEMU processes: ps aux | grep qemu")
                     output_lines.append("To kill all QEMU on system: pkill -9 qemu-system")
                 else:
-                    output_lines.append("Great news: No QEMU processes are running on the system either.")
+                    output_lines.append(
+                        "Great news: No QEMU processes are running on the system either."
+                    )
                     output_lines.append("This means:")
                     output_lines.append("  ✓ All VMs have exited successfully")
                     output_lines.append("  ✓ No cleanup needed")
@@ -1953,7 +1949,9 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     else:
                         running_str = "unknown"
 
-                    logger.info(f"  PID={pid}, PGID={pgid}, Description={description}, Running={running_str}, LogFile={log_file_path}")
+                    logger.info(
+                        f"  PID={pid}, PGID={pgid}, Description={description}, Running={running_str}, LogFile={log_file_path}"
+                    )
 
                     output_lines.append(f"  • PID {pid} (PGID {pgid})")
                     output_lines.append(f"    Description: {description}")
@@ -1973,15 +1971,12 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                         try:
                             logger.info(f"  Running: pgrep -P {pid}")
                             child_result = subprocess.run(
-                                ["pgrep", "-P", str(pid)],
-                                capture_output=True,
-                                timeout=1,
-                                text=True
+                                ["pgrep", "-P", str(pid)], capture_output=True, timeout=1, text=True
                             )
                             logger.info(f"  pgrep completed: rc={child_result.returncode}")
                             child_pids = []
                             if child_result.returncode == 0 and child_result.stdout.strip():
-                                child_pids = child_result.stdout.strip().split('\n')
+                                child_pids = child_result.stdout.strip().split("\n")
                                 logger.info(f"  Found {len(child_pids)} children: {child_pids}")
 
                             # Log what we found
@@ -2000,7 +1995,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                                     ["kill", f"-{sig_num}", child_pid],
                                     capture_output=True,
                                     timeout=1,
-                                    text=True
+                                    text=True,
                                 )
                                 logger.info(f"  Successfully killed child {child_pid}")
                             except subprocess.TimeoutExpired:
@@ -2015,7 +2010,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                             ["kill", f"-{sig_num}", str(pid)],
                             capture_output=True,
                             timeout=1,
-                            text=True
+                            text=True,
                         )
                         logger.info(f"  Successfully killed parent {pid}")
 
@@ -2027,13 +2022,15 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                             ["kill", f"-{sig_num}", "--", f"-{pgid}"],
                             capture_output=True,
                             timeout=1,
-                            text=True
+                            text=True,
                         )
                         logger.info(f"  Successfully killed process group {pgid}")
 
                         killed_count += 1
                         logger.info(f"  Completed killing PID {pid}")
-                        output_lines.append(f"    Status: ✓ Killed (parent + {len(child_pids)} child processes)")
+                        output_lines.append(
+                            f"    Status: ✓ Killed (parent + {len(child_pids)} child processes)"
+                        )
                     except subprocess.TimeoutExpired as e:
                         logger.error(f"  TIMEOUT killing PID {pid}: {e}")
                         errors.append(f"Timeout killing PID {pid} (process may be stuck)")
@@ -2054,11 +2051,13 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                                 # Read and analyze the log file
                                 from .boot_manager import DmesgParser
 
-                                with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
+                                with open(log_path, "r", encoding="utf-8", errors="replace") as f:
                                     log_content = f.read()
 
                                 # Analyze for kernel issues
-                                errors, warnings, panics, oops = DmesgParser.analyze_dmesg(log_content)
+                                errors, warnings, panics, oops = DmesgParser.analyze_dmesg(
+                                    log_content
+                                )
 
                                 # Show critical issues if found
                                 if panics:
@@ -2066,21 +2065,27 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                                     for panic in panics[:3]:  # Show first 3
                                         output_lines.append(f"       • {panic.message[:100]}")
                                     if len(panics) > 3:
-                                        output_lines.append(f"       ... and {len(panics) - 3} more panics")
+                                        output_lines.append(
+                                            f"       ... and {len(panics) - 3} more panics"
+                                        )
 
                                 if oops:
                                     output_lines.append("    💥 KERNEL OOPS DETECTED:")
                                     for oops_msg in oops[:3]:  # Show first 3
                                         output_lines.append(f"       • {oops_msg.message[:100]}")
                                     if len(oops) > 3:
-                                        output_lines.append(f"       ... and {len(oops) - 3} more oops")
+                                        output_lines.append(
+                                            f"       ... and {len(oops) - 3} more oops"
+                                        )
 
                                 if errors and not panics and not oops:
                                     output_lines.append("    ⚠ KERNEL ERRORS DETECTED:")
                                     for error in errors[:5]:  # Show first 5
                                         output_lines.append(f"       • {error.message[:100]}")
                                     if len(errors) > 5:
-                                        output_lines.append(f"       ... and {len(errors) - 5} more errors")
+                                        output_lines.append(
+                                            f"       ... and {len(errors) - 5} more errors"
+                                        )
 
                                 # Always show last few lines for context
                                 output_lines.append("")
@@ -2095,11 +2100,17 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
                                 # Add summary
                                 if panics or oops:
-                                    output_lines.append(f"    ⚠ VM HUNG DUE TO KERNEL CRASH - see panics/oops above")
+                                    output_lines.append(
+                                        f"    ⚠ VM HUNG DUE TO KERNEL CRASH - see panics/oops above"
+                                    )
                                 elif errors:
-                                    output_lines.append(f"    ⚠ VM hung with {len(errors)} kernel errors")
+                                    output_lines.append(
+                                        f"    ⚠ VM hung with {len(errors)} kernel errors"
+                                    )
                                 else:
-                                    output_lines.append(f"    ℹ No obvious kernel issues - check full log for details")
+                                    output_lines.append(
+                                        f"    ℹ No obvious kernel issues - check full log for details"
+                                    )
                             else:
                                 output_lines.append(f"    ⚠ Log file not found: {log_path}")
                         except Exception as e:
@@ -2137,10 +2148,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             output_lines.append("Checking for orphaned loop devices...")
             try:
                 result = subprocess.run(
-                    ["losetup", "-a"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5
+                    ["losetup", "-a"], capture_output=True, text=True, timeout=5
                 )
                 if result.returncode == 0 and result.stdout.strip():
                     loop_devices = []
@@ -2182,13 +2190,15 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             cross_compile = _parse_cross_compile_args(arguments)
 
             if not kernel_path.exists():
-                return [TextContent(type="text", text=f"Error: Kernel path does not exist: {kernel_path}")]
+                return [
+                    TextContent(
+                        type="text", text=f"Error: Kernel path does not exist: {kernel_path}"
+                    )
+                ]
 
             # Modify config
             result = config_manager.modify_kernel_config(
-                kernel_path=kernel_path,
-                options=options,
-                cross_compile=cross_compile
+                kernel_path=kernel_path, options=options, cross_compile=cross_compile
             )
 
             # Format output
@@ -2255,10 +2265,12 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
             # Check if already installed
             if manager.check_installed():
-                return [TextContent(
-                    type="text",
-                    text=f"✓ fstests is already installed at {manager.fstests_path}"
-                )]
+                return [
+                    TextContent(
+                        type="text",
+                        text=f"✓ fstests is already installed at {manager.fstests_path}",
+                    )
+                ]
 
             # Install
             success, message = manager.install(git_url=git_url)
@@ -2292,7 +2304,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     mount_options=mount_options,
                     mkfs_options=mkfs_options,
                     pool_count=pool_count,
-                    pool_size=pool_size
+                    pool_size=pool_size,
                 )
             else:  # existing
                 test_dev = arguments.get("test_dev")
@@ -2300,10 +2312,12 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 pool_devs = arguments.get("pool_devs")  # Optional list of pool device paths
 
                 if not test_dev or not scratch_dev:
-                    return [TextContent(
-                        type="text",
-                        text="Error: test_dev and scratch_dev required for 'existing' mode"
-                    )]
+                    return [
+                        TextContent(
+                            type="text",
+                            text="Error: test_dev and scratch_dev required for 'existing' mode",
+                        )
+                    ]
 
                 result = device_manager.setup_existing_devices(
                     test_dev=test_dev,
@@ -2311,7 +2325,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     fstype=fstype,
                     mount_options=mount_options,
                     mkfs_options=mkfs_options,
-                    pool_devs=pool_devs
+                    pool_devs=pool_devs,
                 )
 
             if result.success:
@@ -2350,10 +2364,11 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 manager = fstests_manager
 
             if not manager.check_installed():
-                return [TextContent(
-                    type="text",
-                    text=f"Error: fstests not installed at {manager.fstests_path}"
-                )]
+                return [
+                    TextContent(
+                        type="text", text=f"Error: fstests not installed at {manager.fstests_path}"
+                    )
+                ]
 
             # Create config
             config = FstestsConfig(
@@ -2365,7 +2380,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 fstype=fstype,
                 mount_options=mount_options,
                 mkfs_options=mkfs_options,
-                scratch_dev_pool=pool_devices
+                scratch_dev_pool=pool_devices,
             )
 
             # Write config
@@ -2419,10 +2434,9 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             baseline = baseline_manager.load_baseline(baseline_name)
 
             if not baseline:
-                return [TextContent(
-                    type="text",
-                    text=f"Error: Baseline '{baseline_name}' not found"
-                )]
+                return [
+                    TextContent(type="text", text=f"Error: Baseline '{baseline_name}' not found")
+                ]
 
             # Load current results
             current_results = None
@@ -2432,16 +2446,12 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 try:
                     git_mgr = GitManager(Path(kernel_path))
                     current_results = git_mgr.load_fstests_run_result(
-                        branch_name=branch_name,
-                        commit_sha=commit_sha
+                        branch_name=branch_name, commit_sha=commit_sha
                     )
                     if current_results:
                         logger.info("Loaded current results from git notes")
                 except ValueError as e:
-                    return [TextContent(
-                        type="text",
-                        text=f"Error: {str(e)}"
-                    )]
+                    return [TextContent(type="text", text=f"Error: {str(e)}")]
 
             # Try loading from file if provided
             if not current_results and current_results_file:
@@ -2456,7 +2466,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                             test_name=t["test_name"],
                             status=t["status"],
                             duration=t["duration"],
-                            failure_reason=t.get("failure_reason")
+                            failure_reason=t.get("failure_reason"),
                         )
                         for t in data["test_results"]
                     ]
@@ -2468,14 +2478,11 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                         failed=data["failed"],
                         notrun=data["notrun"],
                         test_results=test_results,
-                        duration=data["duration"]
+                        duration=data["duration"],
                     )
                     logger.info("Loaded current results from file")
                 except (OSError, json.JSONDecodeError, KeyError) as e:
-                    return [TextContent(
-                        type="text",
-                        text=f"Error loading results file: {str(e)}"
-                    )]
+                    return [TextContent(type="text", text=f"Error loading results file: {str(e)}")]
 
             if not current_results:
                 output = "Error: No current results to compare.\n\n"
@@ -2539,32 +2546,31 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                         env_var=device_dict.get("env_var"),
                         env_var_index=device_dict.get("env_var_index"),
                         readonly=device_dict.get("readonly", False),
-                        require_empty=device_dict.get("require_empty", False)
+                        require_empty=device_dict.get("require_empty", False),
                     )
                     custom_devices.append(device)
 
             # Check kernel path exists
             if not kernel_path.exists():
-                return [TextContent(
-                    type="text",
-                    text=f"Error: Kernel path does not exist: {kernel_path}"
-                )]
+                return [
+                    TextContent(
+                        type="text", text=f"Error: Kernel path does not exist: {kernel_path}"
+                    )
+                ]
 
             # Check fstests path exists
             if not fstests_path.exists():
-                return [TextContent(
-                    type="text",
-                    text=f"Error: fstests path does not exist: {fstests_path}"
-                )]
+                return [
+                    TextContent(
+                        type="text", text=f"Error: fstests path does not exist: {fstests_path}"
+                    )
+                ]
 
             # Create boot manager
             try:
                 boot_mgr = BootManager(kernel_path)
             except Exception as e:
-                return [TextContent(
-                    type="text",
-                    text=f"Error creating BootManager: {str(e)}"
-                )]
+                return [TextContent(type="text", text=f"Error creating BootManager: {str(e)}")]
 
             # Boot with fstests
             boot_result, fstests_result = await boot_mgr.boot_with_fstests(
@@ -2578,7 +2584,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 use_default_devices=use_default_devices,
                 force_9p=force_9p,
                 io_scheduler=io_scheduler,
-                use_tmpfs=use_tmpfs
+                use_tmpfs=use_tmpfs,
             )
 
             # Format output
@@ -2654,39 +2660,39 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                         env_var=device_dict.get("env_var"),
                         env_var_index=device_dict.get("env_var_index"),
                         readonly=device_dict.get("readonly", False),
-                        require_empty=device_dict.get("require_empty", False)
+                        require_empty=device_dict.get("require_empty", False),
                     )
                     custom_devices.append(device)
 
             # Check kernel path exists
             if not kernel_path.exists():
-                return [TextContent(
-                    type="text",
-                    text=f"Error: Kernel path does not exist: {kernel_path}"
-                )]
+                return [
+                    TextContent(
+                        type="text", text=f"Error: Kernel path does not exist: {kernel_path}"
+                    )
+                ]
 
             # Check fstests path exists
             if not fstests_path.exists():
-                return [TextContent(
-                    type="text",
-                    text=f"Error: fstests path does not exist: {fstests_path}"
-                )]
+                return [
+                    TextContent(
+                        type="text", text=f"Error: fstests path does not exist: {fstests_path}"
+                    )
+                ]
 
             # Check script file exists if provided
             if script_file and not script_file.exists():
-                return [TextContent(
-                    type="text",
-                    text=f"Error: Script file does not exist: {script_file}"
-                )]
+                return [
+                    TextContent(
+                        type="text", text=f"Error: Script file does not exist: {script_file}"
+                    )
+                ]
 
             # Create boot manager
             try:
                 boot_mgr = BootManager(kernel_path)
             except Exception as e:
-                return [TextContent(
-                    type="text",
-                    text=f"Error creating BootManager: {str(e)}"
-                )]
+                return [TextContent(type="text", text=f"Error creating BootManager: {str(e)}")]
 
             # Boot with custom command
             boot_result = await boot_mgr.boot_with_custom_command(
@@ -2701,11 +2707,15 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 use_default_devices=use_default_devices,
                 force_9p=force_9p,
                 io_scheduler=io_scheduler,
-                use_tmpfs=use_tmpfs
+                use_tmpfs=use_tmpfs,
             )
 
             # Format output
-            mode = "Interactive Shell" if not (command or script_file) else (f"Script: {script_file.name}" if script_file else "Command")
+            mode = (
+                "Interactive Shell"
+                if not (command or script_file)
+                else (f"Script: {script_file.name}" if script_file else "Command")
+            )
             output = f"=== Kernel Boot with Custom Command ===\n\n"
             output += f"Mode: {mode}\n\n"
 
@@ -2745,29 +2755,17 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             try:
                 git_mgr = GitManager(kernel_path)
             except ValueError as e:
-                return [TextContent(
-                    type="text",
-                    text=f"Error: {str(e)}"
-                )]
+                return [TextContent(type="text", text=f"Error: {str(e)}")]
 
             # Load results
-            data = git_mgr.load_fstests_results(
-                branch_name=branch_name,
-                commit_sha=commit_sha
-            )
+            data = git_mgr.load_fstests_results(branch_name=branch_name, commit_sha=commit_sha)
 
             if not data:
                 location = commit_sha or branch_name or "current commit"
-                return [TextContent(
-                    type="text",
-                    text=f"✗ No fstests results found for {location}"
-                )]
+                return [TextContent(type="text", text=f"✗ No fstests results found for {location}")]
 
             # Reconstruct and format results
-            result = git_mgr.load_fstests_run_result(
-                branch_name=branch_name,
-                commit_sha=commit_sha
-            )
+            result = git_mgr.load_fstests_run_result(branch_name=branch_name, commit_sha=commit_sha)
 
             metadata = data["metadata"]
             output = "=== Fstests Results from Git Notes ===\n\n"
@@ -2792,10 +2790,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             try:
                 git_mgr = GitManager(kernel_path)
             except ValueError as e:
-                return [TextContent(
-                    type="text",
-                    text=f"Error: {str(e)}"
-                )]
+                return [TextContent(type="text", text=f"Error: {str(e)}")]
 
             results = git_mgr.list_commits_with_results(max_count=max_count)
 
@@ -2824,15 +2819,9 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             try:
                 git_mgr = GitManager(kernel_path)
             except ValueError as e:
-                return [TextContent(
-                    type="text",
-                    text=f"Error: {str(e)}"
-                )]
+                return [TextContent(type="text", text=f"Error: {str(e)}")]
 
-            success = git_mgr.delete_fstests_results(
-                branch_name=branch_name,
-                commit_sha=commit_sha
-            )
+            success = git_mgr.delete_fstests_results(branch_name=branch_name, commit_sha=commit_sha)
 
             if success:
                 location = commit_sha or branch_name or "current commit"
@@ -2862,11 +2851,7 @@ def main():
 
     async def run():
         async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-            await app.run(
-                read_stream,
-                write_stream,
-                app.create_initialization_options()
-            )
+            await app.run(read_stream, write_stream, app.create_initialization_options())
 
     asyncio.run(run())
 

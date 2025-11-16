@@ -11,12 +11,7 @@ import tempfile
 from pathlib import Path
 from datetime import datetime
 
-from kerneldev_mcp.device_pool import (
-    ConfigManager,
-    PoolConfig,
-    VolumeConfig,
-    LVMPoolConfig
-)
+from kerneldev_mcp.device_pool import ConfigManager, PoolConfig, VolumeConfig, LVMPoolConfig
 
 
 @pytest.fixture
@@ -35,10 +30,7 @@ def config_manager(temp_config_dir):
 def sample_pool_config():
     """Create sample PoolConfig for testing."""
     lvm_config = LVMPoolConfig(
-        pv="/dev/sdb",
-        vg_name="test-vg",
-        lv_prefix="kdev",
-        thin_provisioning=False
+        pv="/dev/sdb", vg_name="test-vg", lv_prefix="kdev", thin_provisioning=False
     )
 
     return PoolConfig(
@@ -46,7 +38,7 @@ def sample_pool_config():
         device="/dev/sdb",
         created_at=datetime.now().isoformat(),
         created_by="testuser",
-        lvm_config=lvm_config
+        lvm_config=lvm_config,
     )
 
 
@@ -55,13 +47,7 @@ class TestVolumeConfig:
 
     def test_volume_config_creation(self):
         """Test creating VolumeConfig."""
-        vol = VolumeConfig(
-            name="test",
-            size="10G",
-            path="/dev/vg/lv",
-            order=0,
-            env_var="TEST_DEV"
-        )
+        vol = VolumeConfig(name="test", size="10G", path="/dev/vg/lv", order=0, env_var="TEST_DEV")
 
         assert vol.name == "test"
         assert vol.size == "10G"
@@ -71,11 +57,7 @@ class TestVolumeConfig:
 
     def test_volume_config_defaults(self):
         """Test VolumeConfig default values."""
-        vol = VolumeConfig(
-            name="test",
-            size="10G",
-            path="/dev/vg/lv"
-        )
+        vol = VolumeConfig(name="test", size="10G", path="/dev/vg/lv")
 
         assert vol.order == 0
         assert vol.env_var is None
@@ -101,10 +83,10 @@ class TestPoolConfig:
         data = pool.to_dict()
 
         assert isinstance(data, dict)
-        assert data['pool_name'] == "test-pool"
-        assert data['device'] == "/dev/sdb"
-        assert data['lvm_config']['vg_name'] == "test-vg"
-        assert data['lvm_config']['lv_prefix'] == "kdev"
+        assert data["pool_name"] == "test-pool"
+        assert data["device"] == "/dev/sdb"
+        assert data["lvm_config"]["vg_name"] == "test-vg"
+        assert data["lvm_config"]["lv_prefix"] == "kdev"
 
     def test_pool_config_from_dict(self, sample_pool_config):
         """Test PoolConfig deserialization from dict."""
@@ -175,7 +157,7 @@ class TestConfigManager:
             pool_name="pool2",
             device="/dev/sdc",
             created_at=datetime.now().isoformat(),
-            created_by="testuser"
+            created_by="testuser",
         )
 
         # Save both pools
@@ -248,7 +230,7 @@ class TestConfigManager:
             pool_name="pool2",
             device="/dev/sdc",
             created_at=datetime.now().isoformat(),
-            created_by="testuser"
+            created_by="testuser",
         )
 
         # Save both pools
@@ -268,14 +250,14 @@ class TestConfigManager:
         config_manager.save_pool(sample_pool_config)
 
         # Read raw file
-        with open(config_manager.config_file, 'r') as f:
+        with open(config_manager.config_file, "r") as f:
             data = json.load(f)
 
-        assert 'version' in data
-        assert data['version'] == '1.0'
-        assert 'pools' in data
-        assert isinstance(data['pools'], dict)
-        assert 'test-pool' in data['pools']
+        assert "version" in data
+        assert data["version"] == "1.0"
+        assert "pools" in data
+        assert isinstance(data["pools"], dict)
+        assert "test-pool" in data["pools"]
 
     def test_atomic_save(self, config_manager, sample_pool_config):
         """Test save operation is atomic (uses temporary file)."""
@@ -283,7 +265,7 @@ class TestConfigManager:
         config_manager.save_pool(sample_pool_config)
 
         # Verify no .tmp file left behind
-        tmp_file = config_manager.config_file.with_suffix('.tmp')
+        tmp_file = config_manager.config_file.with_suffix(".tmp")
         assert not tmp_file.exists()
 
         # Verify config file exists and is valid
@@ -298,10 +280,7 @@ class TestLVMPoolConfig:
     def test_lvm_config_creation(self):
         """Test creating LVMPoolConfig."""
         lvm = LVMPoolConfig(
-            pv="/dev/sdb",
-            vg_name="test-vg",
-            lv_prefix="kdev",
-            thin_provisioning=True
+            pv="/dev/sdb", vg_name="test-vg", lv_prefix="kdev", thin_provisioning=True
         )
 
         assert lvm.pv == "/dev/sdb"
@@ -311,10 +290,7 @@ class TestLVMPoolConfig:
 
     def test_lvm_config_defaults(self):
         """Test LVMPoolConfig default values."""
-        lvm = LVMPoolConfig(
-            pv="/dev/sdb",
-            vg_name="test-vg"
-        )
+        lvm = LVMPoolConfig(pv="/dev/sdb", vg_name="test-vg")
 
         assert lvm.lv_prefix == "kdev"
         assert lvm.thin_provisioning is False

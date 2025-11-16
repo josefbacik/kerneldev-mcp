@@ -8,6 +8,7 @@ Regression test for bug where local "from .build_manager import KernelBuilder"
 in run_and_save_fstests handler caused Python to treat KernelBuilder as a local
 variable for the entire call_tool function, breaking other handlers.
 """
+
 import subprocess
 from pathlib import Path
 import pytest
@@ -34,16 +35,16 @@ NAME = Test Kernel
     subprocess.run(["git", "init"], cwd=repo_path, check=True, capture_output=True)
     subprocess.run(
         ["git", "config", "user.email", "test@example.com"],
-        cwd=repo_path, check=True, capture_output=True
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=repo_path, check=True, capture_output=True
+        ["git", "config", "user.name", "Test User"], cwd=repo_path, check=True, capture_output=True
     )
     subprocess.run(["git", "add", "."], cwd=repo_path, check=True, capture_output=True)
     subprocess.run(
-        ["git", "commit", "-m", "Initial commit"],
-        cwd=repo_path, check=True, capture_output=True
+        ["git", "commit", "-m", "Initial commit"], cwd=repo_path, check=True, capture_output=True
     )
 
     return repo_path
@@ -81,7 +82,7 @@ class TestNoVariableShadowing:
         from kerneldev_mcp import server
 
         # Should be able to access the call_tool function
-        assert hasattr(server, 'call_tool')
+        assert hasattr(server, "call_tool")
         assert callable(server.call_tool)
 
     def test_build_manager_usage_in_server(self, temp_kernel_repo):
@@ -116,18 +117,18 @@ class TestNoVariableShadowing:
 
         # Check that there's no local import of KernelBuilder
         # The only import should be at module level
-        lines = source.split('\n')
+        lines = source.split("\n")
 
         for line in lines:
             # Skip the function definition line
-            if 'def call_tool' in line or 'async def call_tool' in line:
+            if "def call_tool" in line or "async def call_tool" in line:
                 continue
 
             # Check for problematic local import
-            if 'from .build_manager import KernelBuilder' in line:
+            if "from .build_manager import KernelBuilder" in line:
                 # Make sure it's not commented out
                 stripped = line.strip()
-                if not stripped.startswith('#'):
+                if not stripped.startswith("#"):
                     pytest.fail(
                         "Found local import of KernelBuilder in call_tool function. "
                         "This causes variable shadowing and breaks other handlers. "

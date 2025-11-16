@@ -12,11 +12,7 @@ from pathlib import Path
 
 from mcp.types import Tool, TextContent
 
-from .device_pool import (
-    ConfigManager,
-    LVMPoolManager,
-    ValidationLevel
-)
+from .device_pool import ConfigManager, LVMPoolManager, ValidationLevel
 
 
 logger = logging.getLogger(__name__)
@@ -34,24 +30,24 @@ def get_device_pool_tools() -> List[Tool]:
                 "properties": {
                     "device_path": {
                         "type": "string",
-                        "description": "Physical device path (e.g., '/dev/nvme1n1')"
+                        "description": "Physical device path (e.g., '/dev/nvme1n1')",
                     },
                     "pool_name": {
                         "type": "string",
                         "description": "Pool identifier",
-                        "default": "default"
+                        "default": "default",
                     },
                     "vg_name": {
                         "type": "string",
-                        "description": "Volume group name (optional, auto-generated if not specified)"
+                        "description": "Volume group name (optional, auto-generated if not specified)",
                     },
                     "lv_prefix": {
                         "type": "string",
-                        "description": "Logical volume prefix for on-demand LVs (default: 'kdev')"
-                    }
+                        "description": "Logical volume prefix for on-demand LVs (default: 'kdev')",
+                    },
                 },
-                "required": ["device_path"]
-            }
+                "required": ["device_path"],
+            },
         ),
         Tool(
             name="device_pool_status",
@@ -62,10 +58,10 @@ def get_device_pool_tools() -> List[Tool]:
                     "pool_name": {
                         "type": "string",
                         "description": "Pool to check",
-                        "default": "default"
+                        "default": "default",
                     }
-                }
-            }
+                },
+            },
         ),
         Tool(
             name="device_pool_teardown",
@@ -76,16 +72,16 @@ def get_device_pool_tools() -> List[Tool]:
                     "pool_name": {
                         "type": "string",
                         "description": "Pool to remove",
-                        "default": "default"
+                        "default": "default",
                     },
                     "wipe_data": {
                         "type": "boolean",
                         "description": "Overwrite with zeros (slow but secure)",
-                        "default": False
-                    }
+                        "default": False,
+                    },
                 },
-                "required": ["pool_name"]
-            }
+                "required": ["pool_name"],
+            },
         ),
         Tool(
             name="device_pool_resize",
@@ -96,19 +92,19 @@ def get_device_pool_tools() -> List[Tool]:
                     "pool_name": {
                         "type": "string",
                         "description": "Pool containing volume",
-                        "default": "default"
+                        "default": "default",
                     },
                     "lv_name": {
                         "type": "string",
-                        "description": "Full LV name (e.g., kdev-20251115103045-a3f9d2-test)"
+                        "description": "Full LV name (e.g., kdev-20251115103045-a3f9d2-test)",
                     },
                     "new_size": {
                         "type": "string",
-                        "description": "New size (e.g., '+20G' or '50G')"
-                    }
+                        "description": "New size (e.g., '+20G' or '50G')",
+                    },
                 },
-                "required": ["lv_name", "new_size"]
-            }
+                "required": ["lv_name", "new_size"],
+            },
         ),
         Tool(
             name="device_pool_snapshot",
@@ -119,37 +115,31 @@ def get_device_pool_tools() -> List[Tool]:
                     "pool_name": {
                         "type": "string",
                         "description": "Pool containing volume",
-                        "default": "default"
+                        "default": "default",
                     },
                     "lv_name": {
                         "type": "string",
-                        "description": "Source LV name (e.g., kdev-20251115103045-a3f9d2-test)"
+                        "description": "Source LV name (e.g., kdev-20251115103045-a3f9d2-test)",
                     },
-                    "snapshot_name": {
-                        "type": "string",
-                        "description": "Snapshot identifier"
-                    },
+                    "snapshot_name": {"type": "string", "description": "Snapshot identifier"},
                     "action": {
                         "type": "string",
                         "description": "Action to perform",
-                        "enum": ["create", "delete"]
+                        "enum": ["create", "delete"],
                     },
                     "snapshot_size": {
                         "type": "string",
                         "description": "Snapshot size (for create action, default: '1G')",
-                        "default": "1G"
-                    }
+                        "default": "1G",
+                    },
                 },
-                "required": ["lv_name", "snapshot_name", "action"]
-            }
+                "required": ["lv_name", "snapshot_name", "action"],
+            },
         ),
         Tool(
             name="device_pool_list",
             description="List all configured device pools",
-            inputSchema={
-                "type": "object",
-                "properties": {}
-            }
+            inputSchema={"type": "object", "properties": {}},
         ),
         Tool(
             name="device_pool_cleanup",
@@ -160,11 +150,11 @@ def get_device_pool_tools() -> List[Tool]:
                     "pool_name": {
                         "type": "string",
                         "description": "Pool to clean up",
-                        "default": "default"
+                        "default": "default",
                     }
-                }
-            }
-        )
+                },
+            },
+        ),
     ]
 
 
@@ -196,16 +186,10 @@ async def handle_device_pool_tool(name: str, arguments: Dict[str, Any]) -> List[
         elif name == "device_pool_cleanup":
             return await _handle_device_pool_cleanup(arguments)
         else:
-            return [TextContent(
-                type="text",
-                text=f"Unknown device pool tool: {name}"
-            )]
+            return [TextContent(type="text", text=f"Unknown device pool tool: {name}")]
     except Exception as e:
         logger.error(f"Error handling device pool tool '{name}': {e}", exc_info=True)
-        return [TextContent(
-            type="text",
-            text=f"Error: {str(e)}"
-        )]
+        return [TextContent(type="text", text=f"Error: {str(e)}")]
 
 
 async def _handle_device_pool_setup(arguments: Dict[str, Any]) -> List[TextContent]:
@@ -227,14 +211,10 @@ async def _handle_device_pool_setup(arguments: Dict[str, Any]) -> List[TextConte
         options["lv_prefix"] = arguments["lv_prefix"]
 
     # Setup pool (just PV + VG, no LVs)
-    pool_config = manager.setup_pool(
-        device=device_path,
-        pool_name=pool_name,
-        **options
-    )
+    pool_config = manager.setup_pool(device=device_path, pool_name=pool_name, **options)
 
     # Get VG size info
-    vg_name = pool_config.lvm_config.vg_name if pool_config.lvm_config else 'N/A'
+    vg_name = pool_config.lvm_config.vg_name if pool_config.lvm_config else "N/A"
 
     # Get VG size
     try:
@@ -242,7 +222,7 @@ async def _handle_device_pool_setup(arguments: Dict[str, Any]) -> List[TextConte
             ["sudo", "vgs", "--noheadings", "-o", "vg_size", "--units", "g", vg_name],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         vg_size = result.stdout.strip() if result.returncode == 0 else "unknown"
     except:
@@ -267,8 +247,12 @@ VG name '{vg_name}' is persistent across reboots.
 """
 
     response_text += f"\nConfiguration saved to: ~/.kerneldev-mcp/device-pool.json"
-    response_text += f"\n\nTo use this pool automatically:\n  export KERNELDEV_DEVICE_POOL={pool_name}"
-    response_text += f"\n\nLVs will be created automatically when running:\n  fstests_vm_boot_and_run ..."
+    response_text += (
+        f"\n\nTo use this pool automatically:\n  export KERNELDEV_DEVICE_POOL={pool_name}"
+    )
+    response_text += (
+        f"\n\nLVs will be created automatically when running:\n  fstests_vm_boot_and_run ..."
+    )
 
     return [TextContent(type="text", text=response_text)]
 
@@ -281,10 +265,12 @@ async def _handle_device_pool_status(arguments: Dict[str, Any]) -> List[TextCont
     pool = config_manager.get_pool(pool_name)
 
     if pool is None:
-        return [TextContent(
-            type="text",
-            text=f"Pool '{pool_name}' not found.\n\nUse device_pool_list to see available pools."
-        )]
+        return [
+            TextContent(
+                type="text",
+                text=f"Pool '{pool_name}' not found.\n\nUse device_pool_list to see available pools.",
+            )
+        ]
 
     # Create LVM manager for validation
     manager = LVMPoolManager(config_manager)
@@ -294,6 +280,7 @@ async def _handle_device_pool_status(arguments: Dict[str, Any]) -> List[TextCont
 
     # Get active allocations
     from .device_pool import VolumeStateManager
+
     state_mgr = VolumeStateManager()
     state = state_mgr._load_state()
     pool_allocations = [a for a in state.get("allocations", []) if a["pool_name"] == pool_name]
@@ -305,7 +292,7 @@ async def _handle_device_pool_status(arguments: Dict[str, Any]) -> List[TextCont
             ["sudo", "vgs", "--noheadings", "-o", "vg_size,vg_free", "--units", "g", vg_name],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         if result.returncode == 0:
             parts = result.stdout.strip().split()
@@ -360,10 +347,7 @@ async def _handle_device_pool_teardown(arguments: Dict[str, Any]) -> List[TextCo
     pool = config_manager.get_pool(pool_name)
 
     if pool is None:
-        return [TextContent(
-            type="text",
-            text=f"Pool '{pool_name}' not found."
-        )]
+        return [TextContent(type="text", text=f"Pool '{pool_name}' not found.")]
 
     # Create LVM manager
     manager = LVMPoolManager(config_manager)
@@ -395,10 +379,7 @@ async def _handle_device_pool_resize(arguments: Dict[str, Any]) -> List[TextCont
     pool = config_manager.get_pool(pool_name)
 
     if pool is None:
-        return [TextContent(
-            type="text",
-            text=f"Pool '{pool_name}' not found."
-        )]
+        return [TextContent(type="text", text=f"Pool '{pool_name}' not found.")]
 
     manager = LVMPoolManager(config_manager)
     success = manager.resize_volume(pool_name, lv_name, new_size)
@@ -428,10 +409,7 @@ async def _handle_device_pool_snapshot(arguments: Dict[str, Any]) -> List[TextCo
     pool = config_manager.get_pool(pool_name)
 
     if pool is None:
-        return [TextContent(
-            type="text",
-            text=f"Pool '{pool_name}' not found."
-        )]
+        return [TextContent(type="text", text=f"Pool '{pool_name}' not found.")]
 
     manager = LVMPoolManager(config_manager)
 
@@ -474,13 +452,16 @@ async def _handle_device_pool_list(arguments: Dict[str, Any]) -> List[TextConten
     pools = config_manager.load_pools()
 
     if not pools:
-        return [TextContent(
-            type="text",
-            text="No device pools configured.\n\nUse device_pool_setup to create a pool."
-        )]
+        return [
+            TextContent(
+                type="text",
+                text="No device pools configured.\n\nUse device_pool_setup to create a pool.",
+            )
+        ]
 
     # Get active allocations
     from .device_pool import VolumeStateManager
+
     state_mgr = VolumeStateManager()
     state = state_mgr._load_state()
 

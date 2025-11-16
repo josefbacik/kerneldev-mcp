@@ -1,6 +1,7 @@
 """
 Tests for build management.
 """
+
 import pytest
 from pathlib import Path
 from kerneldev_mcp.build_manager import (
@@ -8,18 +9,14 @@ from kerneldev_mcp.build_manager import (
     BuildResult,
     BuildOutputParser,
     KernelBuilder,
-    format_build_errors
+    format_build_errors,
 )
 
 
 def test_build_error_str():
     """Test BuildError string representation."""
     error = BuildError(
-        file="drivers/test.c",
-        line=42,
-        column=10,
-        error_type="error",
-        message="syntax error"
+        file="drivers/test.c", line=42, column=10, error_type="error", message="syntax error"
     )
     assert str(error) == "drivers/test.c:42:10: error: syntax error"
 
@@ -30,7 +27,7 @@ def test_build_result_summary():
     result = BuildResult(
         success=True,
         duration=120.5,
-        warnings=[BuildError("test.c", 1, 1, "warning", "unused variable")]
+        warnings=[BuildError("test.c", 1, 1, "warning", "unused variable")],
     )
     summary = result.summary()
     assert "✓ Build succeeded" in summary
@@ -42,7 +39,7 @@ def test_build_result_summary():
         success=False,
         duration=30.0,
         errors=[BuildError("test.c", 1, 1, "error", "undefined reference")],
-        warnings=[]
+        warnings=[],
     )
     summary = result.summary()
     assert "✗ Build failed" in summary
@@ -114,7 +111,7 @@ def test_format_build_errors():
         ],
         warnings=[
             BuildError("test.c", 5, 1, "warning", "unused variable"),
-        ]
+        ],
     )
 
     formatted = format_build_errors(result, max_errors=10)

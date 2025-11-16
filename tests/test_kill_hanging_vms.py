@@ -1,6 +1,7 @@
 """
 Tests for kill_hanging_vms functionality.
 """
+
 import json
 import os
 import tempfile
@@ -21,11 +22,11 @@ from kerneldev_mcp.boot_manager import (
 @pytest.fixture
 def temp_tracking_file(monkeypatch):
     """Create a temporary tracking file for testing."""
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json") as f:
         temp_file = Path(f.name)
 
     # Patch the module-level VM_PID_TRACKING_FILE constant
-    monkeypatch.setattr('kerneldev_mcp.boot_manager.VM_PID_TRACKING_FILE', temp_file)
+    monkeypatch.setattr("kerneldev_mcp.boot_manager.VM_PID_TRACKING_FILE", temp_file)
 
     yield temp_file
 
@@ -39,7 +40,7 @@ def temp_log_dir(monkeypatch):
     """Create a temporary log directory for testing."""
     with tempfile.TemporaryDirectory() as tmpdir:
         log_dir = Path(tmpdir)
-        monkeypatch.setattr('kerneldev_mcp.boot_manager.BOOT_LOG_DIR', log_dir)
+        monkeypatch.setattr("kerneldev_mcp.boot_manager.BOOT_LOG_DIR", log_dir)
         yield log_dir
 
 
@@ -52,7 +53,7 @@ class TestVMProcessTracking:
 
         assert temp_tracking_file.exists()
 
-        with open(temp_tracking_file, 'r') as f:
+        with open(temp_tracking_file, "r") as f:
             data = json.load(f)
 
         assert "12345" in data
@@ -66,7 +67,7 @@ class TestVMProcessTracking:
         log_path = Path("/tmp/test-boot.log")
         _track_vm_process(12345, 12345, "test VM", log_file_path=log_path)
 
-        with open(temp_tracking_file, 'r') as f:
+        with open(temp_tracking_file, "r") as f:
             data = json.load(f)
 
         assert data["12345"]["log_file_path"] == str(log_path)
@@ -77,7 +78,7 @@ class TestVMProcessTracking:
         _track_vm_process(12346, 12346, "VM 2", log_file_path=Path("/tmp/log2.log"))
         _track_vm_process(12347, 12347, "VM 3", log_file_path=Path("/tmp/log3.log"))
 
-        with open(temp_tracking_file, 'r') as f:
+        with open(temp_tracking_file, "r") as f:
             data = json.load(f)
 
         assert len(data) == 3
@@ -92,7 +93,7 @@ class TestVMProcessTracking:
 
         _untrack_vm_process(12345)
 
-        with open(temp_tracking_file, 'r') as f:
+        with open(temp_tracking_file, "r") as f:
             data = json.load(f)
 
         assert "12345" not in data
@@ -105,7 +106,7 @@ class TestVMProcessTracking:
 
         assert not temp_tracking_file.exists()
 
-    @patch('kerneldev_mcp.boot_manager.os.kill')
+    @patch("kerneldev_mcp.boot_manager.os.kill")
     def test_get_tracked_vm_processes(self, mock_kill, temp_tracking_file):
         """Test getting tracked VM processes."""
         _track_vm_process(12345, 12345, "VM 1", log_file_path=Path("/tmp/log1.log"))
@@ -122,7 +123,7 @@ class TestVMProcessTracking:
         assert tracked[12345]["description"] == "VM 1"
         assert tracked[12346]["log_file_path"] == "/tmp/log2.log"
 
-    @patch('kerneldev_mcp.boot_manager.os.kill')
+    @patch("kerneldev_mcp.boot_manager.os.kill")
     def test_get_tracked_filters_dead_processes(self, mock_kill, temp_tracking_file):
         """Test that get_tracked filters out dead processes."""
         # Track two processes
@@ -143,7 +144,7 @@ class TestVMProcessTracking:
         assert 12346 in tracked
         assert 12345 not in tracked
 
-    @patch('kerneldev_mcp.boot_manager.os.kill')
+    @patch("kerneldev_mcp.boot_manager.os.kill")
     def test_cleanup_dead_tracked_processes(self, mock_kill, temp_tracking_file):
         """Test cleaning up dead processes from tracking file."""
         _track_vm_process(12345, 12345, "dead VM")
@@ -158,7 +159,7 @@ class TestVMProcessTracking:
 
         _cleanup_dead_tracked_processes()
 
-        with open(temp_tracking_file, 'r') as f:
+        with open(temp_tracking_file, "r") as f:
             data = json.load(f)
 
         assert "12345" not in data
@@ -173,10 +174,10 @@ class TestKillHangingVMsLogDisplay:
         # Create a log file with 100 lines
         log_file = temp_log_dir / "boot-20251113-143022-running.log"
         log_lines = [f"[    {i}.123456] Test log line {i}\n" for i in range(100)]
-        log_file.write_text(''.join(log_lines))
+        log_file.write_text("".join(log_lines))
 
         # Read the log file as kill_hanging_vms would
-        with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
+        with open(log_file, "r", encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
             tail_lines = lines[-50:] if len(lines) > 50 else lines
 
@@ -189,9 +190,9 @@ class TestKillHangingVMsLogDisplay:
         """Test that files with < 50 lines show all lines."""
         log_file = temp_log_dir / "boot-20251113-143022-running.log"
         log_lines = [f"[    {i}.123456] Test log line {i}\n" for i in range(20)]
-        log_file.write_text(''.join(log_lines))
+        log_file.write_text("".join(log_lines))
 
-        with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
+        with open(log_file, "r", encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
             tail_lines = lines[-50:] if len(lines) > 50 else lines
 
@@ -215,7 +216,7 @@ class TestKillHangingVMsLogDisplay:
         log_file.write_bytes(b"Normal line\n\xff\xfe Invalid UTF-8\n")
 
         # Should handle with errors='replace'
-        with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
+        with open(log_file, "r", encoding="utf-8", errors="replace") as f:
             content = f.read()
             assert "Normal line" in content
 
@@ -230,7 +231,7 @@ class TestKillHangingVMsLogDisplay:
 """
         log_file.write_text(log_content)
 
-        with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
+        with open(log_file, "r", encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
 
         # Verify formatting is preserved
@@ -241,9 +242,11 @@ class TestKillHangingVMsLogDisplay:
 class TestKillHangingVMsIntegration:
     """Integration tests for kill_hanging_vms with server handler."""
 
-    @patch('kerneldev_mcp.boot_manager.subprocess.run')
-    @patch('kerneldev_mcp.boot_manager.os.kill')
-    def test_kill_hanging_vms_shows_log_path(self, mock_kill, mock_subprocess, temp_tracking_file, temp_log_dir):
+    @patch("kerneldev_mcp.boot_manager.subprocess.run")
+    @patch("kerneldev_mcp.boot_manager.os.kill")
+    def test_kill_hanging_vms_shows_log_path(
+        self, mock_kill, mock_subprocess, temp_tracking_file, temp_log_dir
+    ):
         """Test that kill_hanging_vms output includes log file path."""
         # Create a log file
         log_file = temp_log_dir / "boot-20251113-143022-running.log"
@@ -262,7 +265,9 @@ class TestKillHangingVMsIntegration:
     def test_tracking_file_location_per_server_instance(self):
         """Test that each MCP server instance has its own tracking file."""
         # The tracking file includes the MCP server PID in its name
-        assert "_MCP_SERVER_PID" in str(VM_PID_TRACKING_FILE.name) or str(os.getpid()) in str(VM_PID_TRACKING_FILE.name)
+        assert "_MCP_SERVER_PID" in str(VM_PID_TRACKING_FILE.name) or str(os.getpid()) in str(
+            VM_PID_TRACKING_FILE.name
+        )
 
 
 class TestBootLogDirectory:

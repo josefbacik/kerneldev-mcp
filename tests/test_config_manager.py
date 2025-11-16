@@ -1,9 +1,15 @@
 """
 Tests for configuration management.
 """
+
 import pytest
 from pathlib import Path
-from kerneldev_mcp.config_manager import ConfigOption, KernelConfig, ConfigManager, CrossCompileConfig
+from kerneldev_mcp.config_manager import (
+    ConfigOption,
+    KernelConfig,
+    ConfigManager,
+    CrossCompileConfig,
+)
 
 
 def test_config_option_to_config_line():
@@ -96,9 +102,7 @@ def test_config_manager_generate_config():
     manager = ConfigManager()
 
     config = manager.generate_config(
-        target="networking",
-        debug_level="basic",
-        architecture="x86_64"
+        target="networking", debug_level="basic", architecture="x86_64"
     )
 
     # Should have networking options
@@ -114,9 +118,7 @@ def test_config_manager_generate_with_fragments():
     manager = ConfigManager()
 
     config = manager.generate_config(
-        target="virtualization",
-        debug_level="minimal",
-        fragments=["kasan"]
+        target="virtualization", debug_level="minimal", fragments=["kasan"]
     )
 
     text = config.to_config_text()
@@ -135,10 +137,7 @@ def test_config_manager_generate_with_additional_options():
     config = manager.generate_config(
         target="boot",
         debug_level="basic",
-        additional_options={
-            "CONFIG_CUSTOM_OPTION": "y",
-            "CONFIG_ANOTHER": "42"
-        }
+        additional_options={"CONFIG_CUSTOM_OPTION": "y", "CONFIG_ANOTHER": "42"},
     )
 
     assert config.get_option("CONFIG_CUSTOM_OPTION").value == "y"
@@ -154,10 +153,7 @@ def test_config_manager_merge_configs():
     base.set_option("CONFIG_NET", "y")
 
     # Merge with a fragment
-    merged = manager.merge_configs(
-        base=base,
-        fragments=["kasan"]
-    )
+    merged = manager.merge_configs(base=base, fragments=["kasan"])
 
     assert merged.get_option("CONFIG_NET").value == "y"
     assert merged.get_option("CONFIG_KASAN").value == "y"
@@ -191,10 +187,7 @@ def test_cross_compile_config_riscv():
 
 def test_cross_compile_config_custom_prefix():
     """Test CrossCompileConfig with custom prefix."""
-    cross = CrossCompileConfig(
-        arch="arm64",
-        cross_compile_prefix="my-custom-toolchain-"
-    )
+    cross = CrossCompileConfig(arch="arm64", cross_compile_prefix="my-custom-toolchain-")
 
     assert cross.cross_compile_prefix == "my-custom-toolchain-"
 
@@ -265,10 +258,7 @@ def test_modify_kernel_config_no_config(tmp_path):
     """Test modify_kernel_config with no existing .config."""
     manager = ConfigManager()
 
-    result = manager.modify_kernel_config(
-        kernel_path=tmp_path,
-        options={"CONFIG_DEBUG_INFO": "y"}
-    )
+    result = manager.modify_kernel_config(kernel_path=tmp_path, options={"CONFIG_DEBUG_INFO": "y"})
 
     assert not result["success"]
     assert len(result["errors"]) > 0
@@ -302,8 +292,8 @@ olddefconfig:
         kernel_path=tmp_path,
         options={
             "CONFIG_DEBUG_INFO": "y",  # Change from not set to y
-            "CONFIG_KASAN": "y"        # Add new option
-        }
+            "CONFIG_KASAN": "y",  # Add new option
+        },
     )
 
     # Check result
@@ -318,7 +308,7 @@ olddefconfig:
 
     assert debug_info_change is not None
     assert debug_info_change[1] == "not set"  # old value
-    assert debug_info_change[2] == "y"        # new value
+    assert debug_info_change[2] == "y"  # new value
 
 
 def test_modify_kernel_config_with_prefix(tmp_path):
@@ -342,7 +332,7 @@ olddefconfig:
         kernel_path=tmp_path,
         options={
             "DEBUG_KERNEL": "y",  # No CONFIG_ prefix
-        }
+        },
     )
 
     # Should have added CONFIG_DEBUG_KERNEL
@@ -370,7 +360,7 @@ olddefconfig:
         kernel_path=tmp_path,
         options={
             "CONFIG_DEBUG_INFO": None  # Unset
-        }
+        },
     )
 
     # Should show change from y to not set
@@ -407,7 +397,7 @@ olddefconfig:
         kernel_path=tmp_path,
         options={
             "CONFIG_NET": "y"  # Already set to y
-        }
+        },
     )
 
     # Should have no changes

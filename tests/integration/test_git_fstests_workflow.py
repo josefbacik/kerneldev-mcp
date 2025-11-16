@@ -6,6 +6,7 @@ Tests the full workflow of:
 2. Loading results from git notes
 3. Comparing against baselines
 """
+
 import subprocess
 import tempfile
 from pathlib import Path
@@ -26,11 +27,12 @@ def temp_kernel_repo(tmp_path):
     subprocess.run(["git", "init"], cwd=repo_path, check=True, capture_output=True)
     subprocess.run(
         ["git", "config", "user.email", "test@example.com"],
-        cwd=repo_path, check=True, capture_output=True
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=repo_path, check=True, capture_output=True
+        ["git", "config", "user.name", "Test User"], cwd=repo_path, check=True, capture_output=True
     )
 
     # Create minimal kernel structure
@@ -48,7 +50,9 @@ NAME = Kernel Test
     subprocess.run(["git", "add", "."], cwd=repo_path, check=True, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", "Initial kernel tree"],
-        cwd=repo_path, check=True, capture_output=True
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
     )
 
     return repo_path
@@ -79,7 +83,7 @@ def sample_baseline_results():
         failed=0,
         notrun=0,
         test_results=test_results,
-        duration=19.1
+        duration=19.1,
     )
 
 
@@ -89,7 +93,9 @@ def sample_current_results():
     test_results = [
         TestResult(test_name="generic/001", status="passed", duration=5.3),
         TestResult(test_name="generic/002", status="passed", duration=3.2),
-        TestResult(test_name="generic/003", status="failed", duration=10.0, failure_reason="Timeout"),
+        TestResult(
+            test_name="generic/003", status="failed", duration=10.0, failure_reason="Timeout"
+        ),
         TestResult(test_name="generic/004", status="passed", duration=2.4),
     ]
 
@@ -100,7 +106,7 @@ def sample_current_results():
         failed=1,
         notrun=0,
         test_results=test_results,
-        duration=20.9
+        duration=20.9,
     )
 
 
@@ -117,7 +123,7 @@ class TestGitFstestsWorkflow:
             target="branch",
             kernel_version="6.8.0",
             fstype="ext4",
-            test_selection="-g quick"
+            test_selection="-g quick",
         )
 
         assert success is True
@@ -143,7 +149,7 @@ class TestGitFstestsWorkflow:
             target="branch",
             kernel_version="6.8.0",
             fstype="ext4",
-            test_selection="-g quick"
+            test_selection="-g quick",
         )
 
         # Create a feature branch
@@ -151,22 +157,19 @@ class TestGitFstestsWorkflow:
             ["git", "checkout", "-b", "feature-test"],
             cwd=temp_kernel_repo,
             check=True,
-            capture_output=True
+            capture_output=True,
         )
 
         # Make a new commit on feature branch so it has a different commit than main
         (temp_kernel_repo / "feature.txt").write_text("feature work\n")
         subprocess.run(
-            ["git", "add", "feature.txt"],
-            cwd=temp_kernel_repo,
-            check=True,
-            capture_output=True
+            ["git", "add", "feature.txt"], cwd=temp_kernel_repo, check=True, capture_output=True
         )
         subprocess.run(
             ["git", "commit", "-m", "Add feature"],
             cwd=temp_kernel_repo,
             check=True,
-            capture_output=True
+            capture_output=True,
         )
 
         # Modify results for feature branch
@@ -182,7 +185,7 @@ class TestGitFstestsWorkflow:
                 TestResult(test_name="generic/003", status="passed", duration=8.0),
                 TestResult(test_name="generic/004", status="passed", duration=2.0),
             ],
-            duration=18.0
+            duration=18.0,
         )
 
         # Save to feature branch
@@ -191,7 +194,7 @@ class TestGitFstestsWorkflow:
             target="branch",
             kernel_version="6.8.0-feature",
             fstype="ext4",
-            test_selection="-g quick"
+            test_selection="-g quick",
         )
 
         # Load from feature branch (current)
@@ -205,11 +208,7 @@ class TestGitFstestsWorkflow:
         assert main_loaded.passed == 3
 
     def test_comparison_workflow(
-        self,
-        temp_kernel_repo,
-        baseline_storage,
-        sample_baseline_results,
-        sample_current_results
+        self, temp_kernel_repo, baseline_storage, sample_baseline_results, sample_current_results
     ):
         """Test full workflow: baseline creation, git save, and comparison."""
         git_mgr = GitManager(temp_kernel_repo)
@@ -221,7 +220,7 @@ class TestGitFstestsWorkflow:
             results=sample_baseline_results,
             kernel_version="6.7.0",
             fstype="ext4",
-            test_selection="-g quick"
+            test_selection="-g quick",
         )
 
         assert baseline is not None
@@ -232,7 +231,7 @@ class TestGitFstestsWorkflow:
             target="branch",
             kernel_version="6.8.0",
             fstype="ext4",
-            test_selection="-g quick"
+            test_selection="-g quick",
         )
 
         assert success is True
@@ -261,23 +260,20 @@ class TestGitFstestsWorkflow:
             target="commit",
             kernel_version="6.8.0",
             fstype="ext4",
-            test_selection="-g quick"
+            test_selection="-g quick",
         )
 
         # Create a new commit
         (temp_kernel_repo / "drivers" / "test.c").mkdir(parents=True, exist_ok=True)
         (temp_kernel_repo / "drivers" / "test.c" / "driver.c").write_text("// test driver\n")
         subprocess.run(
-            ["git", "add", "drivers"],
-            cwd=temp_kernel_repo,
-            check=True,
-            capture_output=True
+            ["git", "add", "drivers"], cwd=temp_kernel_repo, check=True, capture_output=True
         )
         subprocess.run(
             ["git", "commit", "-m", "Add test driver"],
             cwd=temp_kernel_repo,
             check=True,
-            capture_output=True
+            capture_output=True,
         )
 
         # Save results on new commit
@@ -293,7 +289,7 @@ class TestGitFstestsWorkflow:
                 TestResult(test_name="generic/003", status="passed", duration=8.0),
                 TestResult(test_name="generic/004", status="passed", duration=2.0),
             ],
-            duration=18.0
+            duration=18.0,
         )
 
         git_mgr.save_fstests_results(
@@ -301,7 +297,7 @@ class TestGitFstestsWorkflow:
             target="commit",
             kernel_version="6.8.1",
             fstype="ext4",
-            test_selection="-g quick"
+            test_selection="-g quick",
         )
 
         # List all results
@@ -321,7 +317,7 @@ class TestGitFstestsWorkflow:
             target="branch",
             kernel_version="6.8.0-rc1",
             fstype="ext4",
-            test_selection="-g quick"
+            test_selection="-g quick",
         )
 
         # Verify saved
@@ -348,7 +344,7 @@ class TestGitFstestsWorkflow:
                 TestResult(test_name="generic/003", status="passed", duration=8.0),
                 TestResult(test_name="generic/004", status="passed", duration=2.0),
             ],
-            duration=18.0
+            duration=18.0,
         )
 
         git_mgr.save_fstests_results(
@@ -356,7 +352,7 @@ class TestGitFstestsWorkflow:
             target="branch",
             kernel_version="6.8.0",
             fstype="ext4",
-            test_selection="-g quick"
+            test_selection="-g quick",
         )
 
         # Verify new results
@@ -365,10 +361,7 @@ class TestGitFstestsWorkflow:
         assert loaded["results"]["failed"] == 0
 
     def test_cross_filesystem_comparison(
-        self,
-        temp_kernel_repo,
-        baseline_storage,
-        sample_current_results
+        self, temp_kernel_repo, baseline_storage, sample_current_results
     ):
         """Test storing and comparing results for different filesystems."""
         git_mgr = GitManager(temp_kernel_repo)
@@ -382,7 +375,7 @@ class TestGitFstestsWorkflow:
             target="branch",
             kernel_version="6.8.0",
             fstype="ext4",
-            test_selection="-g quick"
+            test_selection="-g quick",
         )
 
         # Create a branch for btrfs testing
@@ -390,22 +383,19 @@ class TestGitFstestsWorkflow:
             ["git", "checkout", "-b", "btrfs-testing"],
             cwd=temp_kernel_repo,
             check=True,
-            capture_output=True
+            capture_output=True,
         )
 
         # Make a new commit on btrfs branch so it has a different commit
         (temp_kernel_repo / "btrfs.txt").write_text("btrfs testing\n")
         subprocess.run(
-            ["git", "add", "btrfs.txt"],
-            cwd=temp_kernel_repo,
-            check=True,
-            capture_output=True
+            ["git", "add", "btrfs.txt"], cwd=temp_kernel_repo, check=True, capture_output=True
         )
         subprocess.run(
             ["git", "commit", "-m", "Add btrfs config"],
             cwd=temp_kernel_repo,
             check=True,
-            capture_output=True
+            capture_output=True,
         )
 
         # Save btrfs results
@@ -421,7 +411,7 @@ class TestGitFstestsWorkflow:
                 TestResult(test_name="generic/003", status="passed", duration=9.0),
                 TestResult(test_name="generic/004", status="passed", duration=3.0),
             ],
-            duration=22.0
+            duration=22.0,
         )
 
         git_mgr.save_fstests_results(
@@ -429,7 +419,7 @@ class TestGitFstestsWorkflow:
             target="branch",
             kernel_version="6.8.0",
             fstype="btrfs",
-            test_selection="-g quick"
+            test_selection="-g quick",
         )
 
         # Load btrfs results (current branch)

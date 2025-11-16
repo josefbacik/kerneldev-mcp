@@ -13,12 +13,7 @@ from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime
 
 from kerneldev_mcp.boot_manager import BootManager
-from kerneldev_mcp.device_pool import (
-    ConfigManager,
-    PoolConfig,
-    LVMPoolConfig,
-    VolumeConfig
-)
+from kerneldev_mcp.device_pool import ConfigManager, PoolConfig, LVMPoolConfig, VolumeConfig
 
 
 @pytest.fixture
@@ -43,10 +38,7 @@ def temp_config_dir(tmp_path):
 def mock_pool_config(temp_config_dir):
     """Create a mock device pool configuration."""
     lvm_config = LVMPoolConfig(
-        pv="/dev/nvme0n1",
-        vg_name="test-vg",
-        lv_prefix="kdev",
-        thin_provisioning=False
+        pv="/dev/nvme0n1", vg_name="test-vg", lv_prefix="kdev", thin_provisioning=False
     )
 
     pool_config = PoolConfig(
@@ -54,7 +46,7 @@ def mock_pool_config(temp_config_dir):
         device="/dev/nvme0n1",
         created_at=datetime.now().isoformat(),
         created_by="testuser",
-        lvm_config=lvm_config
+        lvm_config=lvm_config,
     )
 
     # Save to config file
@@ -74,10 +66,10 @@ class TestBootManagerPoolAutoDetection:
 
         # Should be: YYYYMMDDHHMMSS-xxxxxx
         assert len(session_id) == 21  # 14 timestamp + 1 dash + 6 random
-        parts = session_id.split('-')
+        parts = session_id.split("-")
         assert len(parts) == 2
         assert len(parts[0]) == 14  # timestamp
-        assert len(parts[1]) == 6   # random suffix
+        assert len(parts[1]) == 6  # random suffix
         assert parts[0].isdigit()
         assert parts[1].isalnum()
 
@@ -91,7 +83,7 @@ class TestBootManagerPoolAutoDetection:
         # All should be unique
         assert len(set(ids)) == len(ids)
 
-    @patch('pathlib.Path.home')
+    @patch("pathlib.Path.home")
     def test_try_allocate_from_pool_no_config(self, mock_home, temp_kernel_dir, tmp_path):
         """Test returns None when no pool config exists."""
         # Setup mock home to point to empty temp dir
@@ -102,8 +94,10 @@ class TestBootManagerPoolAutoDetection:
 
         assert result is None
 
-    @patch('pathlib.Path.home')
-    def test_try_allocate_from_pool_no_default_pool(self, mock_home, temp_kernel_dir, temp_config_dir):
+    @patch("pathlib.Path.home")
+    def test_try_allocate_from_pool_no_default_pool(
+        self, mock_home, temp_kernel_dir, temp_config_dir
+    ):
         """Test returns None when 'default' pool doesn't exist."""
         mock_home.return_value = temp_config_dir.parent
 
@@ -114,7 +108,7 @@ class TestBootManagerPoolAutoDetection:
             device="/dev/sdb",
             created_at=datetime.now().isoformat(),
             created_by="testuser",
-            lvm_config=lvm_config
+            lvm_config=lvm_config,
         )
 
         config_manager = ConfigManager(config_dir=temp_config_dir)
@@ -125,21 +119,17 @@ class TestBootManagerPoolAutoDetection:
 
         assert result is None
 
-    @patch('kerneldev_mcp.device_pool.allocate_pool_volumes')
-    @patch('pathlib.Path.home')
+    @patch("kerneldev_mcp.device_pool.allocate_pool_volumes")
+    @patch("pathlib.Path.home")
     def test_try_allocate_from_pool_success(
-        self,
-        mock_home,
-        mock_allocate,
-        temp_kernel_dir,
-        temp_config_dir,
-        mock_pool_config
+        self, mock_home, mock_allocate, temp_kernel_dir, temp_config_dir, mock_pool_config
     ):
         """Test successfully allocates from pool."""
         mock_home.return_value = temp_config_dir.parent
 
         # Mock allocate_pool_volumes to return DeviceSpec-like objects
         from kerneldev_mcp.boot_manager import DeviceSpec
+
         mock_devices = [
             DeviceSpec(path="/dev/test-vg/kdev-test", name="test", env_var="TEST_DEV"),
             DeviceSpec(path="/dev/test-vg/kdev-pool1", name="pool1"),
@@ -156,18 +146,13 @@ class TestBootManagerPoolAutoDetection:
         # Verify allocate was called with correct params
         mock_allocate.assert_called_once()
         call_args = mock_allocate.call_args
-        assert call_args.kwargs['pool_name'] == 'default'
-        assert len(call_args.kwargs['volume_specs']) == 7  # 7 volumes for fstests
+        assert call_args.kwargs["pool_name"] == "default"
+        assert len(call_args.kwargs["volume_specs"]) == 7  # 7 volumes for fstests
 
-    @patch('kerneldev_mcp.device_pool.allocate_pool_volumes')
-    @patch('pathlib.Path.home')
+    @patch("kerneldev_mcp.device_pool.allocate_pool_volumes")
+    @patch("pathlib.Path.home")
     def test_try_allocate_from_pool_allocation_fails(
-        self,
-        mock_home,
-        mock_allocate,
-        temp_kernel_dir,
-        temp_config_dir,
-        mock_pool_config
+        self, mock_home, mock_allocate, temp_kernel_dir, temp_config_dir, mock_pool_config
     ):
         """Test handles allocation failure gracefully."""
         mock_home.return_value = temp_config_dir.parent
@@ -180,15 +165,10 @@ class TestBootManagerPoolAutoDetection:
 
         assert result is None
 
-    @patch('kerneldev_mcp.device_pool.allocate_pool_volumes')
-    @patch('pathlib.Path.home')
+    @patch("kerneldev_mcp.device_pool.allocate_pool_volumes")
+    @patch("pathlib.Path.home")
     def test_try_allocate_from_pool_exception_handling(
-        self,
-        mock_home,
-        mock_allocate,
-        temp_kernel_dir,
-        temp_config_dir,
-        mock_pool_config
+        self, mock_home, mock_allocate, temp_kernel_dir, temp_config_dir, mock_pool_config
     ):
         """Test handles exceptions during allocation."""
         mock_home.return_value = temp_config_dir.parent
@@ -202,20 +182,16 @@ class TestBootManagerPoolAutoDetection:
         # Should return None and log warning, not crash
         assert result is None
 
-    @patch('kerneldev_mcp.device_pool.allocate_pool_volumes')
-    @patch('pathlib.Path.home')
+    @patch("kerneldev_mcp.device_pool.allocate_pool_volumes")
+    @patch("pathlib.Path.home")
     def test_try_allocate_stores_session_id(
-        self,
-        mock_home,
-        mock_allocate,
-        temp_kernel_dir,
-        temp_config_dir,
-        mock_pool_config
+        self, mock_home, mock_allocate, temp_kernel_dir, temp_config_dir, mock_pool_config
     ):
         """Test stores session ID for cleanup."""
         mock_home.return_value = temp_config_dir.parent
 
         from kerneldev_mcp.boot_manager import DeviceSpec
+
         mock_devices = [DeviceSpec(path="/dev/test-vg/kdev-test", name="test")]
         mock_allocate.return_value = mock_devices
 
@@ -224,7 +200,7 @@ class TestBootManagerPoolAutoDetection:
 
         assert result is not None
         # Session ID should be stored
-        assert hasattr(boot_mgr, '_pool_session_id')
+        assert hasattr(boot_mgr, "_pool_session_id")
         assert boot_mgr._pool_session_id is not None
         assert len(boot_mgr._pool_session_id) == 21
 
@@ -232,14 +208,9 @@ class TestBootManagerPoolAutoDetection:
 class TestBootWithFstestsPoolIntegration:
     """Test boot_with_fstests integrates with device pools."""
 
-    @patch('kerneldev_mcp.boot_manager.BootManager._try_allocate_from_pool')
-    @patch('kerneldev_mcp.boot_manager.BootManager.check_virtme_ng')
-    def test_boot_with_fstests_tries_pool_first(
-        self,
-        mock_virtme,
-        mock_try_pool,
-        temp_kernel_dir
-    ):
+    @patch("kerneldev_mcp.boot_manager.BootManager._try_allocate_from_pool")
+    @patch("kerneldev_mcp.boot_manager.BootManager.check_virtme_ng")
+    def test_boot_with_fstests_tries_pool_first(self, mock_virtme, mock_try_pool, temp_kernel_dir):
         """Test boot_with_fstests tries device pool before loop devices."""
         mock_virtme.return_value = False  # Fail early to avoid full boot
         mock_try_pool.return_value = None  # No pool available
@@ -248,21 +219,18 @@ class TestBootWithFstestsPoolIntegration:
 
         # This will fail at virtme check, but we just want to verify pool was tried
         import asyncio
-        asyncio.run(boot_mgr.boot_with_fstests(
-            fstests_path=Path("/fake/fstests"),
-            tests=["-g", "quick"],
-            use_default_devices=True
-        ))
+
+        asyncio.run(
+            boot_mgr.boot_with_fstests(
+                fstests_path=Path("/fake/fstests"), tests=["-g", "quick"], use_default_devices=True
+            )
+        )
 
         # Verify _try_allocate_from_pool was called
         mock_try_pool.assert_called_once()
 
-    @patch('kerneldev_mcp.boot_manager.BootManager._try_allocate_from_pool')
-    def test_boot_with_fstests_uses_pool_devices(
-        self,
-        mock_try_pool,
-        temp_kernel_dir
-    ):
+    @patch("kerneldev_mcp.boot_manager.BootManager._try_allocate_from_pool")
+    def test_boot_with_fstests_uses_pool_devices(self, mock_try_pool, temp_kernel_dir):
         """Test boot_with_fstests uses pool devices when available."""
         from kerneldev_mcp.boot_manager import DeviceSpec
 
@@ -283,35 +251,33 @@ class TestBootWithFstestsPoolIntegration:
         # Simulate the start of boot_with_fstests
         # (actual async test would be in integration tests)
 
-    @patch('kerneldev_mcp.boot_manager.BootManager._try_allocate_from_pool')
-    @patch('kerneldev_mcp.boot_manager.DeviceProfile.get_profile')
-    @patch('kerneldev_mcp.boot_manager.BootManager.check_virtme_ng')
+    @patch("kerneldev_mcp.boot_manager.BootManager._try_allocate_from_pool")
+    @patch("kerneldev_mcp.boot_manager.DeviceProfile.get_profile")
+    @patch("kerneldev_mcp.boot_manager.BootManager.check_virtme_ng")
     def test_boot_with_fstests_falls_back_to_loop(
-        self,
-        mock_virtme,
-        mock_profile,
-        mock_try_pool,
-        temp_kernel_dir
+        self, mock_virtme, mock_profile, mock_try_pool, temp_kernel_dir
     ):
         """Test falls back to loop devices when pool unavailable."""
         mock_virtme.return_value = False  # Fail early
         mock_try_pool.return_value = None  # No pool
 
         from kerneldev_mcp.boot_manager import DeviceProfile, DeviceSpec
+
         mock_profile.return_value = DeviceProfile(
             name="fstests_default",
             description="Test profile",
-            devices=[DeviceSpec(size="10G", name="test")]
+            devices=[DeviceSpec(size="10G", name="test")],
         )
 
         boot_mgr = BootManager(temp_kernel_dir)
 
         import asyncio
-        asyncio.run(boot_mgr.boot_with_fstests(
-            fstests_path=Path("/fake/fstests"),
-            tests=["-g", "quick"],
-            use_default_devices=True
-        ))
+
+        asyncio.run(
+            boot_mgr.boot_with_fstests(
+                fstests_path=Path("/fake/fstests"), tests=["-g", "quick"], use_default_devices=True
+            )
+        )
 
         # Both should be called: pool tried first, then profile
         mock_try_pool.assert_called_once()
@@ -321,12 +287,12 @@ class TestBootWithFstestsPoolIntegration:
 class TestDevicePoolCleanup:
     """Test device pool cleanup in boot_with_fstests finally block."""
 
-    @patch('kerneldev_mcp.boot_manager.VMDeviceManager.setup_devices')
-    @patch('kerneldev_mcp.boot_manager.DeviceSpec.validate')
-    @patch('kerneldev_mcp.device_pool.release_pool_volumes')
-    @patch('kerneldev_mcp.boot_manager.BootManager.check_qemu')
-    @patch('kerneldev_mcp.boot_manager.BootManager.check_virtme_ng')
-    @patch('kerneldev_mcp.boot_manager.BootManager._try_allocate_from_pool')
+    @patch("kerneldev_mcp.boot_manager.VMDeviceManager.setup_devices")
+    @patch("kerneldev_mcp.boot_manager.DeviceSpec.validate")
+    @patch("kerneldev_mcp.device_pool.release_pool_volumes")
+    @patch("kerneldev_mcp.boot_manager.BootManager.check_qemu")
+    @patch("kerneldev_mcp.boot_manager.BootManager.check_virtme_ng")
+    @patch("kerneldev_mcp.boot_manager.BootManager._try_allocate_from_pool")
     def test_cleanup_releases_pool_volumes(
         self,
         mock_try_pool,
@@ -336,7 +302,7 @@ class TestDevicePoolCleanup:
         mock_validate,
         mock_setup_devices,
         temp_kernel_dir,
-        tmp_path
+        tmp_path,
     ):
         """Test cleanup releases pool volumes after try block wrapping fix.
 
@@ -384,28 +350,29 @@ class TestDevicePoolCleanup:
 
         # Boot will fail somewhere (no real devices), but cleanup should run
         import asyncio
+
         try:
-            asyncio.run(boot_mgr.boot_with_fstests(
-                fstests_path=fstests_dir,
-                tests=["-g", "quick"],
-                use_default_devices=True
-            ))
+            asyncio.run(
+                boot_mgr.boot_with_fstests(
+                    fstests_path=fstests_dir, tests=["-g", "quick"], use_default_devices=True
+                )
+            )
         except:
             pass  # Expected to fail
 
         # Verify pool cleanup was called (this is the key assertion)
         mock_release.assert_called_once()
         call_args = mock_release.call_args
-        assert call_args.kwargs['pool_name'] == 'default'
-        assert call_args.kwargs['session_id'] == "20251115123456-abc123"
-        assert call_args.kwargs['keep_volumes'] is False
+        assert call_args.kwargs["pool_name"] == "default"
+        assert call_args.kwargs["session_id"] == "20251115123456-abc123"
+        assert call_args.kwargs["keep_volumes"] is False
 
-    @patch('kerneldev_mcp.boot_manager.VMDeviceManager.setup_devices')
-    @patch('kerneldev_mcp.boot_manager.DeviceSpec.validate')
-    @patch('kerneldev_mcp.device_pool.release_pool_volumes')
-    @patch('kerneldev_mcp.boot_manager.BootManager.check_qemu')
-    @patch('kerneldev_mcp.boot_manager.BootManager.check_virtme_ng')
-    @patch('kerneldev_mcp.boot_manager.BootManager._try_allocate_from_pool')
+    @patch("kerneldev_mcp.boot_manager.VMDeviceManager.setup_devices")
+    @patch("kerneldev_mcp.boot_manager.DeviceSpec.validate")
+    @patch("kerneldev_mcp.device_pool.release_pool_volumes")
+    @patch("kerneldev_mcp.boot_manager.BootManager.check_qemu")
+    @patch("kerneldev_mcp.boot_manager.BootManager.check_virtme_ng")
+    @patch("kerneldev_mcp.boot_manager.BootManager._try_allocate_from_pool")
     def test_cleanup_handles_release_failure(
         self,
         mock_try_pool,
@@ -415,7 +382,7 @@ class TestDevicePoolCleanup:
         mock_validate,
         mock_setup_devices,
         temp_kernel_dir,
-        tmp_path
+        tmp_path,
     ):
         """Test cleanup handles release failure gracefully.
 
@@ -463,27 +430,24 @@ class TestDevicePoolCleanup:
 
         # Should not crash despite release failure
         import asyncio
+
         try:
-            asyncio.run(boot_mgr.boot_with_fstests(
-                fstests_path=fstests_dir,
-                tests=["-g", "quick"],
-                use_default_devices=True
-            ))
+            asyncio.run(
+                boot_mgr.boot_with_fstests(
+                    fstests_path=fstests_dir, tests=["-g", "quick"], use_default_devices=True
+                )
+            )
         except:
             pass  # Expected to fail
 
         # Release was attempted (even though it failed)
         mock_release.assert_called_once()
 
-    @patch('kerneldev_mcp.device_pool.release_pool_volumes')
-    @patch('kerneldev_mcp.boot_manager.BootManager.check_virtme_ng')
-    @patch('kerneldev_mcp.boot_manager.BootManager._try_allocate_from_pool')
+    @patch("kerneldev_mcp.device_pool.release_pool_volumes")
+    @patch("kerneldev_mcp.boot_manager.BootManager.check_virtme_ng")
+    @patch("kerneldev_mcp.boot_manager.BootManager._try_allocate_from_pool")
     def test_cleanup_skipped_when_no_pool_used(
-        self,
-        mock_try_pool,
-        mock_virtme,
-        mock_release,
-        temp_kernel_dir
+        self, mock_try_pool, mock_virtme, mock_release, temp_kernel_dir
     ):
         """Test cleanup skipped when pool not used."""
         # No pool available
@@ -493,11 +457,12 @@ class TestDevicePoolCleanup:
         boot_mgr = BootManager(temp_kernel_dir)
 
         import asyncio
-        asyncio.run(boot_mgr.boot_with_fstests(
-            fstests_path=Path("/fake/fstests"),
-            tests=["-g", "quick"],
-            use_default_devices=True
-        ))
+
+        asyncio.run(
+            boot_mgr.boot_with_fstests(
+                fstests_path=Path("/fake/fstests"), tests=["-g", "quick"], use_default_devices=True
+            )
+        )
 
         # Release should NOT be called
         mock_release.assert_not_called()
@@ -514,8 +479,7 @@ class TestRegressionPrevention:
         source = inspect.getsource(BootManager.boot_with_fstests)
 
         # Should call _try_allocate_from_pool
-        assert "_try_allocate_from_pool" in source, \
-            "boot_with_fstests must attempt pool allocation"
+        assert "_try_allocate_from_pool" in source, "boot_with_fstests must attempt pool allocation"
 
     def test_boot_with_fstests_has_cleanup_code(self, temp_kernel_dir):
         """Ensure cleanup code exists in finally block."""
@@ -525,19 +489,17 @@ class TestRegressionPrevention:
         source = inspect.getsource(BootManager.boot_with_fstests)
 
         # Should call release_pool_volumes in finally
-        assert "release_pool_volumes" in source, \
-            "boot_with_fstests must clean up pool volumes"
+        assert "release_pool_volumes" in source, "boot_with_fstests must clean up pool volumes"
 
         # Should be in finally block
-        assert "finally:" in source, \
-            "Cleanup must be in finally block"
+        assert "finally:" in source, "Cleanup must be in finally block"
 
     def test_try_allocate_from_pool_method_exists(self, temp_kernel_dir):
         """Ensure _try_allocate_from_pool method exists."""
         from kerneldev_mcp.boot_manager import BootManager
 
         boot_mgr = BootManager(temp_kernel_dir)
-        assert hasattr(boot_mgr, '_try_allocate_from_pool')
+        assert hasattr(boot_mgr, "_try_allocate_from_pool")
         assert callable(boot_mgr._try_allocate_from_pool)
 
     def test_generate_pool_session_id_method_exists(self, temp_kernel_dir):
@@ -545,5 +507,5 @@ class TestRegressionPrevention:
         from kerneldev_mcp.boot_manager import BootManager
 
         boot_mgr = BootManager(temp_kernel_dir)
-        assert hasattr(boot_mgr, '_generate_pool_session_id')
+        assert hasattr(boot_mgr, "_generate_pool_session_id")
         assert callable(boot_mgr._generate_pool_session_id)

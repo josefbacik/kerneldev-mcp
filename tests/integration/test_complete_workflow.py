@@ -2,6 +2,7 @@
 """
 Complete workflow test: config generation, application, and building.
 """
+
 import sys
 from pathlib import Path
 
@@ -29,9 +30,7 @@ def test_complete_workflow():
     print("Step 1: Generating configuration...")
     manager = ConfigManager(kernel_path)
     config = manager.generate_config(
-        target="virtualization",
-        debug_level="minimal",
-        fragments=["virtme"]
+        target="virtualization", debug_level="minimal", fragments=["virtme"]
     )
     print(f"  ✓ Generated config with {len(config.options)} options")
 
@@ -55,11 +54,7 @@ def test_complete_workflow():
 
     # Step 4: Build scripts (fast test)
     print("\nStep 4: Building kernel scripts...")
-    result = builder.build(
-        jobs=4,
-        target="scripts",
-        timeout=300
-    )
+    result = builder.build(jobs=4, target="scripts", timeout=300)
 
     print(f"  {result.summary()}")
 
@@ -71,11 +66,7 @@ def test_complete_workflow():
 
     # Step 5: Build a small target
     print("\nStep 5: Building init/main.o...")
-    result = builder.build(
-        jobs=4,
-        target="init/main.o",
-        timeout=120
-    )
+    result = builder.build(jobs=4, target="init/main.o", timeout=120)
 
     print(f"  {result.summary()}")
 
@@ -105,6 +96,7 @@ def main():
     except Exception as e:
         print(f"\n✗ Error: {e}")
         import traceback
+
         traceback.print_exc()
         return 1
 

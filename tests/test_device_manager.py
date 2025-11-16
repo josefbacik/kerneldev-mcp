@@ -1,6 +1,7 @@
 """
 Unit tests for DeviceSpec, DeviceProfile, and VMDeviceManager classes.
 """
+
 import pytest
 import tempfile
 from pathlib import Path
@@ -190,9 +191,7 @@ class TestVMDeviceManager:
         """Test tmpfs total size limit."""
         manager = VMDeviceManager()
         # Create devices that exceed tmpfs limit
-        specs = [
-            DeviceSpec(size=f"{MAX_TMPFS_TOTAL_GB + 1}G", use_tmpfs=True)
-        ]
+        specs = [DeviceSpec(size=f"{MAX_TMPFS_TOTAL_GB + 1}G", use_tmpfs=True)]
 
         success, error, _ = await manager.setup_devices(specs)
         assert success is False
@@ -216,8 +215,8 @@ class TestVMDeviceManager:
         assert manager.device_specs[2].name == "third"
 
     @pytest.mark.asyncio
-    @patch('src.kerneldev_mcp.boot_manager._setup_tmpfs_for_loop_devices')
-    @patch('src.kerneldev_mcp.boot_manager._create_host_loop_device')
+    @patch("src.kerneldev_mcp.boot_manager._setup_tmpfs_for_loop_devices")
+    @patch("src.kerneldev_mcp.boot_manager._create_host_loop_device")
     async def test_setup_loop_devices(self, mock_create, mock_setup_tmpfs):
         """Test setting up loop devices."""
         mock_setup_tmpfs.return_value = True
@@ -235,8 +234,8 @@ class TestVMDeviceManager:
         assert len(manager.created_loop_devices) == 1
 
     @pytest.mark.asyncio
-    @patch('src.kerneldev_mcp.boot_manager._cleanup_host_loop_device')
-    @patch('src.kerneldev_mcp.boot_manager._cleanup_tmpfs_for_loop_devices')
+    @patch("src.kerneldev_mcp.boot_manager._cleanup_host_loop_device")
+    @patch("src.kerneldev_mcp.boot_manager._cleanup_tmpfs_for_loop_devices")
     async def test_cleanup(self, mock_cleanup_tmpfs, mock_cleanup_device):
         """Test cleanup of devices."""
         manager = VMDeviceManager()
@@ -253,7 +252,10 @@ class TestVMDeviceManager:
     def test_get_vng_disk_args(self):
         """Test generating vng disk arguments."""
         manager = VMDeviceManager()
-        manager.created_loop_devices = [("/dev/loop0", Path("/tmp/backing1")), ("/dev/loop1", Path("/tmp/backing2"))]
+        manager.created_loop_devices = [
+            ("/dev/loop0", Path("/tmp/backing1")),
+            ("/dev/loop1", Path("/tmp/backing2")),
+        ]
         manager.attached_block_devices = ["/dev/sda1"]
 
         args = manager.get_vng_disk_args()

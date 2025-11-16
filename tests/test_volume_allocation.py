@@ -14,7 +14,7 @@ from kerneldev_mcp.device_pool import (
     PoolConfig,
     LVMPoolConfig,
     VolumeConfig,
-    VolumeStateManager
+    VolumeStateManager,
 )
 
 
@@ -39,18 +39,14 @@ def sample_pool_config(temp_config_dir):
     """Create and save a sample pool config."""
     config_mgr = ConfigManager(config_dir=temp_config_dir)
 
-    lvm_config = LVMPoolConfig(
-        pv="/dev/sdb",
-        vg_name="test-vg",
-        lv_prefix="kdev"
-    )
+    lvm_config = LVMPoolConfig(pv="/dev/sdb", vg_name="test-vg", lv_prefix="kdev")
 
     pool = PoolConfig(
         pool_name="test-pool",
         device="/dev/sdb",
         created_at=datetime.now().isoformat(),
         created_by="testuser",
-        lvm_config=lvm_config
+        lvm_config=lvm_config,
     )
 
     config_mgr.save_pool(pool)
@@ -60,9 +56,11 @@ def sample_pool_config(temp_config_dir):
 class TestVolumeAllocation:
     """Test volume allocation functionality."""
 
-    @patch('kerneldev_mcp.device_pool._grant_user_lv_access', return_value=True)
-    @patch('subprocess.run')
-    def test_allocate_volumes_creates_unique_names(self, mock_run, mock_grant_access, lvm_manager, sample_pool_config):
+    @patch("kerneldev_mcp.device_pool._grant_user_lv_access", return_value=True)
+    @patch("subprocess.run")
+    def test_allocate_volumes_creates_unique_names(
+        self, mock_run, mock_grant_access, lvm_manager, sample_pool_config
+    ):
         """Test allocate_volumes generates unique LV names."""
         # Mock lvcreate success
         mock_result = Mock()
@@ -71,13 +69,11 @@ class TestVolumeAllocation:
 
         volume_specs = [
             VolumeConfig(name="test", size="10G", order=0, env_var="TEST_DEV"),
-            VolumeConfig(name="pool1", size="10G", order=1)
+            VolumeConfig(name="pool1", size="10G", order=1),
         ]
 
         allocations = lvm_manager.allocate_volumes(
-            pool_name="test-pool",
-            volume_specs=volume_specs,
-            session_id="session-test-123"
+            pool_name="test-pool", volume_specs=volume_specs, session_id="session-test-123"
         )
 
         assert len(allocations) == 2
@@ -94,23 +90,21 @@ class TestVolumeAllocation:
         # Verify lvcreate was called for each volume
         assert mock_run.call_count == 2
 
-    @patch('kerneldev_mcp.device_pool._grant_user_lv_access', return_value=True)
-    @patch('subprocess.run')
-    def test_allocate_volumes_registers_state(self, mock_run, mock_grant_access, lvm_manager, sample_pool_config):
+    @patch("kerneldev_mcp.device_pool._grant_user_lv_access", return_value=True)
+    @patch("subprocess.run")
+    def test_allocate_volumes_registers_state(
+        self, mock_run, mock_grant_access, lvm_manager, sample_pool_config
+    ):
         """Test allocate_volumes registers allocations in state file."""
         # Mock lvcreate success
         mock_result = Mock()
         mock_result.returncode = 0
         mock_run.return_value = mock_result
 
-        volume_specs = [
-            VolumeConfig(name="test", size="10G", order=0)
-        ]
+        volume_specs = [VolumeConfig(name="test", size="10G", order=0)]
 
         allocations = lvm_manager.allocate_volumes(
-            pool_name="test-pool",
-            volume_specs=volume_specs,
-            session_id="session-test-456"
+            pool_name="test-pool", volume_specs=volume_specs, session_id="session-test-456"
         )
 
         # Check state file was updated
@@ -119,9 +113,11 @@ class TestVolumeAllocation:
         assert state["allocations"][0]["session_id"] == "session-test-456"
         assert state["allocations"][0]["pid"] == os.getpid()
 
-    @patch('kerneldev_mcp.device_pool._grant_user_lv_access', return_value=True)
-    @patch('subprocess.run')
-    def test_allocate_volumes_rollback_on_failure(self, mock_run, mock_grant_access, lvm_manager, sample_pool_config):
+    @patch("kerneldev_mcp.device_pool._grant_user_lv_access", return_value=True)
+    @patch("subprocess.run")
+    def test_allocate_volumes_rollback_on_failure(
+        self, mock_run, mock_grant_access, lvm_manager, sample_pool_config
+    ):
         """Test allocate_volumes rolls back on failure."""
         # First lvcreate succeeds, second fails, then rollback lvremove succeeds
         mock_success = Mock()
@@ -130,20 +126,18 @@ class TestVolumeAllocation:
         mock_run.side_effect = [
             mock_success,  # First lvcreate succeeds
             Exception("lvcreate failed"),  # Second lvcreate fails
-            mock_success  # Rollback lvremove succeeds
+            mock_success,  # Rollback lvremove succeeds
         ]
 
         volume_specs = [
             VolumeConfig(name="test", size="10G", order=0),
-            VolumeConfig(name="pool1", size="10G", order=1)
+            VolumeConfig(name="pool1", size="10G", order=1),
         ]
 
         # Should raise exception
         with pytest.raises(Exception, match="lvcreate failed"):
             lvm_manager.allocate_volumes(
-                pool_name="test-pool",
-                volume_specs=volume_specs,
-                session_id="session-test-fail"
+                pool_name="test-pool", volume_specs=volume_specs, session_id="session-test-fail"
             )
 
         # Verify state file has no allocations (rollback worked)
@@ -156,14 +150,14 @@ class TestVolumeAllocation:
 
         with pytest.raises(ValueError, match="Pool .* not found"):
             lvm_manager.allocate_volumes(
-                pool_name="nonexistent",
-                volume_specs=volume_specs,
-                session_id="session-test"
+                pool_name="nonexistent", volume_specs=volume_specs, session_id="session-test"
             )
 
-    @patch('kerneldev_mcp.device_pool._grant_user_lv_access', return_value=True)
-    @patch('subprocess.run')
-    def test_allocate_volumes_timestamp_unique(self, mock_run, mock_grant_access, lvm_manager, sample_pool_config):
+    @patch("kerneldev_mcp.device_pool._grant_user_lv_access", return_value=True)
+    @patch("subprocess.run")
+    def test_allocate_volumes_timestamp_unique(
+        self, mock_run, mock_grant_access, lvm_manager, sample_pool_config
+    ):
         """Test allocation timestamps make names unique."""
         # Mock lvcreate success
         mock_result = Mock()
@@ -174,20 +168,17 @@ class TestVolumeAllocation:
 
         # Allocate first set
         allocs1 = lvm_manager.allocate_volumes(
-            pool_name="test-pool",
-            volume_specs=volume_specs,
-            session_id="session-1"
+            pool_name="test-pool", volume_specs=volume_specs, session_id="session-1"
         )
 
         # Small delay to ensure different timestamp
         import time
+
         time.sleep(0.1)
 
         # Allocate second set
         allocs2 = lvm_manager.allocate_volumes(
-            pool_name="test-pool",
-            volume_specs=volume_specs,
-            session_id="session-2"
+            pool_name="test-pool", volume_specs=volume_specs, session_id="session-2"
         )
 
         # Names should be different
@@ -197,9 +188,11 @@ class TestVolumeAllocation:
 class TestVolumeRelease:
     """Test volume release functionality."""
 
-    @patch('kerneldev_mcp.device_pool._grant_user_lv_access', return_value=True)
-    @patch('subprocess.run')
-    def test_release_volumes_deletes_lvs(self, mock_run, mock_grant_access, lvm_manager, sample_pool_config):
+    @patch("kerneldev_mcp.device_pool._grant_user_lv_access", return_value=True)
+    @patch("subprocess.run")
+    def test_release_volumes_deletes_lvs(
+        self, mock_run, mock_grant_access, lvm_manager, sample_pool_config
+    ):
         """Test release_volumes deletes LVs by default."""
         # Setup: allocate volumes first
         mock_result = Mock()
@@ -208,13 +201,11 @@ class TestVolumeRelease:
 
         volume_specs = [
             VolumeConfig(name="test", size="10G", order=0),
-            VolumeConfig(name="pool1", size="10G", order=1)
+            VolumeConfig(name="pool1", size="10G", order=1),
         ]
 
         allocations = lvm_manager.allocate_volumes(
-            pool_name="test-pool",
-            volume_specs=volume_specs,
-            session_id="session-release-test"
+            pool_name="test-pool", volume_specs=volume_specs, session_id="session-release-test"
         )
 
         # Reset mock to count release calls
@@ -222,9 +213,7 @@ class TestVolumeRelease:
 
         # Release volumes
         success = lvm_manager.release_volumes(
-            pool_name="test-pool",
-            session_id="session-release-test",
-            keep_volumes=False
+            pool_name="test-pool", session_id="session-release-test", keep_volumes=False
         )
 
         assert success is True
@@ -237,9 +226,11 @@ class TestVolumeRelease:
         state = lvm_manager.state_manager._load_state()
         assert len(state["allocations"]) == 0
 
-    @patch('kerneldev_mcp.device_pool._grant_user_lv_access', return_value=True)
-    @patch('subprocess.run')
-    def test_release_volumes_keep_flag(self, mock_run, mock_grant_access, lvm_manager, sample_pool_config):
+    @patch("kerneldev_mcp.device_pool._grant_user_lv_access", return_value=True)
+    @patch("subprocess.run")
+    def test_release_volumes_keep_flag(
+        self, mock_run, mock_grant_access, lvm_manager, sample_pool_config
+    ):
         """Test release_volumes with keep_volumes=True."""
         # Setup: allocate volumes first
         mock_result = Mock()
@@ -249,9 +240,7 @@ class TestVolumeRelease:
         volume_specs = [VolumeConfig(name="test", size="10G", order=0)]
 
         allocations = lvm_manager.allocate_volumes(
-            pool_name="test-pool",
-            volume_specs=volume_specs,
-            session_id="session-keep-test"
+            pool_name="test-pool", volume_specs=volume_specs, session_id="session-keep-test"
         )
 
         # Reset mock
@@ -259,9 +248,7 @@ class TestVolumeRelease:
 
         # Release with keep_volumes=True
         success = lvm_manager.release_volumes(
-            pool_name="test-pool",
-            session_id="session-keep-test",
-            keep_volumes=True
+            pool_name="test-pool", session_id="session-keep-test", keep_volumes=True
         )
 
         assert success is True
@@ -276,16 +263,16 @@ class TestVolumeRelease:
     def test_release_volumes_no_allocations(self, lvm_manager):
         """Test release_volumes succeeds even if no allocations found."""
         success = lvm_manager.release_volumes(
-            pool_name="test-pool",
-            session_id="nonexistent-session",
-            keep_volumes=False
+            pool_name="test-pool", session_id="nonexistent-session", keep_volumes=False
         )
 
         assert success is True
 
-    @patch('kerneldev_mcp.device_pool._grant_user_lv_access', return_value=True)
-    @patch('subprocess.run')
-    def test_release_volumes_partial_failure(self, mock_run, mock_grant_access, lvm_manager, sample_pool_config):
+    @patch("kerneldev_mcp.device_pool._grant_user_lv_access", return_value=True)
+    @patch("subprocess.run")
+    def test_release_volumes_partial_failure(
+        self, mock_run, mock_grant_access, lvm_manager, sample_pool_config
+    ):
         """Test release_volumes continues even if some lvremove calls fail."""
         # Setup: allocate 2 volumes
         mock_result = Mock()
@@ -294,27 +281,23 @@ class TestVolumeRelease:
 
         volume_specs = [
             VolumeConfig(name="test", size="10G", order=0),
-            VolumeConfig(name="pool1", size="10G", order=1)
+            VolumeConfig(name="pool1", size="10G", order=1),
         ]
 
         allocations = lvm_manager.allocate_volumes(
-            pool_name="test-pool",
-            volume_specs=volume_specs,
-            session_id="session-partial"
+            pool_name="test-pool", volume_specs=volume_specs, session_id="session-partial"
         )
 
         # Reset mock - first lvremove fails, second succeeds
         mock_run.reset_mock()
         mock_run.side_effect = [
             Exception("lvremove failed for first"),
-            mock_result  # Second succeeds
+            mock_result,  # Second succeeds
         ]
 
         # Release - should not raise exception
         success = lvm_manager.release_volumes(
-            pool_name="test-pool",
-            session_id="session-partial",
-            keep_volumes=False
+            pool_name="test-pool", session_id="session-partial", keep_volumes=False
         )
 
         assert success is True
@@ -327,9 +310,11 @@ class TestVolumeRelease:
 class TestCleanupOrphanedVolumes:
     """Test cleanup_orphaned_volumes method."""
 
-    @patch('subprocess.run')
-    @patch.object(VolumeStateManager, '_is_process_alive')
-    def test_cleanup_multiple_dead_processes(self, mock_alive, mock_run, lvm_manager, sample_pool_config):
+    @patch("subprocess.run")
+    @patch.object(VolumeStateManager, "_is_process_alive")
+    def test_cleanup_multiple_dead_processes(
+        self, mock_alive, mock_run, lvm_manager, sample_pool_config
+    ):
         """Test cleanup handles multiple dead processes."""
         # Setup: allocate from 3 different "processes"
         mock_result = Mock()
@@ -349,7 +334,7 @@ class TestCleanupOrphanedVolumes:
                 volume_spec=vol_spec,
                 pid=pid,
                 allocated_at=datetime.now().isoformat(),
-                session_id=f"session-{i}"
+                session_id=f"session-{i}",
             )
             lvm_manager.state_manager.register_allocation(alloc)
 
@@ -367,8 +352,8 @@ class TestCleanupOrphanedVolumes:
         # Verify lvremove called 3 times
         assert mock_run.call_count == 3
 
-    @patch('subprocess.run')
-    @patch.object(VolumeStateManager, '_is_process_alive')
+    @patch("subprocess.run")
+    @patch.object(VolumeStateManager, "_is_process_alive")
     def test_cleanup_mixed_alive_dead(self, mock_alive, mock_run, lvm_manager, sample_pool_config):
         """Test cleanup only removes volumes from dead processes."""
         # Setup allocations from 2 processes
@@ -388,7 +373,7 @@ class TestCleanupOrphanedVolumes:
             volume_spec=vol_spec1,
             pid=os.getpid(),  # Current process
             allocated_at=datetime.now().isoformat(),
-            session_id="session-alive"
+            session_id="session-alive",
         )
         lvm_manager.state_manager.register_allocation(alloc1)
 
@@ -402,7 +387,7 @@ class TestCleanupOrphanedVolumes:
             volume_spec=vol_spec2,
             pid=99999,  # Dead process
             allocated_at=datetime.now().isoformat(),
-            session_id="session-dead"
+            session_id="session-dead",
         )
         lvm_manager.state_manager.register_allocation(alloc2)
 
@@ -434,7 +419,7 @@ class TestCleanupOrphanedVolumes:
 class TestPublicAPI:
     """Test public allocate_pool_volumes and release_pool_volumes functions."""
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_allocate_pool_volumes(self, mock_run, temp_config_dir):
         """Test allocate_pool_volumes public API."""
         from kerneldev_mcp.device_pool import allocate_pool_volumes
@@ -447,7 +432,7 @@ class TestPublicAPI:
             device="/dev/sdb",
             created_at=datetime.now().isoformat(),
             created_by="testuser",
-            lvm_config=lvm_config
+            lvm_config=lvm_config,
         )
         config_mgr.save_pool(pool)
 
@@ -463,15 +448,17 @@ class TestPublicAPI:
             pool_name="test-pool",
             volume_specs=volume_specs,
             session_id="api-test",
-            config_dir=temp_config_dir
+            config_dir=temp_config_dir,
         )
 
         # Should return DeviceSpec-like objects (mocked as None in tests)
         # In real usage, returns list of DeviceSpec objects
         # Here we just verify it doesn't crash
-        assert device_specs is not None or device_specs is None  # Either is ok (depends on boot_manager import)
+        assert (
+            device_specs is not None or device_specs is None
+        )  # Either is ok (depends on boot_manager import)
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_release_pool_volumes(self, mock_run, temp_config_dir):
         """Test release_pool_volumes public API."""
         from kerneldev_mcp.device_pool import allocate_pool_volumes, release_pool_volumes
@@ -484,7 +471,7 @@ class TestPublicAPI:
             device="/dev/sdb",
             created_at=datetime.now().isoformat(),
             created_by="testuser",
-            lvm_config=lvm_config
+            lvm_config=lvm_config,
         )
         config_mgr.save_pool(pool)
 
@@ -500,7 +487,7 @@ class TestPublicAPI:
             pool_name="test-pool",
             volume_specs=volume_specs,
             session_id="api-release-test",
-            config_dir=temp_config_dir
+            config_dir=temp_config_dir,
         )
 
         # Reset mock
@@ -511,7 +498,7 @@ class TestPublicAPI:
             pool_name="test-pool",
             session_id="api-release-test",
             keep_volumes=False,
-            config_dir=temp_config_dir
+            config_dir=temp_config_dir,
         )
 
         assert success is True
@@ -520,9 +507,11 @@ class TestPublicAPI:
 class TestUniqueNameGeneration:
     """Test unique LV name generation."""
 
-    @patch('kerneldev_mcp.device_pool._grant_user_lv_access', return_value=True)
-    @patch('subprocess.run')
-    def test_names_include_timestamp(self, mock_run, mock_grant_access, lvm_manager, sample_pool_config):
+    @patch("kerneldev_mcp.device_pool._grant_user_lv_access", return_value=True)
+    @patch("subprocess.run")
+    def test_names_include_timestamp(
+        self, mock_run, mock_grant_access, lvm_manager, sample_pool_config
+    ):
         """Test LV names include timestamp."""
         mock_result = Mock()
         mock_result.returncode = 0
@@ -531,9 +520,7 @@ class TestUniqueNameGeneration:
         volume_specs = [VolumeConfig(name="test", size="10G", order=0)]
 
         allocations = lvm_manager.allocate_volumes(
-            pool_name="test-pool",
-            volume_specs=volume_specs,
-            session_id="timestamp-test"
+            pool_name="test-pool", volume_specs=volume_specs, session_id="timestamp-test"
         )
 
         lv_name = allocations[0].lv_name
@@ -544,14 +531,17 @@ class TestUniqueNameGeneration:
 
         # Should have timestamp component (14 digits)
         import re
-        match = re.search(r'kdev-(\d{14})-([a-f0-9]{6})-test', lv_name)
+
+        match = re.search(r"kdev-(\d{14})-([a-f0-9]{6})-test", lv_name)
         assert match is not None
         assert len(match.group(1)) == 14  # Timestamp
-        assert len(match.group(2)) == 6   # Random hex
+        assert len(match.group(2)) == 6  # Random hex
 
-    @patch('kerneldev_mcp.device_pool._grant_user_lv_access', return_value=True)
-    @patch('subprocess.run')
-    def test_names_include_random(self, mock_run, mock_grant_access, lvm_manager, sample_pool_config):
+    @patch("kerneldev_mcp.device_pool._grant_user_lv_access", return_value=True)
+    @patch("subprocess.run")
+    def test_names_include_random(
+        self, mock_run, mock_grant_access, lvm_manager, sample_pool_config
+    ):
         """Test LV names include random component."""
         mock_result = Mock()
         mock_result.returncode = 0
@@ -561,15 +551,11 @@ class TestUniqueNameGeneration:
 
         # Create 2 allocations in quick succession
         allocs1 = lvm_manager.allocate_volumes(
-            pool_name="test-pool",
-            volume_specs=volume_specs,
-            session_id="random-test-1"
+            pool_name="test-pool", volume_specs=volume_specs, session_id="random-test-1"
         )
 
         allocs2 = lvm_manager.allocate_volumes(
-            pool_name="test-pool",
-            volume_specs=volume_specs,
-            session_id="random-test-2"
+            pool_name="test-pool", volume_specs=volume_specs, session_id="random-test-2"
         )
 
         # Even if timestamp is same, random component makes them unique

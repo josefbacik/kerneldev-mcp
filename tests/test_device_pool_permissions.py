@@ -20,12 +20,9 @@ import logging
 
 # Import device pool modules
 import sys
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-from kerneldev_mcp.device_pool import (
-    LVMPoolManager,
-    VolumeConfig,
-    ConfigManager
-)
+from kerneldev_mcp.device_pool import LVMPoolManager, VolumeConfig, ConfigManager
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -33,12 +30,7 @@ logging.basicConfig(level=logging.INFO)
 
 def run_sudo_cmd(cmd, check=True):
     """Helper to run sudo commands."""
-    return subprocess.run(
-        ["sudo"] + cmd,
-        capture_output=True,
-        text=True,
-        check=check
-    )
+    return subprocess.run(["sudo"] + cmd, capture_output=True, text=True, check=check)
 
 
 class TestLVPermissions:
@@ -52,16 +44,16 @@ class TestLVPermissions:
         cls.pool_name = f"testpool_{uuid.uuid4().hex[:8]}"
 
         # Create a temporary file for the loop device
-        cls.temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.img')
+        cls.temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".img")
         cls.temp_file.close()
 
         # Create a 1GB sparse file
-        with open(cls.temp_file.name, 'wb') as f:
+        with open(cls.temp_file.name, "wb") as f:
             f.seek(1024 * 1024 * 1024 - 1)  # 1GB
-            f.write(b'\0')
+            f.write(b"\0")
 
         # Setup loop device
-        result = run_sudo_cmd(['losetup', '-f', '--show', cls.temp_file.name])
+        result = run_sudo_cmd(["losetup", "-f", "--show", cls.temp_file.name])
         cls.loop_device = result.stdout.strip()
         logger.info(f"Created loop device: {cls.loop_device}")
 
@@ -73,19 +65,19 @@ class TestLVPermissions:
         """Clean up loop device and temp file."""
         if cls.loop_device:
             # Remove VG if it exists
-            run_sudo_cmd(['vgremove', '-f', cls.vg_name], check=False)
+            run_sudo_cmd(["vgremove", "-f", cls.vg_name], check=False)
             time.sleep(0.5)
 
             # Remove PV if it exists
-            run_sudo_cmd(['pvremove', '-f', cls.loop_device], check=False)
+            run_sudo_cmd(["pvremove", "-f", cls.loop_device], check=False)
             time.sleep(0.5)
 
             # Detach loop device
-            run_sudo_cmd(['losetup', '-d', cls.loop_device], check=False)
+            run_sudo_cmd(["losetup", "-d", cls.loop_device], check=False)
             logger.info(f"Removed loop device: {cls.loop_device}")
 
         # Remove temp file
-        if hasattr(cls, 'temp_file'):
+        if hasattr(cls, "temp_file"):
             try:
                 os.unlink(cls.temp_file.name)
             except:
@@ -101,9 +93,7 @@ class TestLVPermissions:
             # Setup the pool
             logger.info(f"Setting up pool '{self.pool_name}' on {self.loop_device}")
             pool_config = lvm_manager.setup_pool(
-                self.loop_device,
-                self.pool_name,
-                vg_name=self.vg_name
+                self.loop_device, self.pool_name, vg_name=self.vg_name
             )
             assert pool_config is not None, "Failed to setup LVM pool"
 
@@ -116,11 +106,7 @@ class TestLVPermissions:
             # Allocate volumes
             session_id = f"test_session_{uuid.uuid4().hex[:8]}"
             logger.info(f"Allocating volumes for session {session_id}")
-            allocations = lvm_manager.allocate_volumes(
-                self.pool_name,
-                volume_specs,
-                session_id
-            )
+            allocations = lvm_manager.allocate_volumes(self.pool_name, volume_specs, session_id)
 
             assert len(allocations) == 2, f"Expected 2 allocations, got {len(allocations)}"
 
@@ -134,28 +120,33 @@ class TestLVPermissions:
 
                 # Test 1: Can we open the device for reading without sudo?
                 try:
-                    with open(lv_path, 'rb') as f:
+                    with open(lv_path, "rb") as f:
                         data = f.read(512)
                         assert len(data) == 512, f"Expected to read 512 bytes, got {len(data)}"
                     logger.info(f"✓ Can read from {lv_path} without sudo")
                 except PermissionError:
-                    raise AssertionError(f"Cannot read from {lv_path} without sudo - permissions not set correctly")
+                    raise AssertionError(
+                        f"Cannot read from {lv_path} without sudo - permissions not set correctly"
+                    )
 
                 # Test 2: Can we write to the device without sudo?
-                test_data = b'TEST' * 128  # 512 bytes
+                test_data = b"TEST" * 128  # 512 bytes
                 try:
-                    with open(lv_path, 'r+b') as f:
+                    with open(lv_path, "r+b") as f:
                         f.write(test_data)
                         f.seek(0)
                         read_back = f.read(512)
                         assert read_back == test_data, "Written data doesn't match"
                     logger.info(f"✓ Can write to {lv_path} without sudo")
                 except PermissionError:
-                    raise AssertionError(f"Cannot write to {lv_path} without sudo - permissions not set correctly")
+                    raise AssertionError(
+                        f"Cannot write to {lv_path} without sudo - permissions not set correctly"
+                    )
 
                 # Test 3: Check ownership
                 import stat
                 import pwd
+
                 stat_info = os.stat(lv_path)
                 uid = stat_info.st_uid
                 gid = stat_info.st_gid
@@ -164,12 +155,15 @@ class TestLVPermissions:
                 current_user = pwd.getpwuid(current_uid).pw_name
                 owner_user = pwd.getpwuid(uid).pw_name
 
-                logger.info(f"Device owner: {owner_user} (uid={uid}), current user: {current_user} (uid={current_uid})")
+                logger.info(
+                    f"Device owner: {owner_user} (uid={uid}), current user: {current_user} (uid={current_uid})"
+                )
 
                 # We should either own the device OR have access through group
                 if uid != current_uid:
                     # Check if we're in the same group
                     import grp
+
                     group_name = grp.getgrgid(gid).gr_name
                     user_groups = [g.gr_name for g in grp.getgrall() if current_user in g.gr_mem]
 

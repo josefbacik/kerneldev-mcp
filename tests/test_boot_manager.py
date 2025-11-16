@@ -1,6 +1,7 @@
 """
 Tests for boot management and validation.
 """
+
 import pytest
 from pathlib import Path
 from kerneldev_mcp.boot_manager import DmesgMessage, DmesgParser, BootResult, BootManager
@@ -9,10 +10,7 @@ from kerneldev_mcp.boot_manager import DmesgMessage, DmesgParser, BootResult, Bo
 def test_dmesg_message_creation():
     """Test creating DmesgMessage objects."""
     msg = DmesgMessage(
-        timestamp=1.234567,
-        level="err",
-        subsystem="EXT4",
-        message="Failed to mount filesystem"
+        timestamp=1.234567, level="err", subsystem="EXT4", message="Failed to mount filesystem"
     )
 
     assert msg.timestamp == 1.234567
@@ -165,7 +163,7 @@ def test_boot_result_properties():
             DmesgMessage(3.0, "warn", None, "Warning 1"),
         ],
         panics=[],
-        oops=[]
+        oops=[],
     )
 
     assert result.error_count == 2
@@ -184,7 +182,7 @@ def test_boot_result_critical_issues():
         panics=[
             DmesgMessage(10.0, "emerg", None, "Kernel panic"),
         ],
-        oops=[]
+        oops=[],
     )
 
     assert result.has_critical_issues is True
@@ -193,12 +191,7 @@ def test_boot_result_critical_issues():
 
 def test_boot_result_summary_clean():
     """Test boot result summary for clean boot."""
-    result = BootResult(
-        success=True,
-        duration=8.5,
-        boot_completed=True,
-        kernel_version="6.11.0"
-    )
+    result = BootResult(success=True, duration=8.5, boot_completed=True, kernel_version="6.11.0")
 
     summary = result.summary()
     assert "✓" in summary
@@ -212,7 +205,7 @@ def test_boot_result_summary_with_warnings():
         success=True,
         duration=10.0,
         boot_completed=True,
-        warnings=[DmesgMessage(1.0, "warn", None, "Test warning")]
+        warnings=[DmesgMessage(1.0, "warn", None, "Test warning")],
     )
 
     summary = result.summary()
@@ -222,12 +215,7 @@ def test_boot_result_summary_with_warnings():
 
 def test_boot_result_summary_failed():
     """Test boot result summary for failed boot."""
-    result = BootResult(
-        success=False,
-        duration=30.0,
-        boot_completed=False,
-        timeout_occurred=True
-    )
+    result = BootResult(success=False, duration=30.0, boot_completed=False, timeout_occurred=True)
 
     summary = result.summary()
     assert "✗" in summary
@@ -325,11 +313,7 @@ def test_dmesg_parser_malformed_line():
 
 def test_boot_result_no_errors():
     """Test BootResult with no errors."""
-    result = BootResult(
-        success=True,
-        duration=5.0,
-        boot_completed=True
-    )
+    result = BootResult(success=True, duration=5.0, boot_completed=True)
 
     assert result.error_count == 0
     assert result.warning_count == 0
@@ -465,18 +449,16 @@ def test_boot_manager_command_and_script_validation():
     manager = BootManager(Path.cwd())
 
     # Test: Cannot specify both command and script_file
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
         f.write("#!/bin/bash\necho 'test'\n")
         script_path = Path(f.name)
 
     try:
         # This should raise ValueError
         import asyncio
+
         with pytest.raises(ValueError, match="Cannot specify both"):
-            asyncio.run(manager.boot_test(
-                command="echo 'test'",
-                script_file=script_path
-            ))
+            asyncio.run(manager.boot_test(command="echo 'test'", script_file=script_path))
     finally:
         script_path.unlink()
 
@@ -488,9 +470,7 @@ def test_boot_manager_script_file_not_found():
     manager = BootManager(Path.cwd())
 
     # Test with non-existent script file
-    result = asyncio.run(manager.boot_test(
-        script_file=Path("/nonexistent/script.sh")
-    ))
+    result = asyncio.run(manager.boot_test(script_file=Path("/nonexistent/script.sh")))
 
     assert result.success is False
     assert "not found" in result.dmesg_output.lower()

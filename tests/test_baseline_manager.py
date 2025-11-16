@@ -1,6 +1,7 @@
 """
 Unit tests for baseline_manager module.
 """
+
 import pytest
 import json
 from pathlib import Path
@@ -11,7 +12,7 @@ from kerneldev_mcp.baseline_manager import (
     Baseline,
     BaselineMetadata,
     ComparisonResult,
-    format_comparison_result
+    format_comparison_result,
 )
 from kerneldev_mcp.fstests_manager import TestResult, FstestsRunResult
 
@@ -43,7 +44,7 @@ def sample_results():
             TestResult("generic/009", "passed", 2.0),
             TestResult("generic/010", "passed", 9.0),
         ],
-        duration=50.0
+        duration=50.0,
     )
 
 
@@ -54,7 +55,7 @@ def sample_baseline(baseline_manager, sample_results):
         baseline_name="test-baseline",
         results=sample_results,
         kernel_version="6.12-rc1",
-        fstype="ext4"
+        fstype="ext4",
     )
 
 
@@ -64,10 +65,7 @@ class TestBaselineMetadata:
     def test_metadata_creation(self):
         """Test creating baseline metadata."""
         metadata = BaselineMetadata(
-            name="test",
-            created_at="2024-01-01T12:00:00",
-            kernel_version="6.12-rc1",
-            fstype="ext4"
+            name="test", created_at="2024-01-01T12:00:00", kernel_version="6.12-rc1", fstype="ext4"
         )
 
         assert metadata.name == "test"
@@ -76,10 +74,7 @@ class TestBaselineMetadata:
 
     def test_metadata_defaults(self):
         """Test metadata default values."""
-        metadata = BaselineMetadata(
-            name="test",
-            created_at="2024-01-01T12:00:00"
-        )
+        metadata = BaselineMetadata(name="test", created_at="2024-01-01T12:00:00")
 
         assert metadata.kernel_version is None
         assert metadata.config_hash is None
@@ -93,17 +88,10 @@ class TestBaseline:
     def test_baseline_to_dict(self, tmp_path, sample_results):
         """Test converting baseline to dictionary."""
         metadata = BaselineMetadata(
-            name="test",
-            created_at="2024-01-01T12:00:00",
-            kernel_version="6.12-rc1",
-            fstype="ext4"
+            name="test", created_at="2024-01-01T12:00:00", kernel_version="6.12-rc1", fstype="ext4"
         )
 
-        baseline = Baseline(
-            metadata=metadata,
-            results=sample_results,
-            baseline_dir=tmp_path
-        )
+        baseline = Baseline(metadata=metadata, results=sample_results, baseline_dir=tmp_path)
 
         data = baseline.to_dict()
 
@@ -120,7 +108,7 @@ class TestBaseline:
                 "name": "test",
                 "created_at": "2024-01-01T12:00:00",
                 "kernel_version": "6.12-rc1",
-                "fstype": "ext4"
+                "fstype": "ext4",
             },
             "results": {
                 "success": True,
@@ -134,16 +122,16 @@ class TestBaseline:
                         "test_name": "generic/001",
                         "status": "passed",
                         "duration": 5.0,
-                        "failure_reason": None
+                        "failure_reason": None,
                     },
                     {
                         "test_name": "generic/002",
                         "status": "failed",
                         "duration": 0.0,
-                        "failure_reason": "error"
-                    }
-                ]
-            }
+                        "failure_reason": "error",
+                    },
+                ],
+            },
         }
 
         baseline = Baseline.from_dict(data, tmp_path)
@@ -247,7 +235,7 @@ class TestBaselineManager:
             config_hash="abc123",
             fstype="ext4",
             description="Test baseline",
-            test_selection="-g quick"
+            test_selection="-g quick",
         )
 
         assert baseline.metadata.name == "test-baseline"
@@ -265,8 +253,7 @@ class TestBaselineManager:
     def test_save_baseline_sanitizes_name(self, baseline_manager, sample_results):
         """Test that baseline name is sanitized for filesystem."""
         baseline = baseline_manager.save_baseline(
-            baseline_name="test/baseline:with*special",
-            results=sample_results
+            baseline_name="test/baseline:with*special", results=sample_results
         )
 
         # Name should be sanitized
@@ -380,7 +367,7 @@ class TestBaselineManager:
                 TestResult("generic/009", "passed", 2.0),
                 TestResult("generic/010", "passed", 9.0),
             ],
-            duration=50.0
+            duration=50.0,
         )
 
         comparison = baseline_manager.compare_results(new_results, baseline)
@@ -412,7 +399,7 @@ class TestBaselineManager:
                 TestResult("generic/009", "passed", 2.0),
                 TestResult("generic/010", "passed", 9.0),
             ],
-            duration=50.0
+            duration=50.0,
         )
 
         comparison = baseline_manager.compare_results(new_results, baseline)
@@ -444,10 +431,9 @@ class TestBaselineManager:
             passed=8,
             failed=3,
             notrun=0,
-            test_results=sample_results.test_results + [
-                TestResult("generic/011", "failed", 0.0, "new test failure")
-            ],
-            duration=50.0
+            test_results=sample_results.test_results
+            + [TestResult("generic/011", "failed", 0.0, "new test failure")],
+            duration=50.0,
         )
 
         comparison = baseline_manager.compare_results(new_results, baseline)

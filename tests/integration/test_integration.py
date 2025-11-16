@@ -2,6 +2,7 @@
 """
 Integration test with actual kernel source.
 """
+
 import sys
 from pathlib import Path
 import tempfile
@@ -28,13 +29,10 @@ def test_with_real_kernel():
 
     # Generate a simple virtualization config
     print("  Generating virtualization config...")
-    config = manager.generate_config(
-        target="virtualization",
-        debug_level="minimal"
-    )
+    config = manager.generate_config(target="virtualization", debug_level="minimal")
 
     # Save to temporary file
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.config', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".config", delete=False) as f:
         config.to_file(f.name)
         temp_config = Path(f.name)
         print(f"  Saved config to {temp_config}")
@@ -71,10 +69,7 @@ def test_btrfs_config():
     config = manager.generate_config(
         target="btrfs",
         debug_level="sanitizers",
-        additional_options={
-            "CONFIG_BTRFS_DEBUG": "y",
-            "CONFIG_BTRFS_ASSERT": "y"
-        }
+        additional_options={"CONFIG_BTRFS_DEBUG": "y", "CONFIG_BTRFS_ASSERT": "y"},
     )
 
     text = config.to_config_text()
@@ -104,10 +99,7 @@ def test_networking_config():
 
     manager = ConfigManager()
 
-    config = manager.generate_config(
-        target="networking",
-        debug_level="lockdep"
-    )
+    config = manager.generate_config(target="networking", debug_level="lockdep")
 
     text = config.to_config_text()
 
@@ -150,6 +142,7 @@ def main():
     except Exception as e:
         print(f"\n✗ Error: {e}")
         import traceback
+
         traceback.print_exc()
         return 1
 

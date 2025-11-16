@@ -2,6 +2,7 @@
 """
 Test applying configuration to actual kernel and running olddefconfig.
 """
+
 import sys
 from pathlib import Path
 import shutil
@@ -38,16 +39,11 @@ def test_apply_to_kernel():
 
         # Generate a simple virtualization config
         print("Generating virtualization config with basic debug...")
-        config = manager.generate_config(
-            target="virtualization",
-            debug_level="basic"
-        )
+        config = manager.generate_config(target="virtualization", debug_level="basic")
 
         print(f"Applying config to {kernel_path}...")
         success = manager.apply_config(
-            config=config,
-            kernel_path=kernel_path,
-            merge_with_existing=False
+            config=config, kernel_path=kernel_path, merge_with_existing=False
         )
 
         if success:
