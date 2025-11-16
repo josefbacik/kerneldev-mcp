@@ -14,9 +14,12 @@ import signal
 import string
 import subprocess
 import time
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
+import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+
+from .device_pool import VolumeConfig, allocate_pool_volumes, release_pool_volumes
 
 logger = logging.getLogger(__name__)
 
@@ -1938,6 +1941,8 @@ class BootManager:
         cross_compile: Optional["CrossCompileConfig"] = None,
         extra_args: Optional[List[str]] = None,
         use_host_kernel: bool = False,
+        device_pool_name: Optional[str] = None,
+        device_pool_volumes: Optional[List[Dict[str, any]]] = None,
     ) -> BootResult:
         """Boot kernel and test it with optional custom command/script.
 
@@ -1954,9 +1959,19 @@ class BootManager:
             cpus: Number of CPUs for VM
             devices: Optional list of DeviceSpec for custom device attachment.
                      If provided, device environment variables are exported (TEST_DEV, etc.).
+                     Cannot be used together with device_pool_name.
             cross_compile: Cross-compilation configuration
             extra_args: Additional arguments to pass to vng
             use_host_kernel: Use host kernel instead of building from source
+            device_pool_name: Optional name of device pool to allocate volumes from.
+                            If specified, volumes are allocated from the pool and
+                            automatically cleaned up after the VM exits.
+                            Cannot be used together with devices parameter.
+            device_pool_volumes: Volume specifications for device pool allocation.
+                               Each dict should contain: name, size, optional env_var, optional order.
+                               Example: [{"name": "test", "size": "10G", "env_var": "TEST_DEV"}]
+                               If not specified and device_pool_name is set, defaults to
+                               two 10G volumes (test and scratch).
 
         Returns:
             BootResult with boot status and analysis
@@ -1969,6 +1984,55 @@ class BootManager:
         # Validation: cannot specify both command and script_file
         if command and script_file:
             raise ValueError("Cannot specify both 'command' and 'script_file' parameters")
+
+        # Validation: cannot specify both devices and device_pool_name
+        if devices and device_pool_name:
+            raise ValueError(
+                "Cannot specify both 'devices' and 'device_pool_name' parameters. "
+                "Use either custom devices or device pool, not both."
+            )
+
+        # Generate unique session ID for device pool allocation
+        session_id = str(uuid.uuid4())
+        pool_allocated = False
+
+        # Allocate volumes from device pool if specified
+        if device_pool_name:
+            logger.info(f"Allocating volumes from device pool '{device_pool_name}'...")
+
+            # Use provided volume specs or defaults
+            if device_pool_volumes:
+                volume_specs = [
+                    VolumeConfig(
+                        name=vol["name"],
+                        size=vol["size"],
+                        env_var=vol.get("env_var"),
+                        order=vol.get("order", 0),
+                    )
+                    for vol in device_pool_volumes
+                ]
+            else:
+                # Default: two 10G volumes (test and scratch)
+                volume_specs = [
+                    VolumeConfig(name="test", size="10G", env_var="TEST_DEV", order=0),
+                    VolumeConfig(name="scratch", size="10G", env_var="SCRATCH_DEV", order=1),
+                ]
+
+            # Allocate volumes
+            device_specs = allocate_pool_volumes(device_pool_name, volume_specs, session_id)
+            if device_specs is None:
+                return BootResult(
+                    success=False,
+                    duration=0.0,
+                    boot_completed=False,
+                    dmesg_output=f"ERROR: Failed to allocate volumes from device pool '{device_pool_name}'",
+                    exit_code=-1,
+                )
+
+            # Use allocated volumes as devices
+            devices = device_specs
+            pool_allocated = True
+            logger.info(f"✓ Allocated {len(devices)} volume(s) from pool '{device_pool_name}'")
 
         logger.info("=" * 60)
         logger.info(f"Starting kernel boot test: {self.kernel_path}")
@@ -2233,6 +2297,15 @@ class BootManager:
             # Cleanup devices
             if device_manager:
                 device_manager.cleanup()
+
+            # Release device pool volumes if allocated
+            if pool_allocated and device_pool_name:
+                logger.info(f"Releasing volumes from device pool '{device_pool_name}'...")
+                try:
+                    release_pool_volumes(device_pool_name, session_id, keep_volumes=False)
+                    logger.info(f"✓ Released volumes from pool '{device_pool_name}'")
+                except Exception as e:
+                    logger.error(f"Failed to release pool volumes: {e}")
 
     async def boot_with_fstests(
         self,

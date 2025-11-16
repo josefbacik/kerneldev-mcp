@@ -516,7 +516,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "devices": {
                         "type": "array",
-                        "description": "Custom devices to attach to VM. If not specified, no devices are attached.",
+                        "description": "Custom devices to attach to VM. If not specified, no devices are attached. Cannot be used together with device_pool_name.",
                         "items": {
                             "type": "object",
                             "properties": {
@@ -586,6 +586,36 @@ async def list_tools() -> list[Tool]:
                         "type": "boolean",
                         "description": "Use host kernel instead of building from kernel_path",
                         "default": False,
+                    },
+                    "device_pool_name": {
+                        "type": "string",
+                        "description": "Optional name of device pool to allocate volumes from. Cannot be used together with devices parameter.",
+                    },
+                    "device_pool_volumes": {
+                        "type": "array",
+                        "description": "Optional list of volume specifications for device pool. Each volume dict should have: name (str), size (str), env_var (str, optional), order (int, optional). If not specified and device_pool_name is provided, defaults to 2 volumes: test (10G, TEST_DEV) and scratch (10G, SCRATCH_DEV).",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "type": "string",
+                                    "description": "Volume name (e.g., 'test', 'scratch')",
+                                },
+                                "size": {
+                                    "type": "string",
+                                    "description": "Volume size (e.g., '10G', '512M')",
+                                },
+                                "env_var": {
+                                    "type": "string",
+                                    "description": "Optional environment variable name (e.g., 'TEST_DEV')",
+                                },
+                                "order": {
+                                    "type": "integer",
+                                    "description": "Device order (lower = earlier). Default: 0",
+                                },
+                            },
+                            "required": ["name", "size"],
+                        },
                     },
                 },
                 "required": ["kernel_path"],
@@ -1707,6 +1737,10 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             use_host_kernel = arguments.get("use_host_kernel", False)
             cross_compile = _parse_cross_compile_args(arguments)
 
+            # Parse device pool parameters
+            device_pool_name = arguments.get("device_pool_name")
+            device_pool_volumes = arguments.get("device_pool_volumes")
+
             # Parse custom devices if specified
             devices = None
             if "devices" in arguments and arguments["devices"]:
@@ -1757,6 +1791,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 cross_compile=cross_compile,
                 extra_args=extra_args,
                 use_host_kernel=use_host_kernel,
+                device_pool_name=device_pool_name,
+                device_pool_volumes=device_pool_volumes,
             )
 
             # Format output
