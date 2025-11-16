@@ -1464,7 +1464,7 @@ class LVMPoolManager(DevicePoolManager):
                 logger.info(f"Creating LV '{lv_name}' ({vol_spec.size})...")
 
                 subprocess.run(
-                    ["sudo", "lvcreate", "-L", vol_spec.size, "-n", lv_name, vg_name],
+                    ["sudo", "lvcreate", "-y", "-L", vol_spec.size, "-n", lv_name, vg_name],
                     capture_output=True,
                     check=True,
                     timeout=30

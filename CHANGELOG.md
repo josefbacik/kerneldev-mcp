@@ -4,6 +4,15 @@
 
 ### Fixed
 
+#### Device Pool LV Creation Failing with Signature Errors
+**Problem**: Device pool allocation was silently failing because `lvcreate` would encounter existing filesystem signatures (from previous LV use) and require interactive confirmation to wipe them. Running non-interactively, it would fail with exit status 5, causing `fstests_vm_boot_and_run` to fall back to loop devices.
+
+**Root Cause**: The `lvcreate` command requires the `-y` (--yes) flag to automatically confirm wiping existing signatures when running non-interactively.
+
+**Solution**: Added `-y` flag to `lvcreate` command in `allocate_volumes()`.
+
+**User Impact**: Device pool now works correctly when the VG has been used before (which is the common case). `fstests_vm_boot_and_run` will now properly detect and use the device pool instead of falling back to loop devices.
+
 #### Device Pool LV Permissions
 **Problem**: Logical volumes created by the device pool manager were not accessible to non-root users, causing permission errors when running filesystem tests without sudo.
 
