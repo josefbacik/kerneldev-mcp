@@ -579,7 +579,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "extra_args": {
                         "type": "array",
-                        "description": "Additional arguments to pass to vng",
+                        "description": "Additional arguments to pass to vng (e.g., ['--qemu-opts', '-machine accel=tcg'])",
                         "items": {"type": "string"},
                     },
                     "use_host_kernel": {
@@ -973,6 +973,11 @@ Use fstests_groups_list tool to see available test groups.""",
                         "description": "Use tmpfs for default loop device backing files (only affects default devices, not custom_devices). Default: false",
                         "default": False,
                     },
+                    "extra_args": {
+                        "type": "array",
+                        "description": "Additional arguments to pass to vng (e.g., ['--qemu-opts', '-machine accel=tcg'])",
+                        "items": {"type": "string"},
+                    },
                 },
                 "required": ["kernel_path", "fstests_path"],
             },
@@ -1106,6 +1111,11 @@ Usage modes:
                         "type": "boolean",
                         "description": "Use tmpfs for default loop device backing files (only affects default devices, not custom_devices). Default: false",
                         "default": False,
+                    },
+                    "extra_args": {
+                        "type": "array",
+                        "description": "Additional arguments to pass to vng (e.g., ['--qemu-opts', '-machine accel=tcg'])",
+                        "items": {"type": "string"},
                     },
                 },
                 "required": ["kernel_path", "fstests_path"],
@@ -2561,6 +2571,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             io_scheduler = arguments.get("io_scheduler", "mq-deadline")
             use_tmpfs = arguments.get("use_tmpfs", False)
             use_default_devices = arguments.get("use_default_devices", True)
+            extra_args = arguments.get("extra_args", [])
 
             # Parse custom devices if specified
             custom_devices = None
@@ -2615,6 +2626,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 force_9p=force_9p,
                 io_scheduler=io_scheduler,
                 use_tmpfs=use_tmpfs,
+                extra_args=extra_args,
             )
 
             # Format output
@@ -2675,6 +2687,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             io_scheduler = arguments.get("io_scheduler", "mq-deadline")
             use_tmpfs = arguments.get("use_tmpfs", False)
             use_default_devices = arguments.get("use_default_devices", True)
+            extra_args = arguments.get("extra_args", [])
 
             # Parse custom devices if specified
             custom_devices = None
@@ -2738,6 +2751,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 force_9p=force_9p,
                 io_scheduler=io_scheduler,
                 use_tmpfs=use_tmpfs,
+                extra_args=extra_args,
             )
 
             # Format output

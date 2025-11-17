@@ -2321,6 +2321,7 @@ class BootManager:
         force_9p: bool = False,
         io_scheduler: str = "mq-deadline",
         use_tmpfs: bool = False,
+        extra_args: Optional[List[str]] = None,
     ) -> Tuple[BootResult, Optional[object]]:
         """Boot kernel and run fstests inside VM.
 
@@ -2340,6 +2341,7 @@ class BootManager:
                          Valid values: "mq-deadline", "none", "bfq", "kyber"
             use_tmpfs: Only affects default devices (when custom_devices is None).
                       Use tmpfs for loop device backing files (faster but uses more RAM)
+            extra_args: Additional arguments to pass to vng
 
         Returns:
             Tuple of (BootResult, FstestsRunResult or None)
@@ -2727,6 +2729,10 @@ exit $exit_code
                 disk_args = device_manager.get_vng_disk_args()
                 cmd.extend(disk_args)
 
+            # Add any extra arguments
+            if extra_args:
+                cmd.extend(extra_args)
+
             # Make fstests directory available in VM with read-write overlay
             # Using --overlay-rwdir creates a writable overlay in the VM without modifying the host
             cmd.extend(["--overlay-rwdir", str(fstests_path)])
@@ -2916,6 +2922,7 @@ exit $exit_code
         force_9p: bool = False,
         io_scheduler: str = "mq-deadline",
         use_tmpfs: bool = False,
+        extra_args: Optional[List[str]] = None,
     ) -> BootResult:
         """Boot kernel and run custom command/script with fstests device environment.
 
@@ -2939,6 +2946,7 @@ exit $exit_code
                          Valid values: "mq-deadline", "none", "bfq", "kyber"
             use_tmpfs: Only affects default devices (when custom_devices is None).
                       Use tmpfs for loop device backing files (faster but uses more RAM)
+            extra_args: Additional arguments to pass to vng
 
         Security Note:
             The command and script_file parameters are executed without sanitization.
@@ -3267,6 +3275,10 @@ exit $exit_code
         if device_manager:
             disk_args = device_manager.get_vng_disk_args()
             cmd.extend(disk_args)
+
+        # Add any extra arguments
+        if extra_args:
+            cmd.extend(extra_args)
 
         # Make fstests directory available in VM with read-write overlay
         cmd.extend(["--overlay-rwdir", str(fstests_path)])
