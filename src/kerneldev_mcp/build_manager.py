@@ -467,6 +467,10 @@ class KernelBuilder:
 def format_build_errors(result: BuildResult, max_errors: int = 10) -> str:
     """Format build errors for display.
 
+    Shows parsed errors and warnings when available. If the build failed but
+    no errors were parsed (e.g., due to unrecognized error format), shows
+    the last 100 lines of raw output as a fallback.
+
     Args:
         result: BuildResult to format
         max_errors: Maximum number of errors to show
@@ -492,6 +496,19 @@ def format_build_errors(result: BuildResult, max_errors: int = 10) -> str:
             lines.append(f"  {i}. {warning}")
         if len(result.warnings) > max_errors:
             lines.append(f"  ... and {len(result.warnings) - max_errors} more warnings")
+        lines.append("")
+
+    # If build failed but no errors were parsed, show raw output
+    # This handles cases where error format doesn't match our patterns
+    if not result.success and not result.errors and result.output:
+        lines.append("Build output (last 100 lines):")
+        lines.append("Note: Error format not recognized by parser. Showing raw output.")
+        lines.append("=" * 60)
+        output_lines = result.output.splitlines()
+        # Show last 100 lines where errors typically appear
+        for line in output_lines[-100:]:
+            lines.append(line)
+        lines.append("=" * 60)
         lines.append("")
 
     return "\n".join(lines)
