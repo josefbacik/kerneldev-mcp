@@ -131,6 +131,57 @@ def _parse_device_size_to_gb(size: str) -> Tuple[bool, str, float]:
     return True, "", size_gb
 
 
+def _prepare_vng_qemu_opts(extra_args: Optional[List[str]] = None) -> List[str]:
+    """Prepare vng command arguments to use q35 machine type.
+
+    Uses q35 machine type by default to work around microvm bugs where devices hang.
+    If user already specifies a machine type via --qemu-opts, their choice is preserved.
+
+    We use both --disable-microvm and --qemu-opts=-machine q35 because:
+    - --disable-microvm: Prevents virtme-ng from auto-selecting microvm
+    - --qemu-opts=-machine q35: Explicitly sets q35 (QEMU default might be pc/i440fx)
+
+    Note: Even with --qemu-opts=-machine q35, virtme-ng may still try microvm first
+    unless we also add --disable-microvm. This causes conflicts and boot failures.
+
+    Args:
+        extra_args: User-provided extra arguments to vng
+
+    Returns:
+        List of arguments to prepend to vng command (empty if user specified machine)
+    """
+    if not extra_args:
+        return ["--disable-microvm", "--qemu-opts=-machine q35"]
+
+    # Check if user already specified a machine type via --qemu-opts
+    has_machine_opt = False
+    i = 0
+    while i < len(extra_args):
+        if extra_args[i] == "--qemu-opts" or extra_args[i].startswith("--qemu-opts="):
+            # Next argument after --qemu-opts contains QEMU options (if not using = syntax)
+            if extra_args[i].startswith("--qemu-opts="):
+                # Extract value from --qemu-opts=VALUE syntax
+                qemu_opts = extra_args[i].split("=", 1)[1]
+                if "-machine" in qemu_opts or qemu_opts.startswith("-M "):
+                    has_machine_opt = True
+                    break
+            else:
+                # Check next argument
+                i += 1
+                if i < len(extra_args):
+                    # Check if this QEMU options string contains -machine or -M
+                    qemu_opts = extra_args[i]
+                    if "-machine" in qemu_opts or qemu_opts.startswith("-M "):
+                        has_machine_opt = True
+                        break
+        i += 1
+
+    if has_machine_opt:
+        return []
+    else:
+        return ["--disable-microvm", "--qemu-opts=-machine q35"]
+
+
 @dataclass
 class DeviceSpec:
     """Specification for a device to attach to VM.
@@ -2150,6 +2201,10 @@ class BootManager:
         if target_arch:
             cmd.extend(["--arch", target_arch])
 
+        # Use q35 machine type unless user specified their own
+        machine_opts = _prepare_vng_qemu_opts(extra_args)
+        cmd.extend(machine_opts)
+
         # Add custom device disk arguments
         if device_manager:
             disk_args = device_manager.get_vng_disk_args()
@@ -2723,6 +2778,10 @@ exit $exit_code
             if target_arch:
                 cmd.extend(["--arch", target_arch])
 
+            # Use q35 machine type unless user specified their own
+            machine_opts = _prepare_vng_qemu_opts(extra_args)
+            cmd.extend(machine_opts)
+
             # Pass devices to VM via --disk
             # They will appear as /dev/vda, /dev/vdb, etc. in the VM
             if device_manager:
@@ -3269,6 +3328,10 @@ exit $exit_code
         # Add architecture if specified or auto-detected
         if target_arch:
             cmd.extend(["--arch", target_arch])
+
+        # Use q35 machine type unless user specified their own
+        machine_opts = _prepare_vng_qemu_opts(extra_args)
+        cmd.extend(machine_opts)
 
         # Pass devices to VM via --disk
         # They will appear as /dev/vda, /dev/vdb, etc. in the VM

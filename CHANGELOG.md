@@ -2,6 +2,44 @@
 
 ## [Unreleased] - 2025-01-XX
 
+### Changed
+
+#### Use q35 Machine Type by Default for All VM Launches
+**Problem**: microvm has a bug where devices eventually hang during prolonged use, affecting filesystem testing and kernel development workflows.
+
+**Solution**: Updated all virtme-ng commands to use q35 machine type by default. This requires both `--disable-microvm` and `--qemu-opts=-machine q35` flags:
+- `--disable-microvm`: Prevents virtme-ng from auto-selecting microvm (which it tries first on x86_64+KVM systems)
+- `--qemu-opts=-machine q35`: Explicitly sets q35 machine type (QEMU's default is pc/i440fx, not q35)
+
+**Why q35?**:
+- Modern chipset (Q35 + ICH9, 2009) vs legacy pc (i440FX + PIIX, 1996)
+- PCIe support (required for modern device features)
+- IOMMU support
+- What modern distros use for VMs (KVM, cloud providers)
+- Best for kernel/filesystem testing without microvm bugs
+
+**Implementation**:
+- Added `_prepare_vng_qemu_opts()` helper function that:
+  - Returns `["--disable-microvm", "--qemu-opts=-machine q35"]` by default
+  - Detects if user already specified a machine type via `--qemu-opts` and respects their choice
+  - Supports both space and `=` syntax in user input (e.g., `--qemu-opts=-machine virt`)
+- Applied to all three vng command locations:
+  - `boot_kernel_test()` in boot_manager.py:2204
+  - `fstests_vm_boot_and_run()` in boot_manager.py:2781
+  - `fstests_vm_boot_custom()` in boot_manager.py:3332
+- Added comprehensive test suite (tests/test_vng_qemu_opts.py):
+  - 36 tests covering all edge cases
+  - Specific tests to prevent regression to previous bugs
+  - Tests for each of the 4 failed attempts before finding the correct solution
+  - Parameterized tests for multiple scenarios
+
+**User Impact**: VMs now use q35 machine type by default for better stability and modern features. Users can still override by specifying their own machine type via `extra_args` (e.g., `extra_args=['--qemu-opts=-machine virt']` for ARM).
+
+**Note on Implementation**: This required both flags because:
+1. Only using `--disable-microvm` doesn't guarantee q35 on native x86_64+KVM (virtme-ng uses QEMU default)
+2. Only using `--qemu-opts=-machine q35` causes conflicts (virtme-ng still tries microvm-specific settings)
+3. Using `=` syntax is required to prevent argparse from treating `-machine` as a separate flag
+
 ### Fixed
 
 #### Device Pool LV Creation Failing with Signature Errors
