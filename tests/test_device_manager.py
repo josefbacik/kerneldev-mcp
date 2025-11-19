@@ -215,7 +215,7 @@ class TestVMDeviceManager:
 
     @pytest.mark.asyncio
     @patch("src.kerneldev_mcp.boot_manager._setup_tmpfs_for_loop_devices")
-    @patch("src.kerneldev_mcp.boot_manager._create_host_loop_device")
+    @patch("src.kerneldev_mcp.boot_manager.create_loop_device")
     async def test_setup_loop_devices(self, mock_create, mock_setup_tmpfs):
         """Test setting up loop devices."""
         mock_setup_tmpfs.return_value = True
@@ -233,7 +233,7 @@ class TestVMDeviceManager:
         assert len(manager.created_loop_devices) == 1
 
     @pytest.mark.asyncio
-    @patch("src.kerneldev_mcp.boot_manager._cleanup_host_loop_device")
+    @patch("src.kerneldev_mcp.boot_manager.cleanup_loop_device")
     @patch("src.kerneldev_mcp.boot_manager._cleanup_tmpfs_for_loop_devices")
     async def test_cleanup(self, mock_cleanup_tmpfs, mock_cleanup_device):
         """Test cleanup of devices."""

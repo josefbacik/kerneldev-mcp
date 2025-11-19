@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 from dataclasses import dataclass
 
+from .device_utils import create_loop_device, cleanup_loop_device
+
 
 @dataclass
 class DeviceConfig:
@@ -74,35 +76,14 @@ class DeviceManager:
         Returns:
             Tuple of (loop_device_path, backing_file_path) or (None, None) on failure
         """
-        # Create backing file
-        backing_file = self.work_dir / f"{name}.img"
+        # Delegate to device_utils
+        loop_dev, backing_file = create_loop_device(size, name, self.work_dir)
 
-        try:
-            # Create sparse file
-            subprocess.run(
-                ["truncate", "-s", size, str(backing_file)], check=True, capture_output=True
-            )
-
-            # Find free loop device
-            loop_dev = self.find_free_loop_device()
-            if not loop_dev:
-                return None, None
-
-            # Setup loop device
-            subprocess.run(
-                ["sudo", "losetup", loop_dev, str(backing_file)], check=True, capture_output=True
-            )
-
+        if loop_dev:
             # Track for cleanup
             self._created_loop_devices.append(loop_dev)
 
-            return loop_dev, backing_file
-
-        except subprocess.CalledProcessError:
-            # Cleanup backing file if loop setup failed
-            if backing_file.exists():
-                backing_file.unlink()
-            return None, None
+        return loop_dev, backing_file
 
     def validate_device(self, device_path: str) -> bool:
         """Validate that a device exists and is accessible.
@@ -245,16 +226,14 @@ class DeviceManager:
         Returns:
             True if successful
         """
-        try:
-            subprocess.run(["sudo", "losetup", "-d", loop_device], check=True, capture_output=True)
+        # Delegate to device_utils (without backing file cleanup, that's handled separately)
+        success = cleanup_loop_device(loop_device, None)
 
-            # Remove from tracking
-            if loop_device in self._created_loop_devices:
-                self._created_loop_devices.remove(loop_device)
+        # Remove from tracking
+        if loop_device in self._created_loop_devices:
+            self._created_loop_devices.remove(loop_device)
 
-            return True
-        except subprocess.CalledProcessError:
-            return False
+        return success
 
     def setup_loop_devices(
         self,

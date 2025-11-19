@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from .device_pool import VolumeConfig, allocate_pool_volumes, release_pool_volumes
+from .device_utils import create_loop_device, cleanup_loop_device, validate_block_device
 
 logger = logging.getLogger(__name__)
 
@@ -416,7 +417,7 @@ class VMDeviceManager:
                     backing_dir = (
                         HOST_LOOP_TMPFS_DIR if (spec.use_tmpfs and self.tmpfs_setup) else None
                     )
-                    loop_dev, backing_file = _create_host_loop_device(
+                    loop_dev, backing_file = create_loop_device(
                         spec.size,
                         spec.name or f"custom-{len(self.created_loop_devices)}",
                         backing_dir,
@@ -452,45 +453,12 @@ class VMDeviceManager:
         """
         device_path = spec.path
 
-        try:
-            result = subprocess.run(
-                ["findmnt", "-n", "-o", "TARGET", device_path],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode == 0:
-                mount_point = result.stdout.strip()
-                if mount_point and not spec.readonly:
-                    return (
-                        False,
-                        (
-                            f"Device {device_path} is mounted at {mount_point}. "
-                            f"Unmount it first or use readonly=True."
-                        ),
-                        "",
-                    )
-        except Exception as e:
-            logger.warning(f"Could not check if {device_path} is mounted: {e}")
+        # Use shared validation function for basic checks
+        valid, error = validate_block_device(device_path, spec.readonly, spec.require_empty)
+        if not valid:
+            return False, error, ""
 
-        if spec.require_empty:
-            try:
-                result = subprocess.run(
-                    ["sudo", "blkid", "-p", device_path], capture_output=True, text=True, timeout=5
-                )
-                if result.returncode == 0:
-                    fs_type = result.stdout
-                    return (
-                        False,
-                        (
-                            f"Device {device_path} has filesystem signature: {fs_type.strip()}. "
-                            f"Set require_empty=False to override."
-                        ),
-                        "",
-                    )
-            except Exception as e:
-                logger.warning(f"Could not check filesystem signature on {device_path}: {e}")
-
+        # Additional permission checks specific to VM usage
         try:
             with open(device_path, "rb") as f:
                 f.read(512)
@@ -522,7 +490,7 @@ class VMDeviceManager:
     def cleanup(self):
         """Cleanup all created devices."""
         for loop_dev, backing_file in self.created_loop_devices:
-            _cleanup_host_loop_device(loop_dev, backing_file)
+            cleanup_loop_device(loop_dev, backing_file)
 
         if self.tmpfs_setup:
             _cleanup_tmpfs_for_loop_devices()
@@ -957,65 +925,6 @@ def _cleanup_tmpfs_for_loop_devices() -> bool:
         return False
 
 
-def _create_host_loop_device(
-    size: str, name: str, backing_dir: Optional[Path] = None
-) -> Tuple[Optional[str], Optional[Path]]:
-    """Create a loop device on the host for passing to VM.
-
-    Args:
-        size: Size of device (e.g., "10G")
-        name: Name for the backing file
-        backing_dir: Optional directory for backing files (defaults to HOST_LOOP_WORK_DIR)
-
-    Returns:
-        Tuple of (loop_device_path, backing_file_path) or (None, None) on failure
-    """
-    work_dir = backing_dir if backing_dir else HOST_LOOP_WORK_DIR
-    work_dir.mkdir(parents=True, exist_ok=True)
-    backing_file = work_dir / f"{name}.img"
-
-    try:
-        # Create sparse file
-        subprocess.run(
-            ["truncate", "-s", size, str(backing_file)], check=True, capture_output=True, text=True
-        )
-
-        # Setup loop device
-        result = subprocess.run(
-            ["sudo", "losetup", "-f", "--show", str(backing_file)],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-
-        loop_dev = result.stdout.strip()
-
-        # Change permissions so current user can access the loop device
-        # This is needed because virtme-ng (QEMU) runs as the current user
-        try:
-            subprocess.run(
-                ["sudo", "chmod", "666", loop_dev], check=True, capture_output=True, text=True
-            )
-        except subprocess.CalledProcessError:
-            # If chmod fails, cleanup and return error
-            subprocess.run(["sudo", "losetup", "-d", loop_dev], capture_output=True)
-            if backing_file.exists():
-                backing_file.unlink()
-            return None, None
-
-        return loop_dev, backing_file
-
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to create loop device for {name}: {e.stderr if e.stderr else str(e)}")
-        # Cleanup backing file if loop setup failed
-        if backing_file.exists():
-            try:
-                backing_file.unlink()
-            except OSError:
-                pass
-        return None, None
-
-
 def _get_available_schedulers(device: str) -> Optional[List[str]]:
     """Get available IO schedulers for a block device.
 
@@ -1083,35 +992,6 @@ def _set_io_scheduler(device: str, scheduler: str) -> bool:
     except Exception as e:
         logger.error(f"Failed to set IO scheduler for {device}: {e}")
         return False
-
-
-def _cleanup_host_loop_device(loop_device: str, backing_file: Optional[Path] = None):
-    """Cleanup a host loop device and its backing file.
-
-    Args:
-        loop_device: Path to loop device (e.g., "/dev/loop0")
-        backing_file: Optional path to backing file to remove
-    """
-    # Detach loop device
-    try:
-        subprocess.run(["sudo", "losetup", "-d", loop_device], capture_output=True, timeout=10)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        # Try to force detach if normal detach fails
-        try:
-            subprocess.run(
-                ["sudo", "losetup", "-D"],  # Detach all unused loop devices
-                capture_output=True,
-                timeout=10,
-            )
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-            pass
-
-    # Remove backing file if specified
-    if backing_file and backing_file.exists():
-        try:
-            backing_file.unlink()
-        except OSError:
-            pass
 
 
 def _ensure_log_directory() -> Path:
