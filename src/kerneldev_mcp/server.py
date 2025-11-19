@@ -25,6 +25,7 @@ from .boot_manager import (
     BootManager,
     format_boot_result,
     DeviceSpec,
+    DeviceBacking,
 )
 from .device_manager import DeviceManager
 from .fstests_manager import (
@@ -1774,11 +1775,23 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             if "devices" in arguments and arguments["devices"]:
                 devices = []
                 for device_dict in arguments["devices"]:
+                    # Parse backing parameter if specified
+                    backing = DeviceBacking.DISK  # Default
+                    if "backing" in device_dict:
+                        backing_str = device_dict["backing"].lower()  # Normalize to lowercase
+                        try:
+                            backing = DeviceBacking(backing_str)
+                        except ValueError:
+                            logger.warning(
+                                f"Invalid backing value '{device_dict['backing']}', using default 'disk'"
+                            )
+
                     device = DeviceSpec(
                         path=device_dict.get("path"),
                         size=device_dict.get("size"),
                         name=device_dict.get("name"),
                         order=device_dict.get("order", 0),
+                        backing=backing,
                         use_tmpfs=device_dict.get("use_tmpfs", False),
                         env_var=device_dict.get("env_var"),
                         env_var_index=device_dict.get("env_var_index"),
@@ -2596,11 +2609,23 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             if "custom_devices" in arguments and arguments["custom_devices"]:
                 custom_devices = []
                 for device_dict in arguments["custom_devices"]:
+                    # Parse backing parameter if specified
+                    backing = DeviceBacking.DISK  # Default
+                    if "backing" in device_dict:
+                        backing_str = device_dict["backing"].lower()  # Normalize to lowercase
+                        try:
+                            backing = DeviceBacking(backing_str)
+                        except ValueError:
+                            logger.warning(
+                                f"Invalid backing value '{device_dict['backing']}', using default 'disk'"
+                            )
+
                     device = DeviceSpec(
                         path=device_dict.get("path"),
                         size=device_dict.get("size"),
                         name=device_dict.get("name"),
                         order=device_dict.get("order", 0),
+                        backing=backing,
                         use_tmpfs=device_dict.get("use_tmpfs", False),
                         env_var=device_dict.get("env_var"),
                         env_var_index=device_dict.get("env_var_index"),
@@ -2712,11 +2737,23 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             if "custom_devices" in arguments and arguments["custom_devices"]:
                 custom_devices = []
                 for device_dict in arguments["custom_devices"]:
+                    # Parse backing parameter if specified
+                    backing = DeviceBacking.DISK  # Default
+                    if "backing" in device_dict:
+                        backing_str = device_dict["backing"].lower()  # Normalize to lowercase
+                        try:
+                            backing = DeviceBacking(backing_str)
+                        except ValueError:
+                            logger.warning(
+                                f"Invalid backing value '{device_dict['backing']}', using default 'disk'"
+                            )
+
                     device = DeviceSpec(
                         path=device_dict.get("path"),
                         size=device_dict.get("size"),
                         name=device_dict.get("name"),
                         order=device_dict.get("order", 0),
+                        backing=backing,
                         use_tmpfs=device_dict.get("use_tmpfs", False),
                         env_var=device_dict.get("env_var"),
                         env_var_index=device_dict.get("env_var_index"),

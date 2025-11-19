@@ -2,7 +2,134 @@
 
 ## [Unreleased] - 2025-01-XX
 
+### Fixed
+- **Critical**: Fixed MCP server not reading `backing` parameter from custom device specifications
+  - Bug caused all `backing: "null_blk"` requests to be silently ignored, falling back to tmpfs/disk
+  - Affected tools: `boot_kernel_test`, `fstests_vm_boot_and_run`, `fstests_vm_boot_custom`
+  - Root cause: server.py was not extracting the `backing` field from device_dict when parsing JSON arguments
+  - Fix: Added `backing` parameter parsing with proper DeviceBacking enum conversion in all three tools
+  - Backing values are now case-insensitive (`"null_blk"`, `"NULL_BLK"`, `"Null_Blk"` all work)
+  - Added comprehensive unit tests (`TestDeviceParameterParsing`) with 6 tests to prevent regression
+
+### Added
+
+#### High-Performance null_blk Device Support
+Implemented memory-backed null_blk devices as a new device backing option, providing 10-100× performance improvement over traditional loop devices for VM-based kernel testing.
+
+**Key Features:**
+- **Exceptional Performance**: 7M+ IOPS (vs 200K+ for tmpfs, 50K for disk-backed loop devices)
+- **Three-Tier Device Backing System**:
+  - **DISK**: Traditional loop devices with disk-backed image files (default, backward compatible)
+  - **TMPFS**: Loop devices with tmpfs-backed image files (200K+ IOPS)
+  - **NULL_BLK**: Direct memory-backed block devices via Linux null_blk driver (7M+ IOPS)
+- **Automatic Fallback Chain**: null_blk → tmpfs → disk when null_blk unavailable or fails
+- **Memory Safety**:
+  - Per-device limit: 32GB (configurable via `KERNELDEV_NULL_BLK_MAX_SIZE_GB`)
+  - Total memory limit: 70GB (configurable via `KERNELDEV_NULL_BLK_MAX_TOTAL_GB`)
+  - Clear warnings when approaching limits
+- **Robust Resource Management**:
+  - Atomic index allocation (race-free, indices 0-1023)
+  - Orphaned device cleanup with staleness checking (60s threshold)
+  - Automatic cleanup on VM shutdown
+  - Device deactivation before cleanup on failures
+
+**Implementation:**
+- Added `DeviceBacking` enum to `device_utils.py` (DISK/TMPFS/NULL_BLK)
+- Added `check_null_blk_support()` with configfs validation
+- Added `create_null_blk_device()` with atomic index allocation
+- Added `cleanup_null_blk_device()` for resource cleanup
+- Added `cleanup_orphaned_null_blk_devices()` with staleness checking
+- Updated `DeviceSpec` with `backing` parameter and automatic migration from deprecated `use_tmpfs`
+- Updated `VMDeviceManager` with null_blk support detection and fallback logic
+
+**MCP Tool Updates:**
+- `boot_kernel_test`: Added `backing` parameter to device specifications
+- `fstests_vm_boot_and_run`: Added `backing` parameter to custom_devices
+- `fstests_vm_boot_custom`: Added `backing` parameter to custom_devices
+
+**Usage Example:**
+```json
+{
+  "kernel_path": "/path/to/kernel",
+  "devices": [
+    {
+      "size": "10G",
+      "backing": "null_blk",
+      "env_var": "TEST_DEV"
+    }
+  ]
+}
+```
+
+**Configuration:**
+```bash
+# Adjust memory limits (optional)
+export KERNELDEV_NULL_BLK_MAX_SIZE_GB=64     # Per-device limit
+export KERNELDEV_NULL_BLK_MAX_TOTAL_GB=128   # Total limit across all devices
+
+# Run tests with null_blk backing
+fstests_vm_boot_and_run --kernel=/path/to/kernel --fstests=/path/to/fstests
+```
+
+**Requirements:**
+- Linux kernel 5.0+ with null_blk driver support
+- null_blk module loaded or loadable (automatic module loading attempted)
+- Sufficient RAM for device allocations
+
+**Testing:**
+- 71 unit tests in `tests/test_device_utils_null_blk.py` (100% coverage of null_blk functions)
+- 28 integration tests in `tests/integration/test_null_blk_integration.py`
+  - DeviceSpec validation with backing parameter
+  - VMDeviceManager integration
+  - Memory limit enforcement
+  - Cleanup behavior
+  - Device profiles with null_blk
+  - Error handling and fallback scenarios
+
+**Documentation:**
+- User guide in README.md: Device backing options and performance comparison
+- Quick start workflow in QUICKSTART.md: Practical fio benchmark example
+- Implementation details in `docs/implementation/null-blk-implementation.md`:
+  - Performance benchmarks and use case recommendations
+  - Architecture overview and design decisions
+  - Comprehensive troubleshooting guide (7 common issues)
+  - Memory planning guidelines
+  - Known limitations and best practices
+
+**Performance Impact:**
+- **I/O-intensive tests**: 10-100× faster (fio benchmarks show 7M+ IOPS vs 50K)
+- **Memory overhead**: RAM consumption equals device sizes (10GB device = 10GB RAM)
+- **Recommended for**: Short-lived tests, CI/CD pipelines, rapid iteration during development
+- **Not recommended for**: Very large device sizes, long-running tests, memory-constrained systems
+
+**Benefits:**
+- Dramatically faster test execution for I/O-intensive workloads
+- Reduced CI/CD pipeline times
+- Better developer iteration speed during kernel development
+- Automatic graceful fallback preserves compatibility
+- Safe defaults prevent accidental memory exhaustion
+
 ### Changed
+
+#### Deprecated use_tmpfs Parameter in Favor of backing Parameter
+The `use_tmpfs` parameter in device specifications has been deprecated in favor of the more flexible `backing` parameter that supports three device backing types (DISK, TMPFS, NULL_BLK).
+
+**Migration:**
+- **Old**: `{"size": "10G", "use_tmpfs": true}`
+- **New**: `{"size": "10G", "backing": "tmpfs"}`
+
+**Automatic Migration**: DeviceSpec automatically converts deprecated `use_tmpfs=true` to `backing="tmpfs"` for backward compatibility. No immediate action required, but updating to the new parameter is recommended.
+
+**Affected Tools:**
+- `boot_kernel_test`: Device-level `use_tmpfs` parameter
+- `fstests_vm_boot_and_run`: Device-level `use_tmpfs` and tool-level `use_tmpfs` parameters
+- `fstests_vm_boot_custom`: Device-level `use_tmpfs` and tool-level `use_tmpfs` parameters
+
+**Why Changed:**
+- `backing` parameter is more explicit and supports additional backing types (null_blk)
+- Clearer semantics: `backing="tmpfs"` vs `use_tmpfs=true`
+- Enables future backing types without additional parameters
+- Consistent with modern configuration patterns
 
 #### Use q35 Machine Type by Default for All VM Launches
 **Problem**: microvm has a bug where devices eventually hang during prolonged use, affecting filesystem testing and kernel development workflows.
