@@ -537,9 +537,15 @@ async def list_tools() -> list[Tool]:
                                     "description": "Device order (lower = earlier in device list). Devices appear as /dev/vda, /dev/vdb, etc. in order.",
                                     "default": 0,
                                 },
+                                "backing": {
+                                    "type": "string",
+                                    "description": "Device backing type for created devices (only applies when 'size' is specified, not for 'path'). Options: 'disk' (default, loop device backed by disk sparse file - slowest but universal), 'tmpfs' (loop device backed by tmpfs - fast, uses RAM), 'null_blk' (null_blk kernel device - fastest, memory-only, requires kernel support and configfs). WARNING: 'null_blk' devices consume actual RAM equal to their size and have limits (default: max 32GB per device, 70GB total - configurable via KERNELDEV_NULL_BLK_MAX_SIZE and KERNELDEV_NULL_BLK_TOTAL environment variables). If null_blk creation fails, automatically falls back to tmpfs. Examples: {'size': '10G', 'backing': 'null_blk'}, {'size': '5G', 'backing': 'tmpfs'}",
+                                    "enum": ["disk", "tmpfs", "null_blk"],
+                                    "default": "disk",
+                                },
                                 "use_tmpfs": {
                                     "type": "boolean",
-                                    "description": "Use tmpfs backing for loop device (faster, uses RAM)",
+                                    "description": "DEPRECATED: Use 'backing' parameter instead. Use tmpfs backing for loop device (faster, uses RAM). This parameter is kept for backwards compatibility but will be removed in a future version. Prefer: backing='tmpfs'",
                                     "default": False,
                                 },
                                 "env_var": {
@@ -937,9 +943,15 @@ Use fstests_groups_list tool to see available test groups.""",
                                     "description": "Device order (lower = earlier). Devices appear as /dev/vda, /dev/vdb, etc. in order.",
                                     "default": 0,
                                 },
+                                "backing": {
+                                    "type": "string",
+                                    "description": "Device backing type for created devices (only applies when 'size' is specified, not for 'path'). Options: 'disk' (default, loop device backed by disk sparse file - slowest but universal), 'tmpfs' (loop device backed by tmpfs - fast, uses RAM), 'null_blk' (null_blk kernel device - fastest, memory-only, requires kernel support and configfs). WARNING: 'null_blk' devices consume actual RAM equal to their size and have limits (default: max 32GB per device, 70GB total - configurable via KERNELDEV_NULL_BLK_MAX_SIZE and KERNELDEV_NULL_BLK_TOTAL environment variables). If null_blk creation fails, automatically falls back to tmpfs. Examples: {'size': '10G', 'backing': 'null_blk'}, {'size': '5G', 'backing': 'tmpfs'}",
+                                    "enum": ["disk", "tmpfs", "null_blk"],
+                                    "default": "disk",
+                                },
                                 "use_tmpfs": {
                                     "type": "boolean",
-                                    "description": "Use tmpfs backing for loop device (faster, uses RAM)",
+                                    "description": "DEPRECATED: Use 'backing' parameter instead. Use tmpfs backing for loop device (faster, uses RAM). This parameter is kept for backwards compatibility but will be removed in a future version. Prefer: backing='tmpfs'",
                                     "default": False,
                                 },
                                 "env_var": {
@@ -970,7 +982,7 @@ Use fstests_groups_list tool to see available test groups.""",
                     },
                     "use_tmpfs": {
                         "type": "boolean",
-                        "description": "Use tmpfs for default loop device backing files (only affects default devices, not custom_devices). Default: false",
+                        "description": "DEPRECATED: Use 'backing' parameter on custom_devices instead. Use tmpfs for default loop device backing files (only affects default devices, not custom_devices). This parameter is kept for backwards compatibility but will be removed in a future version. Default: false",
                         "default": False,
                     },
                     "extra_args": {
@@ -1076,9 +1088,15 @@ Usage modes:
                                     "description": "Device order (lower = earlier). Devices appear as /dev/vda, /dev/vdb, etc. in order.",
                                     "default": 0,
                                 },
+                                "backing": {
+                                    "type": "string",
+                                    "description": "Device backing type for created devices (only applies when 'size' is specified, not for 'path'). Options: 'disk' (default, loop device backed by disk sparse file - slowest but universal), 'tmpfs' (loop device backed by tmpfs - fast, uses RAM), 'null_blk' (null_blk kernel device - fastest, memory-only, requires kernel support and configfs). WARNING: 'null_blk' devices consume actual RAM equal to their size and have limits (default: max 32GB per device, 70GB total - configurable via KERNELDEV_NULL_BLK_MAX_SIZE and KERNELDEV_NULL_BLK_TOTAL environment variables). If null_blk creation fails, automatically falls back to tmpfs. Examples: {'size': '10G', 'backing': 'null_blk'}, {'size': '5G', 'backing': 'tmpfs'}",
+                                    "enum": ["disk", "tmpfs", "null_blk"],
+                                    "default": "disk",
+                                },
                                 "use_tmpfs": {
                                     "type": "boolean",
-                                    "description": "Use tmpfs backing for loop device (faster, uses RAM)",
+                                    "description": "DEPRECATED: Use 'backing' parameter instead. Use tmpfs backing for loop device (faster, uses RAM). This parameter is kept for backwards compatibility but will be removed in a future version. Prefer: backing='tmpfs'",
                                     "default": False,
                                 },
                                 "env_var": {
@@ -1109,7 +1127,7 @@ Usage modes:
                     },
                     "use_tmpfs": {
                         "type": "boolean",
-                        "description": "Use tmpfs for default loop device backing files (only affects default devices, not custom_devices). Default: false",
+                        "description": "DEPRECATED: Use 'backing' parameter on custom_devices instead. Use tmpfs for default loop device backing files (only affects default devices, not custom_devices). This parameter is kept for backwards compatibility but will be removed in a future version. Default: false",
                         "default": False,
                     },
                     "extra_args": {

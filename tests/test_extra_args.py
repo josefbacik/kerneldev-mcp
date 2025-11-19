@@ -49,8 +49,8 @@ class TestBootTestExtraArgs:
 
         assert tool_start is not None, "Could not find boot_kernel_test tool definition"
 
-        # Get tool schema (next ~100 lines)
-        tool_def = "\n".join(lines[tool_start : tool_start + 100])
+        # Get tool schema (next ~120 lines to account for longer device schema with backing parameter)
+        tool_def = "\n".join(lines[tool_start : tool_start + 120])
 
         # Check that extra_args is in the schema
         assert '"extra_args"' in tool_def or "'extra_args'" in tool_def, (
