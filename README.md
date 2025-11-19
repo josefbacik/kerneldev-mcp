@@ -70,6 +70,33 @@ An MCP (Model Context Protocol) server for intelligent Linux kernel configuratio
 
 See [docs/implementation/FSTESTS.md](docs/implementation/FSTESTS.md) for detailed filesystem testing documentation.
 
+### Device Backing Options
+
+Three device backing types are available for test devices:
+
+1. **null_blk (Fastest)** - Memory-backed kernel devices
+   - **10-100× faster** than loop devices (7M+ IOPS vs 50K)
+   - Zero-latency, no actual I/O
+   - Requires Linux 5.0+ with null_blk module
+   - Memory limits: 32GB/device, 70GB total (configurable)
+   - Perfect for high-speed testing and benchmarking
+
+2. **tmpfs (Fast)** - Loop devices backed by tmpfs
+   - Memory-backed, faster than disk (200K+ IOPS)
+   - Works on any system
+   - No kernel module required
+   - Good balance of speed and compatibility
+
+3. **disk (Universal)** - Loop devices backed by sparse files
+   - Slowest option (~50K IOPS)
+   - No memory usage
+   - Works everywhere
+   - Default for maximum compatibility
+
+**Automatic Fallback**: System automatically tries null_blk → tmpfs → disk until one succeeds.
+
+See [docs/implementation/null-blk-implementation.md](docs/implementation/null-blk-implementation.md) for technical details.
+
 ### LVM Device Pools (Physical Storage)
 
 - **High-Performance Testing**: Use LVM-managed physical storage instead of slow loop devices
@@ -421,7 +448,35 @@ get_config_template(
 )
 ```
 
-### 4. Custom configuration
+### 4. High-performance testing with null_blk devices
+
+```python
+# Boot kernel with ultra-fast null_blk devices
+boot_kernel_test(
+    kernel_path="~/linux",
+    devices=[
+        {"size": "10G", "name": "test", "backing": "null_blk", "env_var": "TEST_DEV"},
+        {"size": "10G", "name": "scratch", "backing": "null_blk", "env_var": "SCRATCH_DEV"}
+    ]
+)
+# 7M+ IOPS performance, uses RAM (watch memory!)
+
+# Or let it automatically fall back if null_blk unavailable
+boot_kernel_test(
+    kernel_path="~/linux",
+    devices=[
+        {"size": "10G", "backing": "null_blk"}  # Falls back to tmpfs or disk
+    ]
+)
+```
+
+**Memory Limits** (configurable via environment):
+```bash
+export KERNELDEV_NULL_BLK_MAX_SIZE=32    # Max GB per device (default: 32)
+export KERNELDEV_NULL_BLK_TOTAL=70       # Max GB total (default: 70)
+```
+
+### 5. Custom configuration
 
 ```python
 # Start with base

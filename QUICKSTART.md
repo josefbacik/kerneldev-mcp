@@ -259,6 +259,30 @@ cd ~/linux && make -j$(nproc)
 vng --build
 ```
 
+### Workflow 4: High-Performance Testing with null_blk
+
+```bash
+# Use MCP tool to boot with ultra-fast null_blk devices
+# Requires Linux 5.0+ with null_blk module
+boot_kernel_test(
+    kernel_path="~/linux",
+    devices=[
+        {"size": "10G", "backing": "null_blk", "env_var": "TEST_DEV"}
+    ],
+    command="fio --name=test --rw=randread --bs=4k --direct=1 --filename=$TEST_DEV"
+)
+# 7M+ IOPS vs 50K with loop devices!
+```
+
+**Configure Memory Limits**:
+```bash
+# Adjust if you have more/less RAM
+export KERNELDEV_NULL_BLK_MAX_SIZE=16    # Max 16GB per device
+export KERNELDEV_NULL_BLK_TOTAL=32       # Max 32GB total
+
+# Devices automatically fall back to tmpfs or disk if null_blk unavailable
+```
+
 ## Troubleshooting
 
 ### "Module 'mcp' not found"
