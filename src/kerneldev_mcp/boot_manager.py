@@ -20,7 +20,18 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from .device_pool import VolumeConfig, allocate_pool_volumes, release_pool_volumes
-from .device_utils import create_loop_device, cleanup_loop_device, validate_block_device
+from .device_utils import (
+    DeviceBacking,
+    create_loop_device,
+    cleanup_loop_device,
+    validate_block_device,
+    check_null_blk_support,
+    create_null_blk_device,
+    cleanup_null_blk_device,
+    cleanup_orphaned_null_blk_devices,
+    MAX_NULL_BLK_DEVICE_GB,
+    MAX_NULL_BLK_TOTAL_GB,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -190,8 +201,15 @@ class DeviceSpec:
     Devices appear in VM as /dev/vda, /dev/vdb, etc. in order specified.
     virtme-ng auto-assigns device names; use 'order' parameter to control ordering.
 
+    IMPORTANT: The 'backing' field may be mutated during device setup if null_blk
+    creation fails and falls back to tmpfs. This is intentional to ensure the device
+    is actually created with tmpfs backing. Callers should be aware that DeviceSpec
+    objects may be modified during setup.
+
     Examples:
         DeviceSpec(size="10G", name="test", env_var="TEST_DEV")
+        DeviceSpec(size="10G", name="fast", backing=DeviceBacking.NULL_BLK)
+        DeviceSpec(size="10G", name="tmpfs", backing=DeviceBacking.TMPFS)
         DeviceSpec(path="/dev/nvme0n1p5", readonly=True)
     """
 
@@ -202,7 +220,8 @@ class DeviceSpec:
     # Device configuration
     name: Optional[str] = None  # Descriptive name for logging
     order: int = 0  # Order in device list (lower = earlier)
-    use_tmpfs: bool = False  # Use tmpfs backing for loop device
+    backing: DeviceBacking = DeviceBacking.DISK  # Device backing type (DISK/TMPFS/NULL_BLK)
+    use_tmpfs: bool = False  # DEPRECATED: Use backing=DeviceBacking.TMPFS instead
 
     # VM environment
     env_var: Optional[str] = None  # Export as env var (e.g., "TEST_DEV")
@@ -211,6 +230,17 @@ class DeviceSpec:
     # Safety options
     readonly: bool = False  # Attach as read-only device
     require_empty: bool = False  # Fail if device has filesystem signature
+
+    def __post_init__(self):
+        """Handle migration from deprecated use_tmpfs to backing parameter."""
+        if self.use_tmpfs:
+            logger.warning(
+                "DeviceSpec: 'use_tmpfs' parameter is deprecated, "
+                "use 'backing=DeviceBacking.TMPFS' instead"
+            )
+            # Only override backing if it's still the default
+            if self.backing == DeviceBacking.DISK:
+                self.backing = DeviceBacking.TMPFS
 
     def validate(self) -> Tuple[bool, str]:
         """Validate device specification.
@@ -231,7 +261,22 @@ class DeviceSpec:
             if size_gb > MAX_DEVICE_SIZE_GB:
                 return False, f"Device size {self.size} exceeds maximum {MAX_DEVICE_SIZE_GB}G"
 
+            # null_blk-specific validation
+            if self.backing == DeviceBacking.NULL_BLK:
+                if size_gb > MAX_NULL_BLK_DEVICE_GB:
+                    return False, (
+                        f"null_blk device size {self.size} exceeds maximum {MAX_NULL_BLK_DEVICE_GB}G "
+                        f"(uses RAM!). Use a smaller size or switch to TMPFS/DISK backing."
+                    )
+
         if self.path:
+            # Cannot use backing parameter with existing devices
+            if self.backing != DeviceBacking.DISK:
+                return (
+                    False,
+                    "backing parameter only applies to created devices (size parameter), not existing devices (path parameter)",
+                )
+
             device_path = Path(self.path)
             if not device_path.exists():
                 return False, f"Device does not exist: {self.path}"
@@ -263,16 +308,31 @@ class DeviceProfile:
     devices: List[DeviceSpec]
 
     @staticmethod
-    def get_profile(name: str, use_tmpfs: bool = False) -> Optional["DeviceProfile"]:
+    def get_profile(
+        name: str, use_tmpfs: bool = False, backing: Optional[DeviceBacking] = None
+    ) -> Optional["DeviceProfile"]:
         """Get a predefined device profile.
 
         Args:
             name: Profile name
-            use_tmpfs: Override use_tmpfs setting for all devices
+            use_tmpfs: DEPRECATED - Use backing parameter instead
+            backing: Override device backing for all devices (DISK/TMPFS/NULL_BLK)
 
         Returns:
             DeviceProfile or None if not found
         """
+        # Handle deprecated use_tmpfs parameter
+        if use_tmpfs and backing is None:
+            logger.warning(
+                "DeviceProfile.get_profile: 'use_tmpfs' parameter is deprecated, "
+                "use 'backing=DeviceBacking.TMPFS' instead"
+            )
+            backing = DeviceBacking.TMPFS
+
+        # Default to DISK if not specified
+        if backing is None:
+            backing = DeviceBacking.DISK
+
         base_devices = [
             DeviceSpec(size="10G", name="test", env_var="TEST_DEV", order=0),
             DeviceSpec(size="10G", name="pool1", order=1),
@@ -293,7 +353,7 @@ class DeviceProfile:
                         name=d.name,
                         env_var=d.env_var,
                         order=d.order,
-                        use_tmpfs=use_tmpfs,
+                        backing=backing,
                     )
                     for d in base_devices
                 ],
@@ -307,7 +367,7 @@ class DeviceProfile:
                         name=d.name,
                         env_var=d.env_var,
                         order=d.order,
-                        use_tmpfs=use_tmpfs,
+                        backing=backing,
                     )
                     for d in base_devices
                 ],
@@ -321,7 +381,7 @@ class DeviceProfile:
                         name=d.name,
                         env_var=d.env_var,
                         order=d.order,
-                        use_tmpfs=use_tmpfs,
+                        backing=backing,
                     )
                     for d in base_devices
                 ],
@@ -352,9 +412,23 @@ class VMDeviceManager:
 
     def __init__(self):
         self.created_loop_devices: List[Tuple[str, Optional[Path]]] = []
+        self.created_null_blk_devices: List[Tuple[str, int]] = []  # (device_path, nullb_idx)
         self.attached_block_devices: List[str] = []
         self.device_specs: List[DeviceSpec] = []
         self.tmpfs_setup = False
+
+        # Check null_blk support once at init
+        self.null_blk_supported, null_blk_msg = check_null_blk_support()
+        if self.null_blk_supported:
+            logger.info("✓ null_blk support detected")
+            # Clean up any orphaned devices from previous crashed sessions
+            orphaned_count = cleanup_orphaned_null_blk_devices()
+            if orphaned_count > 0:
+                logger.info(
+                    f"✓ Cleaned up {orphaned_count} orphaned null_blk device(s) from previous sessions"
+                )
+        else:
+            logger.debug(f"null_blk not available: {null_blk_msg}")
 
     async def setup_devices(self, device_specs: List[DeviceSpec]) -> Tuple[bool, str, List[str]]:
         """Setup devices from specifications.
@@ -377,12 +451,18 @@ class VMDeviceManager:
             if not valid:
                 return False, f"Device {i} ({spec.name or 'unnamed'}): {error}", []
 
+        # Validate tmpfs and null_blk memory limits
         tmpfs_total = 0.0
+        null_blk_total = 0.0
         for spec in device_specs:
-            if spec.use_tmpfs and spec.size:
+            if spec.size:
                 valid, _, size_gb = _parse_device_size_to_gb(spec.size)
                 if valid:
-                    tmpfs_total += size_gb
+                    # After __post_init__, use_tmpfs is already migrated to backing
+                    if spec.backing == DeviceBacking.TMPFS:
+                        tmpfs_total += size_gb
+                    elif spec.backing == DeviceBacking.NULL_BLK:
+                        null_blk_total += size_gb
 
         if tmpfs_total > MAX_TMPFS_TOTAL_GB:
             return (
@@ -391,11 +471,20 @@ class VMDeviceManager:
                 [],
             )
 
+        if null_blk_total > MAX_NULL_BLK_TOTAL_GB:
+            return (
+                False,
+                f"Total null_blk size {null_blk_total:.1f}G exceeds maximum {MAX_NULL_BLK_TOTAL_GB}G (uses RAM!)",
+                [],
+            )
+
         self.device_specs = sorted(device_specs, key=lambda s: s.order)
         device_paths = []
 
         try:
-            if any(spec.use_tmpfs for spec in self.device_specs if spec.size):
+            # Setup tmpfs if needed for any tmpfs-backed devices
+            # After __post_init__, use_tmpfs is already migrated to backing
+            if any(spec.backing == DeviceBacking.TMPFS and spec.size for spec in self.device_specs):
                 if not _setup_tmpfs_for_loop_devices():
                     return False, "Failed to setup tmpfs for loop devices", []
                 self.tmpfs_setup = True
@@ -403,6 +492,7 @@ class VMDeviceManager:
 
             for spec in self.device_specs:
                 if spec.path:
+                    # Existing device
                     success, error, device_path = await self._validate_existing_device(spec)
                     if not success:
                         await self.cleanup()
@@ -414,12 +504,56 @@ class VMDeviceManager:
                     )
 
                 elif spec.size:
-                    backing_dir = (
-                        HOST_LOOP_TMPFS_DIR if (spec.use_tmpfs and self.tmpfs_setup) else None
-                    )
+                    # Created device - handle null_blk with fallback
+                    if spec.backing == DeviceBacking.NULL_BLK:
+                        if self.null_blk_supported:
+                            # Try null_blk
+                            null_blk_dev, nullb_idx = create_null_blk_device(
+                                spec.size,
+                                spec.name or f"nullb-{len(self.created_null_blk_devices)}",
+                            )
+                            if null_blk_dev:
+                                self.created_null_blk_devices.append((null_blk_dev, nullb_idx))
+                                device_paths.append(null_blk_dev)
+                                logger.info(
+                                    f"✓ Created null_blk device: {null_blk_dev} ({spec.name or 'unnamed'}, {spec.size})"
+                                )
+                                continue
+                            else:
+                                logger.error(
+                                    f"⚠ null_blk device creation failed for {spec.name or 'unnamed'}, "
+                                    f"falling back to tmpfs (performance may be reduced)"
+                                )
+                        else:
+                            logger.error(
+                                f"⚠ null_blk not supported, using tmpfs for {spec.name or 'unnamed'} "
+                                f"(performance may be reduced)"
+                            )
+
+                        # Fallback to tmpfs
+                        # NOTE: This mutates the spec.backing field. This is intentional to ensure
+                        # the device is actually created with tmpfs backing. Callers should be aware
+                        # that DeviceSpec objects may be modified during device setup.
+                        spec.backing = DeviceBacking.TMPFS
+
+                    # Handle tmpfs or disk-backed loop devices
+                    # After __post_init__, use_tmpfs is already migrated to backing
+                    if spec.backing == DeviceBacking.TMPFS:
+                        # Setup tmpfs if not already done (for fallback case)
+                        if not self.tmpfs_setup:
+                            if not _setup_tmpfs_for_loop_devices():
+                                await self.cleanup()
+                                return False, "Failed to setup tmpfs for loop devices", []
+                            self.tmpfs_setup = True
+                            logger.info(f"✓ Setup tmpfs at {HOST_LOOP_TMPFS_DIR}")
+                        backing_dir = HOST_LOOP_TMPFS_DIR
+                    else:
+                        backing_dir = None
+
+                    # Create loop device
                     loop_dev, backing_file = create_loop_device(
                         spec.size,
-                        spec.name or f"custom-{len(self.created_loop_devices)}",
+                        spec.name or f"loop-{len(self.created_loop_devices)}",
                         backing_dir,
                     )
                     if not loop_dev:
@@ -432,8 +566,9 @@ class VMDeviceManager:
 
                     self.created_loop_devices.append((loop_dev, backing_file))
                     device_paths.append(loop_dev)
+                    backing_type = "tmpfs-backed" if backing_dir else "disk-backed"
                     logger.info(
-                        f"✓ Created loop device: {loop_dev} ({spec.name or 'unnamed'}, {spec.size})"
+                        f"✓ Created {backing_type} loop device: {loop_dev} ({spec.name or 'unnamed'}, {spec.size})"
                     )
 
             return True, "", device_paths
@@ -489,13 +624,21 @@ class VMDeviceManager:
 
     def cleanup(self):
         """Cleanup all created devices."""
+        # Clean up loop devices
         for loop_dev, backing_file in self.created_loop_devices:
             cleanup_loop_device(loop_dev, backing_file)
 
+        # Clean up null_blk devices
+        for null_blk_dev, nullb_idx in self.created_null_blk_devices:
+            cleanup_null_blk_device(null_blk_dev, nullb_idx)
+
+        # Clean up tmpfs
         if self.tmpfs_setup:
             _cleanup_tmpfs_for_loop_devices()
 
+        # Reset state
         self.created_loop_devices = []
+        self.created_null_blk_devices = []
         self.attached_block_devices = []
         self.device_specs = []
         self.tmpfs_setup = False
@@ -507,10 +650,14 @@ class VMDeviceManager:
         in the order they are added here (respecting order parameter).
 
         Returns:
-            List of arguments to pass to vng (e.g., ["--disk", "/dev/loop0", "--disk", "/dev/loop1"])
+            List of arguments to pass to vng (e.g., ["--disk", "/dev/loop0", "--disk", "/dev/nullb0"])
         """
         args = []
-        all_devices = [d for d, _ in self.created_loop_devices] + self.attached_block_devices
+        all_devices = (
+            [d for d, _ in self.created_loop_devices]
+            + [d for d, _ in self.created_null_blk_devices]
+            + self.attached_block_devices
+        )
 
         for device in all_devices:
             args.extend(["--disk", device])

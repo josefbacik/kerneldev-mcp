@@ -123,15 +123,19 @@ class TestDeviceProfile:
 
     def test_profile_with_tmpfs(self):
         """Test profile with tmpfs override."""
-        profile = DeviceProfile.get_profile("fstests_default", use_tmpfs=True)
+        from src.kerneldev_mcp.device_utils import DeviceBacking
+
+        profile = DeviceProfile.get_profile("fstests_default", backing=DeviceBacking.TMPFS)
         assert profile is not None
-        assert all(d.use_tmpfs is True for d in profile.devices)
+        assert all(d.backing == DeviceBacking.TMPFS for d in profile.devices)
 
     def test_profile_without_tmpfs(self):
         """Test profile without tmpfs."""
-        profile = DeviceProfile.get_profile("fstests_default", use_tmpfs=False)
+        from src.kerneldev_mcp.device_utils import DeviceBacking
+
+        profile = DeviceProfile.get_profile("fstests_default", backing=DeviceBacking.DISK)
         assert profile is not None
-        assert all(d.use_tmpfs is False for d in profile.devices)
+        assert all(d.backing == DeviceBacking.DISK for d in profile.devices)
 
     def test_nonexistent_profile(self):
         """Test getting non-existent profile."""
