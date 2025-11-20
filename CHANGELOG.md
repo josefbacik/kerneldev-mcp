@@ -3,6 +3,15 @@
 ## [Unreleased] - 2025-01-XX
 
 ### Added
+- **New `fstests_baseline_save` tool**: Save fstests results from a results directory to git notes and/or baseline storage
+  - Allows inspecting test results before saving them (prevents accidentally saving misconfigured runs)
+  - Workflow: Run tests with `fstests_vm_boot_and_run` → inspect results → save with `fstests_baseline_save`
+  - Supports saving to git notes (attached to current commit) with `save_to_git=true`
+  - Supports saving as baseline for regression comparison with `save_baseline=true`
+  - Parses check.log from results directory (e.g., `~/.kerneldev-mcp/fstests-results/run-<timestamp>/`)
+  - Updated `fstests_git_list` description to reference new tool instead of removed `fstests_run_and_save`
+  - **Context**: This restores the git notes / baseline saving functionality that was removed in commit cae3d57 when the dangerous host-based `fstests_run` and `fstests_run_and_save` tools were removed for safety. The new tool works with VM-based testing results only.
+
 - **Extended kernel config requirements for fstests**: Added critical CONFIG options for comprehensive testing
   - **Tier 1 - High Value (90+ tests):**
     - CONFIG_DM_FLAKEY=m - Error injection and failure simulation

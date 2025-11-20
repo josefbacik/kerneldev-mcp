@@ -1250,6 +1250,61 @@ Current results can be loaded from git notes or a JSON file.""",
             inputSchema={"type": "object", "properties": {}},
         ),
         Tool(
+            name="fstests_baseline_save",
+            description="""Save fstests results from a results directory as a baseline and/or to git notes.
+
+This tool allows you to:
+  1. Run tests with fstests_vm_boot_and_run
+  2. Inspect the results to verify they're valid
+  3. Save them only if you're satisfied with the configuration
+
+This prevents accidentally saving misconfigured test runs as baselines.
+
+The results directory should contain a check.log file from a previous fstests run
+(typically ~/.kerneldev-mcp/fstests-results/run-<timestamp>/).""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "results_dir": {
+                        "type": "string",
+                        "description": "Path to fstests results directory (e.g., ~/.kerneldev-mcp/fstests-results/run-20251120-143022/)",
+                    },
+                    "save_to_git": {
+                        "type": "boolean",
+                        "description": "Save results to git notes (attached to current commit). Requires kernel_path.",
+                        "default": False,
+                    },
+                    "save_baseline": {
+                        "type": "boolean",
+                        "description": "Save results as a baseline for regression comparison. Requires baseline_name.",
+                        "default": False,
+                    },
+                    "kernel_path": {
+                        "type": "string",
+                        "description": "Path to kernel source directory (git repository, required if save_to_git=true)",
+                    },
+                    "baseline_name": {
+                        "type": "string",
+                        "description": "Name for the baseline (required if save_baseline=true). Example: 'upstream-6.12-rc1'",
+                    },
+                    "fstype": {
+                        "type": "string",
+                        "description": "Filesystem type that was tested (for metadata)",
+                        "default": "ext4",
+                    },
+                    "kernel_version": {
+                        "type": "string",
+                        "description": "Kernel version string for metadata (optional)",
+                    },
+                    "test_selection": {
+                        "type": "string",
+                        "description": "Test selection that was used (e.g., '-g quick', for metadata)",
+                    },
+                },
+                "required": ["results_dir"],
+            },
+        ),
+        Tool(
             name="fstests_git_load",
             description="Load fstests results from git notes",
             inputSchema={
@@ -1273,7 +1328,7 @@ Current results can be loaded from git notes or a JSON file.""",
         ),
         Tool(
             name="fstests_git_list",
-            description="List commits with stored fstests results (saved via fstests_run_and_save)",
+            description="List commits with stored fstests results (saved via fstests_baseline_save with save_to_git=true)",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -2704,6 +2759,131 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
             # Format output
             output = format_comparison_result(comparison, baseline_name)
+
+            return [TextContent(type="text", text=output)]
+
+        elif name == "fstests_baseline_save":
+            results_dir = Path(arguments["results_dir"]).expanduser()
+            save_to_git = arguments.get("save_to_git", False)
+            save_baseline = arguments.get("save_baseline", False)
+            kernel_path = arguments.get("kernel_path")
+            baseline_name = arguments.get("baseline_name")
+            fstype = arguments.get("fstype", "ext4")
+            kernel_version = arguments.get("kernel_version")
+            test_selection = arguments.get("test_selection")
+
+            # Validate arguments
+            if save_to_git and not kernel_path:
+                return [
+                    TextContent(
+                        type="text",
+                        text="Error: kernel_path is required when save_to_git=true",
+                    )
+                ]
+
+            if save_baseline and not baseline_name:
+                return [
+                    TextContent(
+                        type="text",
+                        text="Error: baseline_name is required when save_baseline=true",
+                    )
+                ]
+
+            if not save_to_git and not save_baseline:
+                return [
+                    TextContent(
+                        type="text",
+                        text="Error: At least one of save_to_git or save_baseline must be true",
+                    )
+                ]
+
+            # Check results directory exists
+            if not results_dir.exists():
+                return [
+                    TextContent(
+                        type="text", text=f"Error: Results directory does not exist: {results_dir}"
+                    )
+                ]
+
+            # Look for check.log file
+            check_log = results_dir / "check.log"
+            if not check_log.exists():
+                return [
+                    TextContent(
+                        type="text",
+                        text=f"Error: check.log not found in results directory: {results_dir}",
+                    )
+                ]
+
+            # Parse results from check.log
+            try:
+                with open(check_log) as f:
+                    check_output = f.read()
+
+                # Use FstestsManager to parse the output
+                fstests_result = fstests_manager.parse_check_output(
+                    check_output, check_log=check_log
+                )
+
+                logger.info(f"Parsed results: {fstests_result.summary()}")
+            except Exception as e:
+                return [TextContent(type="text", text=f"Error parsing check.log: {str(e)}")]
+
+            output = "=== Saving fstests results ===\n\n"
+            output += f"Results from: {results_dir}\n"
+            output += f"{fstests_result.summary()}\n\n"
+
+            # Save to git notes if requested
+            if save_to_git:
+                try:
+                    git_mgr = GitManager(Path(kernel_path).expanduser())
+
+                    # Get test selection string for metadata
+                    if not test_selection:
+                        # Try to infer from check.log or use default
+                        test_selection = "-g quick"  # Default assumption
+
+                    success = git_mgr.save_fstests_results(
+                        results=fstests_result,
+                        target="commit",  # Save to current commit
+                        kernel_version=kernel_version,
+                        fstype=fstype,
+                        test_selection=test_selection,
+                    )
+
+                    if success:
+                        commit_sha = git_mgr.get_current_commit()
+                        output += f"✓ Saved to git notes (commit: {commit_sha[:8]})\n"
+                    else:
+                        output += "✗ Failed to save to git notes\n"
+
+                except ValueError as e:
+                    output += f"✗ Git error: {str(e)}\n"
+                except Exception as e:
+                    output += f"✗ Error saving to git: {str(e)}\n"
+
+            # Save as baseline if requested
+            if save_baseline:
+                try:
+                    baseline = baseline_manager.save_baseline(
+                        baseline_name=baseline_name,
+                        results=fstests_result,
+                        kernel_version=kernel_version,
+                        fstype=fstype,
+                        test_selection=test_selection,
+                    )
+
+                    output += f"✓ Saved as baseline: {baseline_name}\n"
+                    output += f"  Location: {baseline.baseline_dir}\n"
+
+                except Exception as e:
+                    output += f"✗ Error saving baseline: {str(e)}\n"
+
+            output += "\n=== Summary ===\n"
+            output += f"Total tests: {fstests_result.total_tests}\n"
+            output += f"Passed: {fstests_result.passed}\n"
+            output += f"Failed: {fstests_result.failed}\n"
+            output += f"Not run: {fstests_result.notrun}\n"
 
             return [TextContent(type="text", text=output)]
 
