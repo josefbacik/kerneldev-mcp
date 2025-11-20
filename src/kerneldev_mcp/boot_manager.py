@@ -2751,6 +2751,24 @@ EOF
 echo "Configuration written to local.config"
 echo ""
 
+# Create required test users
+# fstests requires fsgqa and fsgqa2 users for permission tests
+echo "Creating fstests test users..."
+if ! id fsgqa &>/dev/null; then
+    useradd -m fsgqa
+    echo "  ✓ Created user: fsgqa"
+else
+    echo "  ✓ User fsgqa already exists"
+fi
+
+if ! id fsgqa2 &>/dev/null; then
+    useradd -m fsgqa2
+    echo "  ✓ Created user: fsgqa2"
+else
+    echo "  ✓ User fsgqa2 already exists"
+fi
+echo ""
+
 # Change to fstests directory
 cd {fstests_path} || {{
     echo "ERROR: Failed to change to fstests directory"
@@ -3287,6 +3305,24 @@ export RESULT_BASE=/tmp/results
 EOF
     echo "✓ Created fstests local.config"
 fi
+
+# Create required test users
+# fstests requires fsgqa and fsgqa2 users for permission tests
+echo "Creating fstests test users..."
+if ! id fsgqa &>/dev/null; then
+    useradd -m fsgqa
+    echo "  ✓ Created user: fsgqa"
+else
+    echo "  ✓ User fsgqa already exists"
+fi
+
+if ! id fsgqa2 &>/dev/null; then
+    useradd -m fsgqa2
+    echo "  ✓ Created user: fsgqa2"
+else
+    echo "  ✓ User fsgqa2 already exists"
+fi
+echo ""
 
 echo "=== Environment Ready ==="
 echo ""

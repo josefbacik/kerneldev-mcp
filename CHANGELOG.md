@@ -3,6 +3,13 @@
 ## [Unreleased] - 2025-01-XX
 
 ### Added
+- **Automatic fstests user creation in VM**: VM-based fstests runs now automatically create required test users
+  - Creates `fsgqa` and `fsgqa2` users before running tests
+  - Applies to both `fstests_vm_boot_and_run` and `fstests_vm_boot_custom`
+  - Checks if users already exist to avoid errors on repeated runs
+  - Required for permission and ownership tests (e.g., generic/355, generic/375)
+  - Documentation updated with manual setup instructions for local runs
+
 - **fstests runtime dependencies**: Added `fsverity-utils` and `duperemove` to fstests dependency lists
   - Updated package installation commands in `fstests_manager.py`
   - Added new troubleshooting section in `docs/implementation/FSTESTS.md`

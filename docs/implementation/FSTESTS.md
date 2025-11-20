@@ -715,6 +715,18 @@ sudo dnf install -y fsverity-utils duperemove
 
 **Note**: The `fstests_setup_install` tool will show these in the dependency hint if the build fails. However, these are runtime dependencies and may need to be installed separately even if fstests builds successfully.
 
+### Required test users
+
+fstests requires specific users for permission and ownership tests. When running tests in VMs via `fstests_vm_boot_and_run` or `fstests_vm_boot_custom`, these users are **automatically created**:
+- `fsgqa` - Primary test user
+- `fsgqa2` - Secondary test user for multi-user tests
+
+For manual/local fstests runs, create these users before running tests:
+```bash
+sudo useradd -m fsgqa
+sudo useradd -m fsgqa2
+```
+
 ## Storage and Cleanup
 
 ### Baseline Storage
