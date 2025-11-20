@@ -8,7 +8,7 @@ import re
 import subprocess
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -906,6 +906,255 @@ class FstestsManager:
             details = f"Actual output:\n{bad_output}\n"
 
         return details
+
+    def check_environment(
+        self,
+        kernel_path: Optional[Path] = None,
+        check_kernel_config: bool = False,
+        check_devices: bool = True,
+        check_virtme: bool = True,
+    ) -> Dict[str, Any]:
+        """Comprehensive environment check for fstests.
+
+        Verifies:
+        - fstests installation and build status
+        - Kernel configuration (if kernel_path provided)
+        - Device setup (if local.config exists)
+        - virtme-ng availability
+
+        Args:
+            kernel_path: Path to kernel source (optional, for config checking)
+            check_kernel_config: Whether to check kernel .config for required options
+            check_devices: Whether to check device setup from local.config
+            check_virtme: Whether to check virtme-ng availability
+
+        Returns:
+            Dictionary with check results and recommendations
+        """
+        results = {
+            "overall_status": "ok",  # ok, warning, error
+            "checks": {},
+            "issues": [],
+            "recommendations": [],
+        }
+
+        # Check 1: fstests installation
+        fstests_installed = self.check_installed()
+        results["checks"]["fstests_installed"] = {
+            "status": "ok" if fstests_installed else "error",
+            "message": f"fstests installed at {self.fstests_path}"
+            if fstests_installed
+            else "fstests not installed",
+        }
+        if not fstests_installed:
+            results["overall_status"] = "error"
+            results["issues"].append("fstests is not installed")
+            results["recommendations"].append("Run fstests_setup_install to install fstests")
+            return results
+
+        # Check version
+        version = self.get_version()
+        if version:
+            results["checks"]["fstests_installed"]["version"] = version
+
+        # Check if built (check for common binaries)
+        check_binary = self.fstests_path / "check"
+        src_exists = (self.fstests_path / "src").exists()
+        results["checks"]["fstests_built"] = {
+            "status": "ok" if check_binary.exists() and src_exists else "warning",
+            "message": "fstests is built" if check_binary.exists() else "fstests may not be built",
+        }
+        if not check_binary.exists():
+            results["overall_status"] = (
+                "warning" if results["overall_status"] == "ok" else results["overall_status"]
+            )
+            results["issues"].append("fstests check binary not found")
+            results["recommendations"].append(
+                "fstests may need to be rebuilt (./configure && make)"
+            )
+
+        # Check 2: Kernel configuration (if requested)
+        if check_kernel_config and kernel_path:
+            kernel_path = Path(kernel_path).expanduser()
+            config_file = kernel_path / ".config"
+
+            if not config_file.exists():
+                results["checks"]["kernel_config"] = {
+                    "status": "error",
+                    "message": "Kernel .config not found",
+                }
+                results["overall_status"] = "error"
+                results["issues"].append(f"Kernel .config not found at {config_file}")
+                results["recommendations"].append(
+                    "Configure kernel using get_config_template + apply_config"
+                )
+            else:
+                # Read .config and check for critical options
+                config_content = config_file.read_text()
+                critical_options = {
+                    "CONFIG_BLOCK": "Block device support",
+                    "CONFIG_FILE_LOCKING": "File locking support",
+                    "CONFIG_FS_POSIX_ACL": "POSIX ACL support",
+                    "CONFIG_BLK_DEV_LOOP": "Loop device support",
+                    "CONFIG_DM_LOG_WRITES": "dm-log-writes for write-order verification",
+                    "CONFIG_QUOTA": "Quota support",
+                    "CONFIG_MD": "Multiple device support (MD)",
+                    "CONFIG_BLK_DEV_DM": "Device mapper support",
+                }
+
+                missing_options = []
+                disabled_options = []
+                found_options = []
+
+                for option, desc in critical_options.items():
+                    # Check if option is set to =y or =m
+                    if f"{option}=y" in config_content or f"{option}=m" in config_content:
+                        found_options.append(f"{option} ({desc})")
+                    elif f"# {option} is not set" in config_content:
+                        disabled_options.append(f"{option} ({desc})")
+                    else:
+                        missing_options.append(f"{option} ({desc})")
+
+                if disabled_options or missing_options:
+                    status = "warning"
+                    message = f"Kernel config has {len(disabled_options) + len(missing_options)} missing critical options"
+                    results["overall_status"] = (
+                        "warning"
+                        if results["overall_status"] == "ok"
+                        else results["overall_status"]
+                    )
+
+                    if disabled_options:
+                        results["issues"].append(
+                            f"Disabled options: {', '.join([o.split(' ')[0] for o in disabled_options[:3]])}"
+                        )
+                    if missing_options:
+                        results["issues"].append(
+                            f"Missing options: {', '.join([o.split(' ')[0] for o in missing_options[:3]])}"
+                        )
+
+                    results["recommendations"].append(
+                        "Use get_config_template(target='filesystem') or target='btrfs' for optimal config"
+                    )
+                else:
+                    status = "ok"
+                    message = f"Kernel config has all {len(found_options)} critical options enabled"
+
+                results["checks"]["kernel_config"] = {
+                    "status": status,
+                    "message": message,
+                    "found": len(found_options),
+                    "disabled": len(disabled_options),
+                    "missing": len(missing_options),
+                }
+
+                if disabled_options:
+                    results["checks"]["kernel_config"]["disabled_options"] = disabled_options[:5]
+                if missing_options:
+                    results["checks"]["kernel_config"]["missing_options"] = missing_options[:5]
+
+        # Check 3: Device setup (local.config)
+        if check_devices:
+            local_config = self.fstests_path / "local.config"
+
+            if not local_config.exists():
+                results["checks"]["devices"] = {
+                    "status": "warning",
+                    "message": "local.config not found - devices not configured",
+                }
+                results["overall_status"] = (
+                    "warning" if results["overall_status"] == "ok" else results["overall_status"]
+                )
+                results["recommendations"].append(
+                    "Run fstests_setup_devices + fstests_setup_configure to set up devices"
+                )
+            else:
+                # Parse local.config to verify required variables
+                config_text = local_config.read_text()
+                required_vars = ["TEST_DEV", "TEST_DIR", "SCRATCH_DEV", "SCRATCH_MNT", "FSTYP"]
+                found_vars = []
+                missing_vars = []
+
+                for var in required_vars:
+                    if f"export {var}=" in config_text:
+                        found_vars.append(var)
+                    else:
+                        missing_vars.append(var)
+
+                if missing_vars:
+                    results["checks"]["devices"] = {
+                        "status": "error",
+                        "message": f"local.config missing required variables: {', '.join(missing_vars)}",
+                        "found": found_vars,
+                        "missing": missing_vars,
+                    }
+                    results["overall_status"] = "error"
+                    results["issues"].append("local.config is incomplete")
+                    results["recommendations"].append(
+                        "Run fstests_setup_configure to fix local.config"
+                    )
+                else:
+                    # Extract device paths and check if they exist
+                    test_dev_match = re.search(r"export TEST_DEV=([^\s]+)", config_text)
+                    scratch_dev_match = re.search(r"export SCRATCH_DEV=([^\s]+)", config_text)
+
+                    device_status = []
+                    if test_dev_match:
+                        test_dev = test_dev_match.group(1).strip("\"'")
+                        if Path(test_dev).exists():
+                            device_status.append(f"TEST_DEV={test_dev} exists")
+                        else:
+                            device_status.append(f"TEST_DEV={test_dev} NOT FOUND")
+
+                    if scratch_dev_match:
+                        scratch_dev = scratch_dev_match.group(1).strip("\"'")
+                        if Path(scratch_dev).exists():
+                            device_status.append(f"SCRATCH_DEV={scratch_dev} exists")
+                        else:
+                            device_status.append(f"SCRATCH_DEV={scratch_dev} NOT FOUND")
+
+                    results["checks"]["devices"] = {
+                        "status": "ok",
+                        "message": f"local.config configured with {len(found_vars)} required variables",
+                        "variables": found_vars,
+                        "device_status": device_status,
+                    }
+
+        # Check 4: virtme-ng availability
+        if check_virtme:
+            try:
+                result = subprocess.run(
+                    ["vng", "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                virtme_available = result.returncode == 0
+                version_output = result.stdout.strip() if result.returncode == 0 else ""
+
+                results["checks"]["virtme_ng"] = {
+                    "status": "ok" if virtme_available else "warning",
+                    "message": f"virtme-ng available: {version_output}"
+                    if virtme_available
+                    else "virtme-ng not found",
+                }
+
+                if not virtme_available:
+                    results["overall_status"] = (
+                        "warning"
+                        if results["overall_status"] == "ok"
+                        else results["overall_status"]
+                    )
+                    results["recommendations"].append(
+                        "Install virtme-ng for VM-based testing: pip install virtme-ng"
+                    )
+            except Exception as e:
+                results["checks"]["virtme_ng"] = {
+                    "status": "warning",
+                    "message": f"Could not check virtme-ng: {e}",
+                }
+
+        return results
 
     def list_groups(self) -> Dict[str, str]:
         """List available test groups.

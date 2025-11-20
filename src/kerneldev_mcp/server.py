@@ -716,6 +716,48 @@ For automatic VM-based testing without manual setup, use fstests_vm_boot_and_run
             },
         ),
         Tool(
+            name="fstests_check_environment",
+            description="""Comprehensive environment check for fstests setup.
+
+This tool performs a complete validation of your fstests environment, checking:
+- fstests installation and build status
+- Kernel configuration for required features (if kernel_path provided)
+- Device setup from local.config (if configured)
+- virtme-ng availability for VM testing
+
+Use this to diagnose issues before running tests or to verify your setup is complete.
+
+RECOMMENDED: Run this before starting fstests testing to catch configuration issues early.""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "fstests_path": {
+                        "type": "string",
+                        "description": "Path to fstests installation (optional, default: ~/.kerneldev-mcp/fstests)",
+                    },
+                    "kernel_path": {
+                        "type": "string",
+                        "description": "Path to kernel source directory (optional, enables kernel config checking)",
+                    },
+                    "check_kernel_config": {
+                        "type": "boolean",
+                        "description": "Check kernel .config for required options (requires kernel_path)",
+                        "default": False,
+                    },
+                    "check_devices": {
+                        "type": "boolean",
+                        "description": "Check device setup from local.config",
+                        "default": True,
+                    },
+                    "check_virtme": {
+                        "type": "boolean",
+                        "description": "Check virtme-ng availability",
+                        "default": True,
+                    },
+                },
+            },
+        ),
+        Tool(
             name="fstests_setup_install",
             description="""Clone and build fstests from git.
 
@@ -2324,6 +2366,100 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 output += "\nInstall with the install_fstests tool"
 
             return [TextContent(type="text", text=output)]
+
+        elif name == "fstests_check_environment":
+            fstests_path = arguments.get("fstests_path")
+            if fstests_path:
+                manager = FstestsManager(Path(fstests_path))
+            else:
+                manager = fstests_manager
+
+            kernel_path = arguments.get("kernel_path")
+            check_kernel_config = arguments.get("check_kernel_config", False)
+            check_devices = arguments.get("check_devices", True)
+            check_virtme = arguments.get("check_virtme", True)
+
+            # Run comprehensive check
+            results = manager.check_environment(
+                kernel_path=Path(kernel_path) if kernel_path else None,
+                check_kernel_config=check_kernel_config,
+                check_devices=check_devices,
+                check_virtme=check_virtme,
+            )
+
+            # Format output
+            output = []
+            output.append("=" * 60)
+            output.append("FSTESTS ENVIRONMENT CHECK")
+            output.append("=" * 60)
+            output.append("")
+
+            # Overall status
+            status_symbol = {
+                "ok": "✓",
+                "warning": "⚠",
+                "error": "✗",
+            }
+            symbol = status_symbol.get(results["overall_status"], "?")
+            output.append(f"Overall Status: {symbol} {results['overall_status'].upper()}")
+            output.append("")
+
+            # Individual checks
+            output.append("Individual Checks:")
+            output.append("-" * 60)
+            for check_name, check_data in results["checks"].items():
+                status = check_data.get("status", "unknown")
+                message = check_data.get("message", "")
+                symbol = status_symbol.get(status, "?")
+
+                output.append(f"\n{symbol} {check_name.replace('_', ' ').title()}")
+                output.append(f"  {message}")
+
+                # Add extra details if available
+                if "version" in check_data:
+                    output.append(f"  Version: {check_data['version']}")
+
+                if "found" in check_data and "disabled" in check_data and "missing" in check_data:
+                    output.append(
+                        f"  Found: {check_data['found']}, Disabled: {check_data['disabled']}, Missing: {check_data['missing']}"
+                    )
+
+                if "disabled_options" in check_data:
+                    output.append("  Disabled options:")
+                    for opt in check_data["disabled_options"]:
+                        output.append(f"    - {opt}")
+
+                if "missing_options" in check_data:
+                    output.append("  Missing options:")
+                    for opt in check_data["missing_options"]:
+                        output.append(f"    - {opt}")
+
+                if "variables" in check_data:
+                    output.append(f"  Configured variables: {', '.join(check_data['variables'])}")
+
+                if "device_status" in check_data:
+                    for dev_status in check_data["device_status"]:
+                        output.append(f"  {dev_status}")
+
+            # Issues
+            if results["issues"]:
+                output.append("\n")
+                output.append("Issues Found:")
+                output.append("-" * 60)
+                for i, issue in enumerate(results["issues"], 1):
+                    output.append(f"{i}. {issue}")
+
+            # Recommendations
+            if results["recommendations"]:
+                output.append("\n")
+                output.append("Recommendations:")
+                output.append("-" * 60)
+                for i, rec in enumerate(results["recommendations"], 1):
+                    output.append(f"{i}. {rec}")
+
+            output.append("\n" + "=" * 60)
+
+            return [TextContent(type="text", text="\n".join(output))]
 
         elif name == "fstests_setup_install":
             install_path = arguments.get("install_path")

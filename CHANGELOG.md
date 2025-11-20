@@ -13,6 +13,41 @@
 
 ### Added
 
+#### fstests Environment Validation and Configuration Documentation
+
+**New Tool: `fstests_check_environment`**
+- Comprehensive environment validation before running fstests
+- Checks:
+  - fstests installation and build status
+  - Kernel configuration for required CONFIG options (8 critical options)
+  - Device setup from local.config with device existence verification
+  - virtme-ng availability for VM-based testing
+- Provides actionable recommendations for fixing issues
+- Returns structured status: ok, warning, or error with detailed messages
+- Usage: `fstests_check_environment(kernel_path, check_kernel_config=True)`
+
+**Enhanced fstests Documentation** (docs/implementation/FSTESTS.md)
+- New "Kernel Configuration Requirements" section
+- Documents why kernel config matters for fstests success
+- Pre-built configuration templates:
+  - `get_config_template(target="filesystem")` - General filesystem testing (ext4, XFS, BTRFS, F2FS)
+  - `get_config_template(target="btrfs")` - BTRFS-specific with comprehensive debugging
+  - `debug_level="sanitizers"` option for KASAN/UBSAN/KCOV
+- Lists critical CONFIG options:
+  - Essential: BLOCK, FILE_LOCKING, FS_POSIX_ACL, BLK_DEV_LOOP
+  - Write-order verification: DM_LOG_WRITES, MD, BLK_DEV_DM
+  - Quota tests: QUOTA, QUOTACTL, QFMT_V2
+  - Encryption: FS_ENCRYPTION, CRYPTO_AES
+  - Snapshot/RAID: DM_SNAPSHOT, DM_THIN_PROVISIONING
+- Step-by-step workflow for applying configs and building kernels
+- Integration with existing fstests tools
+
+**Benefits:**
+- Reduces "test not run" failures due to missing kernel features
+- Catches configuration issues early before time-consuming test runs
+- Provides clear guidance for optimal fstests setup
+- Helps kernel developers avoid common fstests configuration pitfalls
+
 #### High-Performance null_blk Device Support
 Implemented memory-backed null_blk devices as a new device backing option, providing 10-100× performance improvement over traditional loop devices for VM-based kernel testing.
 

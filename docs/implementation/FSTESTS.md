@@ -10,6 +10,163 @@ fstests (formerly xfstests) is the standard regression test suite for Linux file
 
 **Important**: fstests will NOT pass 100% on most systems. The standard workflow is **baseline comparison** - comparing test results before and after your changes to identify actual regressions.
 
+## Kernel Configuration Requirements
+
+### Why Kernel Configuration Matters
+
+Many fstests tests require specific kernel features to be enabled. Running fstests with a minimal or incorrectly configured kernel will result in many tests being skipped or failing. Critical features include:
+
+- **DM_LOG_WRITES** - Required for write-order verification tests
+- **Quota support** - Required for quota tests
+- **POSIX ACLs** - Required for ACL tests
+- **Filesystem encryption** - Required for encryption tests
+- **Device mapper** - Required for snapshot and RAID tests
+- **Compression support** - Required for compression tests
+
+### Recommended Configuration Templates
+
+kerneldev-mcp provides pre-built configuration templates optimized for filesystem testing:
+
+#### General Filesystem Testing
+
+For testing multiple filesystems (ext4, XFS, BTRFS, F2FS):
+
+```python
+{
+  "tool": "get_config_template",
+  "params": {
+    "target": "filesystem",
+    "debug_level": "basic"
+  }
+}
+```
+
+This template includes:
+- All major filesystems (ext4, XFS, BTRFS, F2FS)
+- DM_LOG_WRITES for write-order verification
+- Quota support (CONFIG_QUOTA, CONFIG_QFMT_V2)
+- POSIX ACLs (CONFIG_FS_POSIX_ACL)
+- Encryption (CONFIG_FS_ENCRYPTION) and verity (CONFIG_FS_VERITY)
+- Compression support (zlib, lzo, zstd, lz4)
+- Device mapper (CONFIG_DM_SNAPSHOT, CONFIG_DM_THIN_PROVISIONING, CONFIG_DM_LOG_WRITES)
+- Loop devices (CONFIG_BLK_DEV_LOOP)
+- Network filesystems (NFS, CIFS)
+
+#### BTRFS-Specific Testing
+
+For BTRFS development with comprehensive debugging:
+
+```python
+{
+  "tool": "get_config_template",
+  "params": {
+    "target": "btrfs",
+    "debug_level": "full_debug"
+  }
+}
+```
+
+This template includes all the above plus:
+- BTRFS debugging (CONFIG_BTRFS_DEBUG, CONFIG_BTRFS_ASSERT)
+- BTRFS integrity checking (CONFIG_BTRFS_FS_CHECK_INTEGRITY)
+- BTRFS sanity tests (CONFIG_BTRFS_FS_RUN_SANITY_TESTS)
+- BTRFS reference verification (CONFIG_BTRFS_FS_REF_VERIFY)
+
+#### With Sanitizers (Recommended for Development)
+
+For catching memory corruption and undefined behavior:
+
+```python
+{
+  "tool": "get_config_template",
+  "params": {
+    "target": "filesystem",  # or "btrfs"
+    "debug_level": "sanitizers"
+  }
+}
+```
+
+This adds:
+- KASAN (Kernel Address Sanitizer) for memory corruption detection
+- UBSAN (Undefined Behavior Sanitizer)
+- KCOV for code coverage (useful with fuzzing)
+
+### Applying Configuration to Kernel
+
+After generating a config, apply it to your kernel:
+
+```python
+{
+  "tool": "apply_config",
+  "params": {
+    "kernel_path": "/path/to/linux",
+    "config_source": "inline",
+    "config_content": "<config from get_config_template>"
+  }
+}
+```
+
+Then build your kernel:
+
+```python
+{
+  "tool": "build_kernel",
+  "params": {
+    "kernel_path": "/path/to/linux",
+    "jobs": 16
+  }
+}
+```
+
+### Critical CONFIG Options
+
+If you're using a custom configuration, ensure these are enabled:
+
+**Essential for most tests:**
+- `CONFIG_BLOCK=y`
+- `CONFIG_FILE_LOCKING=y`
+- `CONFIG_FS_POSIX_ACL=y`
+- `CONFIG_BLK_DEV_LOOP=y`
+
+**Required for write-order verification tests:**
+- `CONFIG_MD=y`
+- `CONFIG_BLK_DEV_DM=y`
+- `CONFIG_DM_LOG_WRITES=y`
+
+**Required for quota tests:**
+- `CONFIG_QUOTA=y`
+- `CONFIG_QUOTACTL=y`
+- `CONFIG_QFMT_V2=y`
+
+**Required for encryption tests:**
+- `CONFIG_FS_ENCRYPTION=y`
+- `CONFIG_CRYPTO_AES=y`
+
+**Required for snapshot/RAID tests:**
+- `CONFIG_DM_SNAPSHOT=y`
+- `CONFIG_DM_THIN_PROVISIONING=y`
+
+### Verifying Your Configuration
+
+Use the comprehensive environment check tool:
+
+```python
+{
+  "tool": "fstests_check_environment",
+  "params": {
+    "kernel_path": "/path/to/linux",
+    "fstests_path": "~/.kerneldev-mcp/fstests",
+    "check_kernel_config": true
+  }
+}
+```
+
+This will verify:
+- Kernel configuration has required options
+- fstests is installed and built
+- Devices are configured (if local.config exists)
+- All dependencies are satisfied
+
 ## Quick Start
 
 ### 1. Check if fstests is installed
