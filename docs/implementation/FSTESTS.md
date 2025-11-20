@@ -685,6 +685,35 @@ Error: Timeout after 300s
 
 This is normal! Use baseline comparison to identify only the NEW failures.
 
+### Missing runtime dependencies
+
+Some tests require additional tools that may not be installed by default:
+
+```
+generic/xxx: [not run] fsverity not installed
+generic/yyy: [not run] duperemove not found
+```
+
+**Solution**: Install runtime dependencies
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get install -y fsverity-utils duperemove
+```
+
+**Fedora/RHEL:**
+```bash
+sudo dnf install -y fsverity-utils duperemove
+```
+
+**What these tools do:**
+- **fsverity-utils**: Tools for fs-verity (filesystem integrity verification)
+  - Required for encryption and verity tests (generic/574, generic/575, etc.)
+- **duperemove**: File deduplication tool for btrfs and XFS
+  - Required for deduplication tests (generic/505, btrfs/xxx, etc.)
+
+**Note**: The `fstests_setup_install` tool will show these in the dependency hint if the build fails. However, these are runtime dependencies and may need to be installed separately even if fstests builds successfully.
+
 ## Storage and Cleanup
 
 ### Baseline Storage

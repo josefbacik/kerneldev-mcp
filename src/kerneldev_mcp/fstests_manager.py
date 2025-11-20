@@ -374,11 +374,11 @@ class FstestsManager:
                 "  Ubuntu/Debian: sudo apt-get install -y xfslibs-dev uuid-dev libtool-bin \\\n"
                 "    e2fsprogs automake gcc libuuid1 quota attr libattr1-dev make \\\n"
                 "    libacl1-dev libaio-dev xfsprogs libgdbm-dev gawk fio dbench \\\n"
-                "    uuid-runtime liburing-dev libcap-dev\n"
+                "    uuid-runtime liburing-dev libcap-dev fsverity-utils duperemove\n"
                 "  Fedora/RHEL: sudo dnf install -y acl attr automake bc dbench dump \\\n"
                 "    e2fsprogs fio gawk gcc indent libtool lvm2 make psmisc quota sed \\\n"
                 "    xfsdump xfsprogs libacl-devel libattr-devel libaio-devel \\\n"
-                "    libuuid-devel xfsprogs-devel libcap-devel liburing-devel"
+                "    libuuid-devel xfsprogs-devel libcap-devel liburing-devel fsverity-utils duperemove"
             )
             return False, f"{message}{hint}"
 

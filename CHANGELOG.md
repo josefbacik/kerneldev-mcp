@@ -2,6 +2,14 @@
 
 ## [Unreleased] - 2025-01-XX
 
+### Added
+- **fstests runtime dependencies**: Added `fsverity-utils` and `duperemove` to fstests dependency lists
+  - Updated package installation commands in `fstests_manager.py`
+  - Added new troubleshooting section in `docs/implementation/FSTESTS.md`
+  - Documents what these tools do and which tests require them
+  - fsverity-utils: Required for fs-verity integrity verification tests
+  - duperemove: Required for file deduplication tests on btrfs and XFS
+
 ### Fixed
 - **Critical**: Fixed MCP server not reading `backing` parameter from custom device specifications
   - Bug caused all `backing: "null_blk"` requests to be silently ignored, falling back to tmpfs/disk
