@@ -9,6 +9,10 @@
   - Documents what these tools do and which tests require them
   - fsverity-utils: Required for fs-verity integrity verification tests
   - duperemove: Required for file deduplication tests on btrfs and XFS
+  - **fstests_check_environment now checks for these runtime dependencies**
+    - Detects if fsverity and duperemove are installed
+    - Provides installation commands if missing
+    - Reports status as warning if runtime tools are not available
 
 ### Fixed
 - **Critical**: Fixed MCP server not reading `backing` parameter from custom device specifications

@@ -1154,6 +1154,78 @@ class FstestsManager:
                     "message": f"Could not check virtme-ng: {e}",
                 }
 
+        # Check 5: Runtime test dependencies
+        runtime_tools = {
+            "fsverity": {
+                "command": "fsverity",
+                "package_debian": "fsverity-utils",
+                "package_fedora": "fsverity-utils",
+                "description": "fs-verity integrity verification (required for generic/574, generic/575, etc.)",
+            },
+            "duperemove": {
+                "command": "duperemove",
+                "package_debian": "duperemove",
+                "package_fedora": "duperemove",
+                "description": "File deduplication for btrfs/XFS (required for generic/505, etc.)",
+            },
+        }
+
+        missing_tools = []
+        found_tools = []
+
+        for tool_name, tool_info in runtime_tools.items():
+            try:
+                result = subprocess.run(
+                    [tool_info["command"], "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if result.returncode == 0:
+                    found_tools.append(tool_name)
+                else:
+                    missing_tools.append((tool_name, tool_info))
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                missing_tools.append((tool_name, tool_info))
+            except Exception:
+                # Other exceptions - assume missing
+                missing_tools.append((tool_name, tool_info))
+
+        if missing_tools:
+            status = "warning"
+            tool_names = [name for name, _ in missing_tools]
+            message = f"Missing runtime dependencies: {', '.join(tool_names)}"
+
+            results["checks"]["runtime_dependencies"] = {
+                "status": status,
+                "message": message,
+                "found": found_tools,
+                "missing": tool_names,
+            }
+
+            results["overall_status"] = (
+                "warning" if results["overall_status"] == "ok" else results["overall_status"]
+            )
+            results["issues"].append(f"Missing runtime tools: {', '.join(tool_names)}")
+
+            # Add installation recommendations
+            debian_packages = [info["package_debian"] for _, info in missing_tools]
+            fedora_packages = [info["package_fedora"] for _, info in missing_tools]
+
+            results["recommendations"].append(
+                f"Install missing tools - Ubuntu/Debian: sudo apt-get install -y {' '.join(debian_packages)}"
+            )
+            results["recommendations"].append(
+                f"Install missing tools - Fedora/RHEL: sudo dnf install -y {' '.join(fedora_packages)}"
+            )
+        else:
+            results["checks"]["runtime_dependencies"] = {
+                "status": "ok",
+                "message": f"All runtime dependencies available: {', '.join(found_tools)}",
+                "found": found_tools,
+                "missing": [],
+            }
+
         return results
 
     def list_groups(self) -> Dict[str, str]:

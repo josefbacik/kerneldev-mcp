@@ -165,7 +165,8 @@ This will verify:
 - Kernel configuration has required options
 - fstests is installed and built
 - Devices are configured (if local.config exists)
-- All dependencies are satisfied
+- Runtime dependencies (fsverity-utils, duperemove) are installed
+- virtme-ng is available for VM testing
 
 ## Quick Start
 
