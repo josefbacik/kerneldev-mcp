@@ -3,6 +3,21 @@
 ## [Unreleased] - 2025-01-XX
 
 ### Added
+- **Extended kernel config requirements for fstests**: Added critical CONFIG options for comprehensive testing
+  - **Tier 1 - High Value (90+ tests):**
+    - CONFIG_DM_FLAKEY=m - Error injection and failure simulation
+    - CONFIG_DM_DUST=m - Bad sector simulation
+  - **Tier 2 - Medium Value (10+ tests):**
+    - CONFIG_FAULT_INJECTION=y - Fault injection framework
+    - CONFIG_FAIL_MAKE_REQUEST=y - Block layer fault injection
+    - CONFIG_SCSI_DEBUG=m - SCSI debug driver for device testing
+    - CONFIG_TRANSPARENT_HUGEPAGE=y - Transparent huge page tests
+  - Also added previously missing DM_SNAPSHOT and DM_THIN_PROVISIONING to checks
+  - Updated both filesystem.conf and btrfs.conf templates
+  - Changed DM_* options to =m (module) for flexibility
+  - fstests_check_environment now validates all 17 critical options
+  - Documentation updated with tier-based organization
+
 - **Automatic fstests user creation in VM**: VM-based fstests runs now automatically create required test users
   - Creates `fsgqa` and `fsgqa2` users before running tests
   - Applies to both `fstests_vm_boot_and_run` and `fstests_vm_boot_custom`

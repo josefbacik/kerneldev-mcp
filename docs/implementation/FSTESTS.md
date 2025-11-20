@@ -128,10 +128,16 @@ If you're using a custom configuration, ensure these are enabled:
 - `CONFIG_FS_POSIX_ACL=y`
 - `CONFIG_BLK_DEV_LOOP=y`
 
-**Required for write-order verification tests:**
-- `CONFIG_MD=y`
-- `CONFIG_BLK_DEV_DM=y`
-- `CONFIG_DM_LOG_WRITES=y`
+**Required for device mapper tests:**
+- `CONFIG_MD=y` - Multiple device support
+- `CONFIG_BLK_DEV_DM=y` - Device mapper core
+- `CONFIG_DM_LOG_WRITES=y` - Write-order verification
+- `CONFIG_DM_SNAPSHOT=m` - Snapshot tests
+- `CONFIG_DM_THIN_PROVISIONING=m` - Thin provisioning tests
+
+**High-value device mapper tests (90+ tests):**
+- `CONFIG_DM_FLAKEY=m` - Error injection and failure simulation
+- `CONFIG_DM_DUST=m` - Bad sector simulation
 
 **Required for quota tests:**
 - `CONFIG_QUOTA=y`
@@ -142,9 +148,11 @@ If you're using a custom configuration, ensure these are enabled:
 - `CONFIG_FS_ENCRYPTION=y`
 - `CONFIG_CRYPTO_AES=y`
 
-**Required for snapshot/RAID tests:**
-- `CONFIG_DM_SNAPSHOT=y`
-- `CONFIG_DM_THIN_PROVISIONING=y`
+**Fault injection tests (10+ tests):**
+- `CONFIG_FAULT_INJECTION=y` - Fault injection framework
+- `CONFIG_FAIL_MAKE_REQUEST=y` - Block layer fault injection
+- `CONFIG_SCSI_DEBUG=m` - SCSI debug driver for device testing
+- `CONFIG_TRANSPARENT_HUGEPAGE=y` - Transparent huge page tests
 
 ### Verifying Your Configuration
 

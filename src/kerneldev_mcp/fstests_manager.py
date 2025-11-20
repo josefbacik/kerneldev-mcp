@@ -992,14 +992,27 @@ class FstestsManager:
                 # Read .config and check for critical options
                 config_content = config_file.read_text()
                 critical_options = {
+                    # Essential
                     "CONFIG_BLOCK": "Block device support",
                     "CONFIG_FILE_LOCKING": "File locking support",
                     "CONFIG_FS_POSIX_ACL": "POSIX ACL support",
                     "CONFIG_BLK_DEV_LOOP": "Loop device support",
-                    "CONFIG_DM_LOG_WRITES": "dm-log-writes for write-order verification",
-                    "CONFIG_QUOTA": "Quota support",
+                    # Device mapper (write-order verification, snapshots, RAID)
                     "CONFIG_MD": "Multiple device support (MD)",
                     "CONFIG_BLK_DEV_DM": "Device mapper support",
+                    "CONFIG_DM_LOG_WRITES": "dm-log-writes for write-order verification",
+                    "CONFIG_DM_SNAPSHOT": "dm-snapshot for snapshot tests",
+                    "CONFIG_DM_THIN_PROVISIONING": "dm-thin for thin provisioning tests",
+                    "CONFIG_DM_FLAKEY": "dm-flakey for error injection tests (90+ tests)",
+                    "CONFIG_DM_DUST": "dm-dust for bad sector simulation (90+ tests)",
+                    # Quota
+                    "CONFIG_QUOTA": "Quota support",
+                    # Fault injection (10+ tests)
+                    "CONFIG_FAULT_INJECTION": "Fault injection framework",
+                    "CONFIG_FAIL_MAKE_REQUEST": "Block layer fault injection",
+                    # Other important features
+                    "CONFIG_SCSI_DEBUG": "SCSI debug driver for device testing (10+ tests)",
+                    "CONFIG_TRANSPARENT_HUGEPAGE": "Transparent huge pages (10+ tests)",
                 }
 
                 missing_options = []
