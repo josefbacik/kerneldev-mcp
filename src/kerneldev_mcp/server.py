@@ -1033,6 +1033,12 @@ Use fstests_groups_list tool to see available test groups.""",
                         "description": "Additional arguments to pass to vng (e.g., ['--qemu-opts', '-machine accel=tcg'])",
                         "items": {"type": "string"},
                     },
+                    "custom_mkfs_command": {
+                        "type": "string",
+                        "description": "Custom mkfs command for filesystem types not built-in (ext4, xfs, btrfs, f2fs). "
+                        "The command should include any necessary flags. $TEST_DEV will be appended if not present. "
+                        "Example: 'mkfs.bcachefs' or 'mkfs.nilfs2 -L test'",
+                    },
                 },
                 "required": ["kernel_path", "fstests_path"],
             },
@@ -1177,6 +1183,12 @@ Usage modes:
                         "type": "array",
                         "description": "Additional arguments to pass to vng (e.g., ['--qemu-opts', '-machine accel=tcg'])",
                         "items": {"type": "string"},
+                    },
+                    "custom_mkfs_command": {
+                        "type": "string",
+                        "description": "Custom mkfs command for filesystem types not built-in (ext4, xfs, btrfs, f2fs). "
+                        "The command should include any necessary flags. $TEST_DEV will be appended if not present. "
+                        "Example: 'mkfs.bcachefs' or 'mkfs.nilfs2 -L test'",
                     },
                 },
                 "required": ["kernel_path", "fstests_path"],
@@ -2919,6 +2931,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             use_tmpfs = arguments.get("use_tmpfs", False)
             use_default_devices = arguments.get("use_default_devices", True)
             extra_args = arguments.get("extra_args", [])
+            custom_mkfs_command = arguments.get("custom_mkfs_command")
 
             # Parse custom devices if specified
             custom_devices = None
@@ -2986,6 +2999,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 io_scheduler=io_scheduler,
                 use_tmpfs=use_tmpfs,
                 extra_args=extra_args,
+                custom_mkfs_command=custom_mkfs_command,
             )
 
             # Format output
@@ -3047,6 +3061,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             use_tmpfs = arguments.get("use_tmpfs", False)
             use_default_devices = arguments.get("use_default_devices", True)
             extra_args = arguments.get("extra_args", [])
+            custom_mkfs_command = arguments.get("custom_mkfs_command")
 
             # Parse custom devices if specified
             custom_devices = None
@@ -3123,6 +3138,7 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 io_scheduler=io_scheduler,
                 use_tmpfs=use_tmpfs,
                 extra_args=extra_args,
+                custom_mkfs_command=custom_mkfs_command,
             )
 
             # Format output

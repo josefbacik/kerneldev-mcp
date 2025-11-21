@@ -2009,7 +2009,11 @@ class BootManager:
             return None
 
     def _generate_fstests_device_setup_script(
-        self, fstype: str, io_scheduler: str, fstests_path: str
+        self,
+        fstype: str,
+        io_scheduler: str,
+        fstests_path: str,
+        custom_mkfs_command: Optional[str] = None,
     ) -> str:
         """Generate the common device setup script for fstests VM boot.
 
@@ -2020,26 +2024,70 @@ class BootManager:
         - Mount point creation
 
         Args:
-            fstype: Filesystem type (ext4, xfs, btrfs, f2fs)
+            fstype: Filesystem type (ext4, xfs, btrfs, f2fs, or custom)
             io_scheduler: IO scheduler to use (mq-deadline, none, bfq, kyber)
             fstests_path: Path to fstests installation
+            custom_mkfs_command: Custom mkfs command for unknown filesystem types.
+                               The command should include any necessary flags.
+                               $TEST_DEV will be appended to the command.
+                               Example: "mkfs.bcachefs" or "mkfs.nilfs2 -L test"
 
         Returns:
             Shell script snippet for device setup.
-            Note: Unknown fstype values will log a warning and default to ext4.
+            Note: Unknown fstype values without custom_mkfs_command will log a warning
+                  and default to ext4.
+
+        Security Note:
+            The custom_mkfs_command is executed without sanitization within the VM.
+            This is intentional for flexibility in kernel filesystem testing.
+            Commands run inside an isolated VM environment.
         """
-        # Validate fstype - warn and default to ext4 for unknown types
+        # Validate fstype - warn and default to ext4 for unknown types without custom mkfs
         valid_fstypes = ["ext4", "xfs", "btrfs", "f2fs"]
-        if fstype not in valid_fstypes:
+        if fstype not in valid_fstypes and not custom_mkfs_command:
             logger.warning(
-                f"Unknown filesystem type '{fstype}', defaulting to ext4. "
-                f"Valid types: {', '.join(valid_fstypes)}"
+                f"Unknown filesystem type '{fstype}' without custom_mkfs_command, defaulting to ext4. "
+                f"Valid types: {', '.join(valid_fstypes)}. "
+                f"For other filesystems, provide custom_mkfs_command parameter."
             )
             fstype = "ext4"
 
+        # Warn if custom_mkfs_command is provided for a known filesystem type
+        if custom_mkfs_command and fstype in valid_fstypes:
+            logger.info(
+                f"Using custom_mkfs_command for built-in filesystem type '{fstype}'. "
+                f"The built-in mkfs.{fstype} command will be overridden."
+            )
+
         # Build mkfs command based on filesystem type with error checking
         # Note: Show mkfs output on failure so users can see why it failed
-        mkfs_script = """# Format filesystems
+        #
+        # If custom_mkfs_command is provided, use it for unknown filesystems.
+        # The custom command should include the device path placeholder or we append $TEST_DEV.
+        if custom_mkfs_command:
+            # Use custom mkfs command - append $TEST_DEV if not already in command
+            if "$TEST_DEV" in custom_mkfs_command or "${TEST_DEV}" in custom_mkfs_command:
+                mkfs_cmd = custom_mkfs_command
+            else:
+                mkfs_cmd = f"{custom_mkfs_command} $TEST_DEV"
+            mkfs_script = f"""# Format filesystems
+echo "Formatting filesystems as {{fstype}} using custom mkfs command..."
+MKFS_OUTPUT=$(mktemp)
+MKFS_RC=0
+{mkfs_cmd} > "$MKFS_OUTPUT" 2>&1 || MKFS_RC=$?
+if [ $MKFS_RC -ne 0 ]; then
+    echo "ERROR: Failed to format $TEST_DEV as {{fstype}} (exit code: $MKFS_RC)"
+    echo "mkfs command was: {mkfs_cmd}"
+    echo "mkfs output:"
+    cat "$MKFS_OUTPUT"
+    rm -f "$MKFS_OUTPUT"
+    exit 1
+fi
+rm -f "$MKFS_OUTPUT"
+echo "  ✓ Formatted $TEST_DEV as {{fstype}}"
+# Don't pre-format pool devices - tests will format them as needed"""
+        else:
+            mkfs_script = """# Format filesystems
 echo "Formatting filesystems as {fstype}..."
 MKFS_OUTPUT=$(mktemp)
 MKFS_RC=0
@@ -2059,6 +2107,7 @@ case "{fstype}" in
     *)
         echo "ERROR: Unsupported filesystem type '{fstype}'"
         echo "Supported types: ext4, xfs, btrfs, f2fs"
+        echo "For other filesystems, use the custom_mkfs_command parameter"
         rm -f "$MKFS_OUTPUT"
         exit 1
         ;;
@@ -2544,6 +2593,7 @@ mkdir -p /tmp/test /tmp/scratch
         io_scheduler: str = "mq-deadline",
         use_tmpfs: bool = False,
         extra_args: Optional[List[str]] = None,
+        custom_mkfs_command: Optional[str] = None,
     ) -> Tuple[BootResult, Optional[object]]:
         """Boot kernel and run fstests inside VM.
 
@@ -2564,6 +2614,10 @@ mkdir -p /tmp/test /tmp/scratch
             use_tmpfs: Only affects default devices (when custom_devices is None).
                       Use tmpfs for loop device backing files (faster but uses more RAM)
             extra_args: Additional arguments to pass to vng
+            custom_mkfs_command: Custom mkfs command for unknown filesystem types.
+                               The command should include any necessary flags.
+                               $TEST_DEV will be appended if not present in command.
+                               Example: "mkfs.bcachefs" or "mkfs.nilfs2 -L test"
 
         Returns:
             Tuple of (BootResult, FstestsRunResult or None)
@@ -2766,7 +2820,7 @@ mkdir -p /tmp/test /tmp/scratch
 
             # Generate the common device setup script
             device_setup_script = self._generate_fstests_device_setup_script(
-                fstype, io_scheduler, str(fstests_path)
+                fstype, io_scheduler, str(fstests_path), custom_mkfs_command
             )
 
             # Create script to run inside VM
@@ -3092,6 +3146,7 @@ exit $exit_code
         io_scheduler: str = "mq-deadline",
         use_tmpfs: bool = False,
         extra_args: Optional[List[str]] = None,
+        custom_mkfs_command: Optional[str] = None,
     ) -> BootResult:
         """Boot kernel and run custom command/script with fstests device environment.
 
@@ -3116,6 +3171,10 @@ exit $exit_code
             use_tmpfs: Only affects default devices (when custom_devices is None).
                       Use tmpfs for loop device backing files (faster but uses more RAM)
             extra_args: Additional arguments to pass to vng
+            custom_mkfs_command: Custom mkfs command for unknown filesystem types.
+                               The command should include any necessary flags.
+                               $TEST_DEV will be appended if not present in command.
+                               Example: "mkfs.bcachefs" or "mkfs.nilfs2 -L test"
 
         Security Note:
             The command and script_file parameters are executed without sanitization.
@@ -3262,7 +3321,7 @@ exit $exit_code
 
         # Generate the common device setup script
         device_setup_script = self._generate_fstests_device_setup_script(
-            fstype, io_scheduler, str(fstests_path)
+            fstype, io_scheduler, str(fstests_path), custom_mkfs_command
         )
 
         # Build the setup and execution script
