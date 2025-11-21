@@ -2008,6 +2008,141 @@ class BootManager:
             logger.warning(f"Failed to allocate from device pool: {e}")
             return None
 
+    def _generate_fstests_device_setup_script(
+        self, fstype: str, io_scheduler: str, fstests_path: str
+    ) -> str:
+        """Generate the common device setup script for fstests VM boot.
+
+        This includes:
+        - Device assignment and verification
+        - IO scheduler configuration
+        - Filesystem formatting
+        - Mount point creation
+
+        Args:
+            fstype: Filesystem type (ext4, xfs, btrfs, f2fs)
+            io_scheduler: IO scheduler to use (mq-deadline, none, bfq, kyber)
+            fstests_path: Path to fstests installation
+
+        Returns:
+            Shell script snippet for device setup.
+            Note: Unknown fstype values will log a warning and default to ext4.
+        """
+        # Validate fstype - warn and default to ext4 for unknown types
+        valid_fstypes = ["ext4", "xfs", "btrfs", "f2fs"]
+        if fstype not in valid_fstypes:
+            logger.warning(
+                f"Unknown filesystem type '{fstype}', defaulting to ext4. "
+                f"Valid types: {', '.join(valid_fstypes)}"
+            )
+            fstype = "ext4"
+
+        # Build mkfs command based on filesystem type with error checking
+        mkfs_script = """# Format filesystems
+echo "Formatting filesystems as {fstype}..."
+case "{fstype}" in
+    btrfs)
+        if ! mkfs.btrfs -f $TEST_DEV > /dev/null 2>&1; then
+            echo "ERROR: Failed to format $TEST_DEV as btrfs"
+            exit 1
+        fi
+        ;;
+    xfs)
+        if ! mkfs.xfs -f $TEST_DEV > /dev/null 2>&1; then
+            echo "ERROR: Failed to format $TEST_DEV as xfs"
+            exit 1
+        fi
+        ;;
+    f2fs)
+        if ! mkfs.f2fs -f $TEST_DEV > /dev/null 2>&1; then
+            echo "ERROR: Failed to format $TEST_DEV as f2fs"
+            exit 1
+        fi
+        ;;
+    *)
+        if ! mkfs.ext4 -F $TEST_DEV > /dev/null 2>&1; then
+            echo "ERROR: Failed to format $TEST_DEV as ext4"
+            exit 1
+        fi
+        ;;
+esac
+echo "  ✓ Formatted $TEST_DEV as {fstype}"
+# Don't pre-format pool devices - tests will format them as needed"""
+
+        return f"""# Use devices passed from host via --disk
+# virtme-ng passes them as virtio block devices: /dev/vda, /dev/vdb, /dev/vdc, etc.
+# We have 7 devices: 1 test + 5 scratch pool + 1 log-writes
+echo "Setting up passed-through block devices..."
+TEST_DEV=/dev/vda
+POOL1=/dev/vdb
+POOL2=/dev/vdc
+POOL3=/dev/vdd
+POOL4=/dev/vde
+POOL5=/dev/vdf
+LOGWRITES_DEV=/dev/vdg
+
+# Verify devices exist
+for dev in $TEST_DEV $POOL1 $POOL2 $POOL3 $POOL4 $POOL5 $LOGWRITES_DEV; do
+    if [ ! -b "$dev" ]; then
+        echo "ERROR: Block device $dev not found"
+        echo "Available block devices:"
+        ls -l /dev/vd* 2>/dev/null || echo "No /dev/vd* devices found"
+        exit 1
+    fi
+done
+
+echo "TEST_DEV=$TEST_DEV"
+echo "SCRATCH_DEV_POOL=$POOL1 $POOL2 $POOL3 $POOL4 $POOL5"
+echo "LOGWRITES_DEV=$LOGWRITES_DEV"
+
+echo "Setting IO scheduler to '{io_scheduler}' on all devices..."
+for dev in $TEST_DEV $POOL1 $POOL2 $POOL3 $POOL4 $POOL5 $LOGWRITES_DEV; do
+    devname=$(basename $dev)
+    scheduler_file="/sys/block/$devname/queue/scheduler"
+
+    if [ ! -f "$scheduler_file" ]; then
+        echo "ERROR: Scheduler file not found: $scheduler_file"
+        exit 1
+    fi
+
+    # Check if scheduler is available
+    available=$(cat "$scheduler_file")
+    if ! echo "$available" | grep -qw "{io_scheduler}"; then
+        echo "ERROR: IO scheduler '{io_scheduler}' is not available for $dev"
+        echo "Available schedulers: $available"
+        echo ""
+        echo "Make sure the scheduler is enabled in your kernel config:"
+        echo "  CONFIG_MQ_IOSCHED_DEADLINE=y (for mq-deadline)"
+        echo "  CONFIG_MQ_IOSCHED_KYBER=y (for kyber)"
+        echo "  CONFIG_BFQ_GROUP_IOSCHED=y (for bfq)"
+        exit 1
+    fi
+
+    # Set the scheduler
+    echo "{io_scheduler}" > "$scheduler_file"
+    if [ $? -ne 0 ]; then
+        echo "ERROR: Failed to set scheduler '{io_scheduler}' on $dev"
+        exit 1
+    fi
+
+    # Verify it was set
+    current=$(cat "$scheduler_file" | grep -o '\\[.*\\]' | tr -d '[]')
+    if [ "$current" != "{io_scheduler}" ]; then
+        echo "ERROR: Failed to verify scheduler on $dev (expected '{io_scheduler}', got '$current')"
+        exit 1
+    fi
+
+    echo "  ✓ $dev: {io_scheduler}"
+done
+echo ""
+
+{mkfs_script}
+
+# Create mount points in /tmp
+echo "Creating mount points..."
+mkdir -p /tmp/test /tmp/scratch
+"""
+
     async def boot_test(
         self,
         command: Optional[str] = None,
@@ -2624,6 +2759,11 @@ class BootManager:
             # Build test command to run inside VM
             test_args = " ".join(tests) if tests else "-g quick"
 
+            # Generate the common device setup script
+            device_setup_script = self._generate_fstests_device_setup_script(
+                fstype, io_scheduler, str(fstests_path)
+            )
+
             # Create script to run inside VM
             # Note: virtme-ng runs as root, so no sudo needed
             # This script uses devices passed from host via --disk
@@ -2652,87 +2792,7 @@ if [ ! -d "{fstests_path}" ]; then
     exit 1
 fi
 
-# Use devices passed from host via --disk
-# virtme-ng passes them as virtio block devices: /dev/vda, /dev/vdb, /dev/vdc, etc.
-# We have 7 devices: 1 test + 5 scratch pool + 1 log-writes
-echo "Using passed-through block devices..."
-TEST_DEV=/dev/vda
-POOL1=/dev/vdb
-POOL2=/dev/vdc
-POOL3=/dev/vdd
-POOL4=/dev/vde
-POOL5=/dev/vdf
-LOGWRITES_DEV=/dev/vdg
-
-# Verify devices exist
-for dev in $TEST_DEV $POOL1 $POOL2 $POOL3 $POOL4 $POOL5 $LOGWRITES_DEV; do
-    if [ ! -b "$dev" ]; then
-        echo "ERROR: Block device $dev not found"
-        echo "Available block devices:"
-        ls -l /dev/vd* 2>/dev/null || echo "No /dev/vd* devices found"
-        exit 1
-    fi
-done
-
-echo "TEST_DEV=$TEST_DEV"
-echo "SCRATCH_DEV_POOL=$POOL1 $POOL2 $POOL3 $POOL4 $POOL5"
-echo "LOGWRITES_DEV=$LOGWRITES_DEV"
-
-echo "Setting IO scheduler to '{io_scheduler}' on all devices..."
-for dev in $TEST_DEV $POOL1 $POOL2 $POOL3 $POOL4 $POOL5 $LOGWRITES_DEV; do
-    # Extract device name (e.g., "vda" from "/dev/vda")
-    devname=$(basename $dev)
-    scheduler_file="/sys/block/$devname/queue/scheduler"
-
-    if [ ! -f "$scheduler_file" ]; then
-        echo "ERROR: Scheduler file not found: $scheduler_file"
-        exit 1
-    fi
-
-    # Check if scheduler is available
-    available=$(cat "$scheduler_file")
-    if ! echo "$available" | grep -qw "{io_scheduler}"; then
-        echo "ERROR: IO scheduler '{io_scheduler}' is not available for $dev"
-        echo "Available schedulers: $available"
-        echo ""
-        echo "Make sure the scheduler is enabled in your kernel config:"
-        echo "  CONFIG_MQ_IOSCHED_DEADLINE=y (for mq-deadline)"
-        echo "  CONFIG_MQ_IOSCHED_KYBER=y (for kyber)"
-        echo "  CONFIG_BFQ_GROUP_IOSCHED=y (for bfq)"
-        exit 1
-    fi
-
-    # Set the scheduler
-    echo "{io_scheduler}" > "$scheduler_file"
-    if [ $? -ne 0 ]; then
-        echo "ERROR: Failed to set scheduler '{io_scheduler}' on $dev"
-        exit 1
-    fi
-
-    # Verify it was set
-    current=$(cat "$scheduler_file" | grep -o '\[.*\]' | tr -d '[]')
-    if [ "$current" != "{io_scheduler}" ]; then
-        echo "ERROR: Failed to verify scheduler on $dev (expected '{io_scheduler}', got '$current')"
-        exit 1
-    fi
-
-    echo "  ✓ $dev: {io_scheduler}"
-done
-echo ""
-
-# Format filesystems
-echo "Formatting filesystems as {fstype}..."
-if [ "{fstype}" = "btrfs" ]; then
-    mkfs.btrfs -f $TEST_DEV > /dev/null 2>&1
-    # Don't pre-format pool devices - tests will format them as needed
-else
-    mkfs.ext4 -F $TEST_DEV > /dev/null 2>&1
-    # Don't pre-format pool devices - tests will format them as needed
-fi
-
-# Create mount points in /tmp
-echo "Creating mount points..."
-mkdir -p /tmp/test /tmp/scratch
+{device_setup_script}
 
 # Create fstests local.config
 # Important: When using SCRATCH_DEV_POOL, do NOT set SCRATCH_DEV
@@ -3195,6 +3255,11 @@ exit $exit_code
         results_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"✓ Created results directory: {results_dir}")
 
+        # Generate the common device setup script
+        device_setup_script = self._generate_fstests_device_setup_script(
+            fstype, io_scheduler, str(fstests_path)
+        )
+
         # Build the setup and execution script
         # This sets up the same environment as fstests but runs custom command
         setup_script = f"""#!/bin/bash
@@ -3209,79 +3274,7 @@ echo "fstests path: {fstests_path}"
 echo "Filesystem type: {fstype}"
 echo ""
 
-# Use devices passed from host via --disk
-# virtme-ng passes them as virtio block devices: /dev/vda, /dev/vdb, /dev/vdc, etc.
-# We have 7 devices: 1 test + 5 scratch pool + 1 log-writes
-echo "Setting up passed-through block devices..."
-TEST_DEV=/dev/vda
-POOL1=/dev/vdb
-POOL2=/dev/vdc
-POOL3=/dev/vdd
-POOL4=/dev/vde
-POOL5=/dev/vdf
-LOGWRITES_DEV=/dev/vdg
-
-# Verify devices exist
-for dev in $TEST_DEV $POOL1 $POOL2 $POOL3 $POOL4 $POOL5 $LOGWRITES_DEV; do
-    if [ ! -b "$dev" ]; then
-        echo "ERROR: Block device $dev not found"
-        echo "Available block devices:"
-        ls -l /dev/vd* 2>/dev/null || echo "No /dev/vd* devices found"
-        exit 1
-    fi
-done
-
-echo "TEST_DEV=$TEST_DEV"
-echo "SCRATCH_DEV_POOL=$POOL1 $POOL2 $POOL3 $POOL4 $POOL5"
-echo "LOGWRITES_DEV=$LOGWRITES_DEV"
-
-echo "Setting IO scheduler to '{io_scheduler}' on all devices..."
-for dev in $TEST_DEV $POOL1 $POOL2 $POOL3 $POOL4 $POOL5 $LOGWRITES_DEV; do
-    devname=$(basename $dev)
-    scheduler_file="/sys/block/$devname/queue/scheduler"
-
-    if [ ! -f "$scheduler_file" ]; then
-        echo "ERROR: Scheduler file not found: $scheduler_file"
-        exit 1
-    fi
-
-    # Check if scheduler is available
-    available=$(cat "$scheduler_file")
-    if ! echo "$available" | grep -qw "{io_scheduler}"; then
-        echo "ERROR: IO scheduler '{io_scheduler}' is not available for $dev"
-        echo "Available schedulers: $available"
-        exit 1
-    fi
-
-    # Set the scheduler
-    echo "{io_scheduler}" > "$scheduler_file"
-    if [ $? -ne 0 ]; then
-        echo "ERROR: Failed to set scheduler '{io_scheduler}' on $dev"
-        exit 1
-    fi
-
-    # Verify it was set
-    current=$(cat "$scheduler_file" | grep -o '\[.*\]' | tr -d '[]')
-    if [ "$current" != "{io_scheduler}" ]; then
-        echo "ERROR: Failed to verify scheduler on $dev (expected '{io_scheduler}', got '$current')"
-        exit 1
-    fi
-
-    echo "  ✓ $dev: {io_scheduler}"
-done
-echo ""
-
-# Format filesystems
-echo "Formatting filesystems as {fstype}..."
-if [ "{fstype}" = "btrfs" ]; then
-    mkfs.btrfs -f $TEST_DEV > /dev/null 2>&1
-else
-    mkfs.ext4 -F $TEST_DEV > /dev/null 2>&1
-fi
-
-# Create mount points in /tmp
-echo "Creating mount points..."
-mkdir -p /tmp/test /tmp/scratch
+{device_setup_script}
 
 # Export environment variables for use by custom command
 export TEST_DEV=$TEST_DEV
