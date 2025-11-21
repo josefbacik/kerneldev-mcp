@@ -2071,12 +2071,12 @@ class BootManager:
             else:
                 mkfs_cmd = f"{custom_mkfs_command} $TEST_DEV"
             mkfs_script = f"""# Format filesystems
-echo "Formatting filesystems as {{fstype}} using custom mkfs command..."
+echo "Formatting filesystems as {fstype} using custom mkfs command..."
 MKFS_OUTPUT=$(mktemp)
 MKFS_RC=0
 {mkfs_cmd} > "$MKFS_OUTPUT" 2>&1 || MKFS_RC=$?
 if [ $MKFS_RC -ne 0 ]; then
-    echo "ERROR: Failed to format $TEST_DEV as {{fstype}} (exit code: $MKFS_RC)"
+    echo "ERROR: Failed to format $TEST_DEV as {fstype} (exit code: $MKFS_RC)"
     echo "mkfs command was: {mkfs_cmd}"
     echo "mkfs output:"
     cat "$MKFS_OUTPUT"
@@ -2084,10 +2084,10 @@ if [ $MKFS_RC -ne 0 ]; then
     exit 1
 fi
 rm -f "$MKFS_OUTPUT"
-echo "  ✓ Formatted $TEST_DEV as {{fstype}}"
+echo "  ✓ Formatted $TEST_DEV as {fstype}"
 # Don't pre-format pool devices - tests will format them as needed"""
         else:
-            mkfs_script = """# Format filesystems
+            mkfs_script = f"""# Format filesystems
 echo "Formatting filesystems as {fstype}..."
 MKFS_OUTPUT=$(mktemp)
 MKFS_RC=0

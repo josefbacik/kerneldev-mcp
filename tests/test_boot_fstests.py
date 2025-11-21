@@ -152,6 +152,86 @@ class TestBootFstestsBasicFunctionality:
             assert method is not None
 
 
+class TestFstestsDeviceSetupScript:
+    """Test that device setup script generation correctly substitutes variables."""
+
+    def test_fstype_substitution_in_device_setup_script(self):
+        """
+        Verify that fstype is properly substituted in generated device setup script.
+
+        Regression test for bug where mkfs_script used a regular string instead of
+        an f-string, causing {fstype} to appear literally in the script instead of
+        being replaced with the actual filesystem type value.
+        """
+        from kerneldev_mcp.boot_manager import BootManager
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kernel_path = Path(tmpdir)
+            boot_mgr = BootManager(kernel_path)
+
+            # Test all built-in filesystem types
+            for fstype in ["ext4", "xfs", "btrfs", "f2fs"]:
+                script = boot_mgr._generate_fstests_device_setup_script(
+                    fstype=fstype, io_scheduler="mq-deadline", fstests_path="/tmp/fstests"
+                )
+
+                # The script should contain the actual filesystem type value
+                assert fstype in script, (
+                    f"Generated script should contain actual filesystem type '{fstype}'"
+                )
+
+                # The script should NOT contain the literal string "{fstype}"
+                assert "{fstype}" not in script, (
+                    "Generated script should not contain literal '{fstype}' placeholder. "
+                    "This indicates the string is not being properly interpolated as an f-string."
+                )
+
+                # Verify the script has the expected case statement with the fstype
+                assert f'case "{fstype}" in' in script, (
+                    f"Script should have 'case \"{fstype}\" in' statement"
+                )
+
+                # Verify error messages include the actual fstype
+                assert f"Failed to format $TEST_DEV as {fstype}" in script, (
+                    f"Error messages should reference actual fstype '{fstype}'"
+                )
+
+                # Verify success message includes the actual fstype
+                assert f"Formatted $TEST_DEV as {fstype}" in script, (
+                    f"Success message should reference actual fstype '{fstype}'"
+                )
+
+    def test_custom_mkfs_command_fstype_substitution(self):
+        """
+        Verify fstype substitution works with custom_mkfs_command.
+
+        The custom mkfs path uses double braces {{fstype}} because it's already
+        in an f-string, so this test ensures that pattern still works correctly.
+        """
+        from kerneldev_mcp.boot_manager import BootManager
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kernel_path = Path(tmpdir)
+            boot_mgr = BootManager(kernel_path)
+
+            # Test with custom mkfs command
+            script = boot_mgr._generate_fstests_device_setup_script(
+                fstype="bcachefs",
+                io_scheduler="mq-deadline",
+                fstests_path="/tmp/fstests",
+                custom_mkfs_command="mkfs.bcachefs",
+            )
+
+            # Should contain "bcachefs" (the actual fstype value)
+            assert "bcachefs" in script, "Script should contain actual fstype value"
+
+            # Should NOT contain literal {fstype} or {{fstype}}
+            assert "{fstype}" not in script, "Script should not contain single-brace placeholder"
+            assert "{{fstype}}" not in script, "Script should not contain double-brace placeholder"
+
+
 class TestBootFstestsSuccessDetection:
     """Test success detection in fstests_vm_boot_and_run."""
 
