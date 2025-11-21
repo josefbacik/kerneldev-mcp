@@ -3021,29 +3021,6 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             else:
                 output += "✗ fstests did not complete (boot failed or timed out)\n"
 
-            # For successful boots, include console output to show what happened
-            # This is valuable for debugging and verification
-            if boot_result.boot_completed and boot_result.dmesg_output:
-                console_lines = boot_result.dmesg_output.splitlines()
-                total_lines = len(console_lines)
-
-                # Show last 300 lines which typically includes:
-                # - Kernel boot completion
-                # - fstests setup
-                # - All test output
-                # - Test summary
-                output += "\n\n=== Console Output (last 300 lines) ===\n"
-                output += f"Full log saved to: {boot_result.log_file_path}\n\n"
-
-                last_lines = console_lines[-300:] if total_lines > 300 else console_lines
-                start_line_num = max(1, total_lines - len(last_lines) + 1)
-
-                for i, line in enumerate(last_lines, start=start_line_num):
-                    output += f"{i:5d} | {line}\n"
-
-                if total_lines > 300:
-                    output += f"\n... showing last 300 of {total_lines} total lines\n"
-
             return [TextContent(type="text", text=output)]
 
         elif name == "fstests_vm_boot_custom":
@@ -3152,29 +3129,6 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
             # Boot status
             output += format_boot_result(boot_result)
-            output += "\n\n"
-
-            # For successful boots, include console output to show what happened
-            if boot_result.boot_completed and boot_result.dmesg_output:
-                console_lines = boot_result.dmesg_output.splitlines()
-                total_lines = len(console_lines)
-
-                # Show last 300 lines which typically includes:
-                # - Kernel boot completion
-                # - Device setup
-                # - Command execution
-                # - Results
-                output += "\n=== Console Output (last 300 lines) ===\n"
-                output += f"Full log saved to: {boot_result.log_file_path}\n\n"
-
-                last_lines = console_lines[-300:] if total_lines > 300 else console_lines
-                start_line_num = max(1, total_lines - len(last_lines) + 1)
-
-                for i, line in enumerate(last_lines, start=start_line_num):
-                    output += f"{i:5d} | {line}\n"
-
-                if total_lines > 300:
-                    output += f"\n... showing last 300 of {total_lines} total lines\n"
 
             return [TextContent(type="text", text=output)]
 

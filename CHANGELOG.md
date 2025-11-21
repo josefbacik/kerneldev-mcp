@@ -46,6 +46,13 @@
     - Reports status as warning if runtime tools are not available
 
 ### Fixed
+- **MCP Response Size**: Removed console output from `fstests_vm_boot_and_run` and `fstests_vm_boot_custom` responses
+  - Previously included last 300 lines of console output (~10.6k tokens per response)
+  - Responses now only include formatted summaries and log file paths
+  - Reduces token usage by ~93% (from ~11k to ~700 tokens)
+  - Claude can still read full logs using the provided log file paths when debugging is needed
+  - **Impact**: Dramatically reduces context window consumption during fstests debugging sessions
+
 - **Critical**: Fixed MCP server not reading `backing` parameter from custom device specifications
   - Bug caused all `backing: "null_blk"` requests to be silently ignored, falling back to tmpfs/disk
   - Affected tools: `boot_kernel_test`, `fstests_vm_boot_and_run`, `fstests_vm_boot_custom`
