@@ -2038,34 +2038,39 @@ class BootManager:
             fstype = "ext4"
 
         # Build mkfs command based on filesystem type with error checking
+        # Note: Show mkfs output on failure so users can see why it failed
         mkfs_script = """# Format filesystems
 echo "Formatting filesystems as {fstype}..."
+MKFS_OUTPUT=$(mktemp)
+MKFS_RC=0
 case "{fstype}" in
     btrfs)
-        if ! mkfs.btrfs -f $TEST_DEV > /dev/null 2>&1; then
-            echo "ERROR: Failed to format $TEST_DEV as btrfs"
-            exit 1
-        fi
+        mkfs.btrfs -f $TEST_DEV > "$MKFS_OUTPUT" 2>&1 || MKFS_RC=$?
         ;;
     xfs)
-        if ! mkfs.xfs -f $TEST_DEV > /dev/null 2>&1; then
-            echo "ERROR: Failed to format $TEST_DEV as xfs"
-            exit 1
-        fi
+        mkfs.xfs -f $TEST_DEV > "$MKFS_OUTPUT" 2>&1 || MKFS_RC=$?
         ;;
     f2fs)
-        if ! mkfs.f2fs -f $TEST_DEV > /dev/null 2>&1; then
-            echo "ERROR: Failed to format $TEST_DEV as f2fs"
-            exit 1
-        fi
+        mkfs.f2fs -f $TEST_DEV > "$MKFS_OUTPUT" 2>&1 || MKFS_RC=$?
+        ;;
+    ext4)
+        mkfs.ext4 -F $TEST_DEV > "$MKFS_OUTPUT" 2>&1 || MKFS_RC=$?
         ;;
     *)
-        if ! mkfs.ext4 -F $TEST_DEV > /dev/null 2>&1; then
-            echo "ERROR: Failed to format $TEST_DEV as ext4"
-            exit 1
-        fi
+        echo "ERROR: Unsupported filesystem type '{fstype}'"
+        echo "Supported types: ext4, xfs, btrfs, f2fs"
+        rm -f "$MKFS_OUTPUT"
+        exit 1
         ;;
 esac
+if [ $MKFS_RC -ne 0 ]; then
+    echo "ERROR: Failed to format $TEST_DEV as {fstype} (exit code: $MKFS_RC)"
+    echo "mkfs output:"
+    cat "$MKFS_OUTPUT"
+    rm -f "$MKFS_OUTPUT"
+    exit 1
+fi
+rm -f "$MKFS_OUTPUT"
 echo "  ✓ Formatted $TEST_DEV as {fstype}"
 # Don't pre-format pool devices - tests will format them as needed"""
 
